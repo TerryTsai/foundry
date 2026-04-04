@@ -11,9 +11,11 @@ foundry.blobs/
 
 # Build output
 dist/
+ui/dist/
 
 # Dependencies
 node_modules/
+ui/node_modules/
 
 # macOS
 .DS_Store

@@ -1,4 +1,7 @@
 import express from "express";
+import { existsSync } from "node:fs";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { IFoundryRepository } from "./repository/index.js";
 import { buildHealthRouter } from "./api/health.js";
 import { buildProjectsRouter } from "./api/projects.js";
@@ -26,6 +29,17 @@ export function startServer(
   app.use("/api/activity", buildActivityRouter(repo));
   app.use("/api/capabilities", buildCapabilitiesRouter(repo));
   app.use("/api/artifacts", buildArtifactsRouter(repo));
+
+  // Serve static React build from ui/dist
+  const here = dirname(fileURLToPath(import.meta.url));
+  const uiDist = join(here, "..", "ui", "dist");
+  if (existsSync(uiDist)) {
+    app.use(express.static(uiDist));
+    // SPA fallback — any non-API route serves index.html
+    app.get("*", (_req, res) => {
+      res.sendFile(join(uiDist, "index.html"));
+    });
+  }
 
   app.listen(config.port, () => {
     console.log(`[server] Listening on port ${config.port}`);
