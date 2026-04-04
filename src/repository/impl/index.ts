@@ -11,6 +11,7 @@ import { EngineRunStore } from "./stores/engine-runs.js";
 import { CapabilityStore } from "./stores/capabilities.js";
 import { ArtifactStore } from "./stores/artifacts.js";
 import { ExecutionStore } from "./stores/executions.js";
+import { OnboardingStore } from "./stores/onboarding.js";
 import { createBackup } from "./backup.js";
 import type {
   IFoundryRepository,
@@ -22,6 +23,7 @@ import type {
   IActivityRepository,
   IEngineRunRepository,
   IExecutionRepository,
+  IOnboardingRepository,
   BackupOptions,
   BackupResult,
   HealthStatus,
@@ -37,6 +39,7 @@ export class FoundryRepository implements IFoundryRepository {
   readonly activity: IActivityRepository;
   readonly engineRuns: IEngineRunRepository;
   readonly executions: IExecutionRepository;
+  readonly onboarding: IOnboardingRepository;
 
   private readonly db: Database.Database;
   private readonly blobDir: string;
@@ -58,6 +61,7 @@ export class FoundryRepository implements IFoundryRepository {
     this.capabilities = new CapabilityStore(drizzleDb, config.encryptionKey);
     this.artifacts = new ArtifactStore(drizzleDb, blobs, config.blobThresholdMb ?? 50);
     this.executions = new ExecutionStore(drizzleDb);
+    this.onboarding = new OnboardingStore(drizzleDb);
   }
 
   async backup(options: BackupOptions): Promise<BackupResult> {

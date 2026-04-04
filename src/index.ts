@@ -15,9 +15,6 @@ async function main(): Promise<void> {
 
   await seedCapabilities(repo);
 
-  const port = parseInt(process.env["PORT"] ?? "3000", 10);
-  startServer(repo, { port });
-
   const intervalMinutes = parseInt(
     process.env["ENGINE_INTERVAL_MINUTES"] ?? "10",
     10
@@ -27,6 +24,9 @@ async function main(): Promise<void> {
     repo
   );
   scheduler.start();
+
+  const port = parseInt(process.env["PORT"] ?? "3001", 10);
+  startServer(repo, scheduler, { port });
 
   // Graceful shutdown
   for (const signal of ["SIGINT", "SIGTERM"]) {

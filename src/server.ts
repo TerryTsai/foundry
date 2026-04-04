@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { IFoundryRepository } from "./repository/index.js";
+import type { Scheduler } from "./engine/scheduler.js";
 import { buildHealthRouter } from "./api/health.js";
 import { buildProjectsRouter } from "./api/projects.js";
 import { buildDecisionsRouter } from "./api/decisions.js";
@@ -10,6 +11,8 @@ import { buildEscalationsRouter } from "./api/escalations.js";
 import { buildActivityRouter } from "./api/activity.js";
 import { buildCapabilitiesRouter } from "./api/capabilities.js";
 import { buildArtifactsRouter } from "./api/artifacts.js";
+import { buildOnboardingRouter } from "./api/onboarding.js";
+import { buildAdminRouter } from "./api/admin.js";
 
 export interface ServerConfig {
   port: number;
@@ -17,6 +20,7 @@ export interface ServerConfig {
 
 export function startServer(
   repo: IFoundryRepository,
+  scheduler: Scheduler,
   config: ServerConfig
 ): void {
   const app = express();
@@ -29,6 +33,8 @@ export function startServer(
   app.use("/api/activity", buildActivityRouter(repo));
   app.use("/api/capabilities", buildCapabilitiesRouter(repo));
   app.use("/api/artifacts", buildArtifactsRouter(repo));
+  app.use("/api/onboarding", buildOnboardingRouter(repo));
+  app.use("/api/admin", buildAdminRouter(repo, scheduler));
 
   // Serve static React build from ui/dist
   const here = dirname(fileURLToPath(import.meta.url));

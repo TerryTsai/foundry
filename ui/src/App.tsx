@@ -6,6 +6,7 @@ import { LogView } from "./views/LogView";
 import { CapabilitiesView } from "./views/CapabilitiesView";
 import { ArtifactsView } from "./views/ArtifactsView";
 import { ProjectSelect } from "./views/ProjectSelect";
+import { OnboardingView } from "./views/OnboardingView";
 import { useProject } from "./hooks/useProject";
 import { api } from "./api";
 
@@ -40,6 +41,8 @@ export default function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/" element={<ProjectSelect />} />
+        <Route path="/new" element={<OnboardingView />} />
+        <Route path="/new/:sessionId" element={<OnboardingView />} />
         <Route path="/:projectId/*" element={<ProjectLayout />} />
       </Routes>
     </BrowserRouter>

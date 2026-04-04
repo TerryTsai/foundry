@@ -167,6 +167,30 @@ export interface IExecutionRepository {
   list(projectCapabilityId: string, limit?: number): CapabilityExecution[];
 }
 
+export interface OnboardingSession {
+  id: string;
+  createdAt: string;
+  completedAt: string | null;
+  projectId: string | null;
+}
+
+export interface OnboardingMessage {
+  id: string;
+  sessionId: string;
+  role: "user" | "assistant";
+  content: string;
+  timestamp: string;
+}
+
+export interface IOnboardingRepository {
+  createSession(): OnboardingSession;
+  getSession(id: string): OnboardingSession | null;
+  completeSession(id: string, projectId: string): void;
+  appendMessage(sessionId: string, role: "user" | "assistant", content: string): OnboardingMessage;
+  getMessages(sessionId: string): OnboardingMessage[];
+  listActive(): OnboardingSession[];
+}
+
 // ── Top-level types ───────────────────────────────────────────────
 
 export interface BackupOptions {
@@ -200,6 +224,7 @@ export interface IFoundryRepository {
   readonly activity: IActivityRepository;
   readonly engineRuns: IEngineRunRepository;
   readonly executions: IExecutionRepository;
+  readonly onboarding: IOnboardingRepository;
 
   backup(options: BackupOptions): Promise<BackupResult>;
   healthCheck(): Promise<HealthStatus>;

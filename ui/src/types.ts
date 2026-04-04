@@ -95,6 +95,16 @@ export interface ProjectCapability {
   actions?: CapabilityAction[];
 }
 
+export interface EngineRun {
+  id: string;
+  projectId: string;
+  status: "running" | "completed" | "failed";
+  startedAt: string;
+  completedAt: string | null;
+  summary: string | null;
+  error: string | null;
+}
+
 export interface Artifact {
   id: string;
   projectId: string;

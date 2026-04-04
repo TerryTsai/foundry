@@ -6,6 +6,7 @@ import type {
   ActivityEntry,
   ProjectCapability,
   Artifact,
+  EngineRun,
 } from "./types";
 
 async function get<T>(path: string): Promise<T> {
@@ -75,4 +76,41 @@ export const api = {
     snapshot: (projectId: string, repoPath: string) =>
       post<Artifact>("/api/artifacts/snapshot", { projectId, repoPath }),
   },
+
+  admin: {
+    runNow: (projectId: string) =>
+      post<{ queued: boolean }>(`/api/admin/run/${projectId}`, {}),
+    getRuns: (projectId: string) =>
+      get<{ current: EngineRun | null; last: EngineRun | null }>(`/api/admin/runs/${projectId}`),
+  },
+
+  onboarding: {
+    createSession: () =>
+      post<{ session: { id: string }; messages: OnboardingMessage[] }>("/api/onboarding/sessions", {}),
+    getSession: (id: string) =>
+      get<{ session: { id: string; completedAt: string | null; projectId: string | null }; messages: OnboardingMessage[] }>(`/api/onboarding/sessions/${id}`),
+    sendMessage: (sessionId: string, content: string) =>
+      post<{ message: OnboardingMessage }>(`/api/onboarding/sessions/${sessionId}/message`, { content }),
+    approve: (sessionId: string, brief: OnboardingBrief) =>
+      post<Project>("/api/onboarding/approve", { sessionId, brief }),
+  },
 };
+
+export interface OnboardingMessage {
+  id: string;
+  sessionId: string;
+  role: "user" | "assistant";
+  content: string;
+  timestamp: string;
+}
+
+export interface OnboardingBrief {
+  name: string;
+  tagline: string;
+  problem: string;
+  user: string;
+  mvp: string;
+  constraints: string;
+  existing: string;
+  assumptions: string[];
+}

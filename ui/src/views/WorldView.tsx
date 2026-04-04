@@ -1,7 +1,7 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useParams } from "react-router-dom";
 import { api } from "../api";
-import type { Decision, DecisionDomain } from "../types";
+import type { Decision, DecisionDomain, EngineRun } from "../types";
 import { FilterBar } from "../components/FilterBar";
 import { DomainTag, ImpactTag, MadeByTag } from "../components/Tag";
 
@@ -28,18 +28,53 @@ export function WorldView() {
   const [decisions, setDecisions] = useState<Decision[]>([]);
   const [domain, setDomain] = useState("all");
   const [loading, setLoading] = useState(true);
+  const [runs, setRuns] = useState<{ current: EngineRun | null; last: EngineRun | null }>({ current: null, last: null });
+  const [triggering, setTriggering] = useState(false);
 
-  useEffect(() => {
+  const loadDecisions = useCallback(() => {
     if (!projectId) return;
     setLoading(true);
     api.decisions
       .latest(projectId, domain !== "all" ? (domain as DecisionDomain) : undefined)
-      .then((d) => {
-        setDecisions(d);
-        setLoading(false);
-      })
+      .then((d) => { setDecisions(d); setLoading(false); })
       .catch(() => setLoading(false));
   }, [projectId, domain]);
+
+  const loadRuns = useCallback(() => {
+    if (!projectId) return;
+    api.admin.getRuns(projectId).then(setRuns).catch(() => {});
+  }, [projectId]);
+
+  useEffect(() => { loadDecisions(); }, [loadDecisions]);
+
+  // Poll run status while a run is active
+  useEffect(() => {
+    loadRuns();
+    const id = setInterval(loadRuns, 5000);
+    return () => clearInterval(id);
+  }, [loadRuns]);
+
+  // Reload decisions when a run completes
+  const prevRunning = runs.current?.status === "running";
+  useEffect(() => {
+    if (!prevRunning) loadDecisions();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prevRunning]);
+
+  async function handleRunNow() {
+    if (!projectId || triggering) return;
+    setTriggering(true);
+    try {
+      await api.admin.runNow(projectId);
+      loadRuns();
+    } catch {
+      // ignore
+    } finally {
+      setTriggering(false);
+    }
+  }
+
+  const isRunning = runs.current?.status === "running";
 
   const grouped = decisions.reduce<Record<string, Decision[]>>((acc, d) => {
     (acc[d.domain] ??= []).push(d);
@@ -48,7 +83,26 @@ export function WorldView() {
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
-      <FilterBar options={DOMAIN_FILTERS} value={domain} onChange={setDomain} />
+      <div className="flex items-center shrink-0 pr-4">
+        <div className="flex-1 overflow-hidden">
+          <FilterBar options={DOMAIN_FILTERS} value={domain} onChange={setDomain} />
+        </div>
+        <button
+          onClick={() => void handleRunNow()}
+          disabled={isRunning || triggering}
+          className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono border transition-colors disabled:opacity-50"
+          style={isRunning ? { borderColor: "#4ade80", color: "#4ade80" } : { borderColor: "#2e2e2e", color: "#666" }}
+        >
+          {isRunning ? (
+            <>
+              <span className="inline-block w-1.5 h-1.5 rounded-full bg-accent-green animate-pulse" />
+              running
+            </>
+          ) : (
+            <>▷ run</>
+          )}
+        </button>
+      </div>
 
       <div className="flex-1 overflow-y-auto px-4 pb-4">
         {loading ? (
