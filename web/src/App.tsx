@@ -1,5 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
-import { Nav } from './components/Nav.js'
+import { TopNav, BottomNav } from './components/Nav.js'
 import { TicketsView } from './views/TicketsView.js'
 import { ProjectsView } from './views/ProjectsView.js'
 import { AgentsView } from './views/AgentsView.js'
@@ -9,8 +9,8 @@ export function App() {
   return (
     <BrowserRouter>
       <div className="flex flex-col h-dvh">
-        <Nav />
-        <div className="flex-1 overflow-hidden">
+        <TopNav />
+        <div className="flex-1 min-h-0">
           <Routes>
             <Route path="/" element={<Navigate to="/tickets" replace />} />
             <Route path="/tickets" element={<TicketsView />} />
@@ -19,6 +19,7 @@ export function App() {
             <Route path="/repo" element={<RepoView />} />
           </Routes>
         </div>
+        <BottomNav />
       </div>
     </BrowserRouter>
   )

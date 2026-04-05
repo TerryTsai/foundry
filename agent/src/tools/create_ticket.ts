@@ -20,7 +20,8 @@ export function makeCreateTicketTool(deps: CreateTicketDeps) {
     description:
       'Create a child ticket. If block=true, the current ticket is suspended until the child resolves.',
     params,
-    async execute(args: z.infer<typeof params>): Promise<string> {
+    async execute(rawArgs: unknown): Promise<string> {
+      const args = params.parse(rawArgs)
       const res = await fetch(`${deps.ticketUrl}/ticket`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

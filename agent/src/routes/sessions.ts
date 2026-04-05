@@ -39,7 +39,7 @@ export function sessionsRouter(db: Db, deps: SessionDeps, runSession: SessionRun
       return
     }
 
-    const agentDef = db.select().from(agentDefinitions).where(eq(agentDefinitions.id, req.params.id)).get()
+    const agentDef = db.select().from(agentDefinitions).where(eq(agentDefinitions.id, (req.params as Record<string, string>).id)).get()
     if (!agentDef) {
       res.status(404).json({ error: 'agent definition not found' })
       return

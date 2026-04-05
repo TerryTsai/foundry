@@ -66,7 +66,8 @@ export function makeRunCommandTool(deps: RunCommandDeps) {
     name: 'run_command' as const,
     description: 'Run a shell command in a sandboxed Podman container. Returns stdout, stderr, and exit code.',
     params,
-    async execute(args: z.infer<typeof params>): Promise<string> {
+    async execute(rawArgs: unknown): Promise<string> {
+      const args = params.parse(rawArgs)
       const command = args.cwd ? `cd ${args.cwd} && ${args.command}` : args.command
 
       const startRes = await fetch(`${deps.sandboxUrl}/sandbox`, {

@@ -23,7 +23,7 @@ export function fileRouter(repoBase: string) {
   // GET /repo/:slug/file/* — read a file
   router.get('/*', async (req, res) => {
     const { slug } = req.params as { slug: string }
-    const filePath = req.params[0]
+    const filePath = (req.params as Record<string, string>)['0']
     if (!filePath) {
       res.status(400).json({ error: 'file path required' })
       return
@@ -39,7 +39,7 @@ export function fileRouter(repoBase: string) {
   // POST /repo/:slug/file/* — write a file + commit
   router.post('/*', async (req, res) => {
     const { slug } = req.params as { slug: string }
-    const filePath = req.params[0]
+    const filePath = (req.params as Record<string, string>)['0']
     if (!filePath) {
       res.status(400).json({ error: 'file path required' })
       return

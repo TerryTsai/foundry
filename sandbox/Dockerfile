@@ -1,4 +1,4 @@
-FROM node:20-alpine
+FROM docker.io/library/node:20-alpine
 RUN apk add --no-cache podman fuse-overlayfs
 WORKDIR /app
 COPY package.json .

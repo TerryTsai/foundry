@@ -7,6 +7,14 @@ interface SheetProps {
 }
 
 export function Sheet({ open, onClose, children }: SheetProps) {
+  // Lock body scroll while sheet is open
+  useEffect(() => {
+    if (!open) return
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = prev }
+  }, [open])
+
   useEffect(() => {
     if (!open) return
     const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
@@ -18,15 +26,13 @@ export function Sheet({ open, onClose, children }: SheetProps) {
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col justify-end">
-      {/* Backdrop */}
       <div className="absolute inset-0 bg-black/60" onClick={onClose} />
-      {/* Sheet */}
-      <div className="relative bg-zinc-900 border-t border-zinc-700 rounded-t-2xl max-h-[85dvh] overflow-y-auto">
+      <div className="relative bg-zinc-900 border-t border-zinc-700 rounded-t-2xl max-h-[90dvh] flex flex-col">
         {/* Drag handle */}
-        <div className="flex justify-center pt-3 pb-1">
+        <div className="flex justify-center pt-3 pb-1 shrink-0">
           <div className="w-10 h-1 rounded-full bg-zinc-600" />
         </div>
-        <div className="px-4 pb-8 pt-2">
+        <div className="overflow-y-auto px-4 pb-10 pt-2">
           {children}
         </div>
       </div>

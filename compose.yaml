@@ -1,25 +1,16 @@
 services:
-
-  nginx:
-    build: ./nginx
-    ports:
-      - "3000:80"
-      - "3443:443"
-    volumes:
-      - /etc/letsencrypt:/etc/letsencrypt:ro
-    depends_on:
-      - project
-      - ticket
-      - repo
-      - sandbox
-      - agent
-      - web
+  ticket:
+    build: ./ticket
     restart: unless-stopped
+    environment:
+      TICKET_PORT: "3002"
+      DB_PATH: /data/ticket.db
+    volumes:
+      - ticket-data:/data
 
   project:
     build: ./project
-    expose:
-      - "3001"
+    restart: unless-stopped
     environment:
       PROJECT_PORT: "3001"
       DB_PATH: /data/project.db
@@ -27,46 +18,33 @@ services:
       AGENT_URL: http://agent:3005
     volumes:
       - project-data:/data
-    restart: unless-stopped
-
-  ticket:
-    build: ./ticket
-    expose:
-      - "3002"
-    environment:
-      TICKET_PORT: "3002"
-      DB_PATH: /data/ticket.db
-    volumes:
-      - ticket-data:/data
-    restart: unless-stopped
+    depends_on:
+      - ticket
+      - agent
 
   repo:
     build: ./repo
-    expose:
-      - "3003"
+    restart: unless-stopped
     environment:
       REPO_PORT: "3003"
       REPO_BASE: /repos
     volumes:
-      - repos:/repos
-    restart: unless-stopped
+      - /home/terry/repos:/repos
 
   sandbox:
     build: ./sandbox
-    expose:
-      - "3004"
+    restart: unless-stopped
+    privileged: true
     environment:
       SANDBOX_PORT: "3004"
       DB_PATH: /data/sandbox.db
     volumes:
       - sandbox-data:/data
-      - /var/run/podman/podman.sock:/var/run/podman/podman.sock
-    restart: unless-stopped
+      - sandbox-images:/var/lib/containers
 
   agent:
     build: ./agent
-    expose:
-      - "3005"
+    restart: unless-stopped
     environment:
       AGENT_PORT: "3005"
       DB_PATH: /data/agent.db
@@ -74,22 +52,29 @@ services:
       SANDBOX_URL: http://sandbox:3004
       REPO_URL: http://repo:3003
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
-      FOUNDRY_ENCRYPTION_KEY: ${FOUNDRY_ENCRYPTION_KEY}
-    env_file:
-      - .env
     volumes:
       - agent-data:/data
-    restart: unless-stopped
 
   web:
     build: ./web
-    expose:
-      - "3006"
     restart: unless-stopped
 
+  nginx:
+    build: ./nginx
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    depends_on:
+      - ticket
+      - project
+      - repo
+      - sandbox
+      - agent
+      - web
+
 volumes:
-  project-data:
   ticket-data:
+  project-data:
   sandbox-data:
+  sandbox-images:
   agent-data:
-  repos:

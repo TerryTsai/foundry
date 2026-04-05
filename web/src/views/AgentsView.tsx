@@ -35,17 +35,17 @@ function AgentForm({ projectId, onSave, onCancel }: { projectId: string; onSave:
           <label className="font-mono text-xs text-zinc-500">{f.label}</label>
           <input value={f.value} onChange={e => f.set(e.target.value)} placeholder={f.ph}
             required={f.label === 'name' || f.label === 'image'}
-            className="w-full bg-zinc-950 border border-zinc-700 text-zinc-200 font-mono text-sm rounded px-3 py-2" />
+            className="w-full bg-zinc-950 border border-zinc-700 text-zinc-200 font-mono text-base rounded-lg px-3 py-3" />
         </div>
       ))}
       <div className="space-y-1">
         <label className="font-mono text-xs text-zinc-500">prompt</label>
         <textarea value={prompt} onChange={e => setPrompt(e.target.value)} required rows={6}
-          className="w-full bg-zinc-950 border border-zinc-700 text-zinc-200 font-mono text-sm rounded px-3 py-2 resize-none" />
+          className="w-full bg-zinc-950 border border-zinc-700 text-zinc-200 font-mono text-base rounded-lg px-3 py-3 resize-none" />
       </div>
-      <div className="flex gap-2">
-        <button type="submit" className="flex-1 font-mono text-xs bg-zinc-700 hover:bg-zinc-600 text-zinc-100 py-2 rounded transition-colors">create</button>
-        <button type="button" onClick={onCancel} className="flex-1 font-mono text-xs bg-zinc-800 hover:bg-zinc-700 text-zinc-400 py-2 rounded transition-colors">cancel</button>
+      <div className="flex gap-2 pt-1">
+        <button type="submit" className="flex-1 font-mono text-sm bg-zinc-700 active:bg-zinc-600 text-zinc-100 py-3 rounded-lg transition-colors">create</button>
+        <button type="button" onClick={onCancel} className="flex-1 font-mono text-sm bg-zinc-800 active:bg-zinc-700 text-zinc-400 py-3 rounded-lg transition-colors">cancel</button>
       </div>
     </form>
   )
@@ -73,16 +73,16 @@ export function AgentsView() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="px-4 py-2 border-b border-zinc-800 flex items-center gap-2 shrink-0">
+      <div className="px-4 py-3 border-b border-zinc-800 flex items-center gap-2 shrink-0">
         <select value={projectId} onChange={e => setProjectId(e.target.value)}
-          className="bg-zinc-900 border border-zinc-700 text-zinc-300 font-mono text-xs rounded px-2 py-1 flex-1">
+          className="bg-zinc-900 border border-zinc-700 text-zinc-300 font-mono text-xs rounded-lg px-3 py-2 flex-1">
           <option value="">all projects</option>
           {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
         </select>
         <button
           onClick={() => setShowCreate(true)}
           disabled={!projectId}
-          className="font-mono text-xs bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40 text-zinc-300 px-3 py-1 rounded transition-colors"
+          className="font-mono text-sm bg-zinc-800 active:bg-zinc-700 disabled:opacity-40 text-zinc-300 px-4 py-2 rounded-lg transition-colors"
         >
           + new
         </button>
@@ -90,10 +90,10 @@ export function AgentsView() {
 
       <div className="overflow-auto flex-1 p-4 space-y-3">
         {agents.map(a => (
-          <div key={a.id} className="bg-zinc-900 border border-zinc-800 rounded-lg p-4 space-y-2">
+          <div key={a.id} className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 space-y-2">
             <div className="flex items-center justify-between">
-              <span className="font-display text-sm text-zinc-100">{a.name}</span>
-              <button onClick={() => handleDelete(a.id)} className="font-mono text-xs text-zinc-600 hover:text-red-400 transition-colors">delete</button>
+              <span className="font-display text-base text-zinc-100">{a.name}</span>
+              <button onClick={() => handleDelete(a.id)} className="font-mono text-xs text-zinc-600 active:text-red-400 transition-colors px-2 py-1">delete</button>
             </div>
             <div className="font-mono text-xs text-zinc-500">image: {a.image}</div>
             {JSON.parse(a.env).length > 0 && (

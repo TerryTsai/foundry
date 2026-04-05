@@ -7,7 +7,7 @@ export const tickets = sqliteTable('tickets', {
   body: text('body').notNull(),
   agent: text('agent').notNull(),
   status: text('status').notNull().default('open'),
-  parent_id: text('parent_id').references((): ReturnType<typeof text> => tickets.id),
+  parent_id: text('parent_id'),
   notes: text('notes'),
   created_by: text('created_by').notNull(),
   created_at: text('created_at').notNull(),

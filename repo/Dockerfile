@@ -1,4 +1,4 @@
-FROM node:20-alpine
+FROM docker.io/library/node:20-alpine
 RUN apk add --no-cache git
 WORKDIR /app
 COPY package.json .
