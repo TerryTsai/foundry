@@ -5,7 +5,7 @@
 
 import type { IFoundryRepository } from '../repository/index.js';
 import type { Task, Project } from '../repository/types.js';
-import type { ActivityEvent } from '../repository/types.js';
+
 import { buildAgentContext } from '../agents/context.js';
 import { runAgentSession } from '../agents/runtime.js';
 
@@ -16,14 +16,14 @@ export async function dispatch(task: Task, project: Project, repo: IFoundryRepos
   repo.tasks.claim(task.id);
   repo.activity.append(
     project.id,
-    'task-claimed' as ActivityEvent,
+    'task-claimed',
     { taskId: task.id, agent: task.agent }
   );
 
   if (task.agent === 'founder') {
     repo.activity.append(
       project.id,
-      'founder-task-surfaced' as ActivityEvent,
+      'founder-task-surfaced',
       { taskId: task.id }
     );
     return;
@@ -39,7 +39,7 @@ export async function dispatch(task: Task, project: Project, repo: IFoundryRepos
 
   repo.activity.append(
     project.id,
-    'task-complete' as ActivityEvent,
+    'task-complete',
     { taskId: task.id, agent: task.agent }
   );
 }

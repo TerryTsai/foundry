@@ -159,7 +159,7 @@ export interface IArtifactRepository {
   store(item: NewArtifact): Artifact;
   get(artifactId: string): ArtifactWithContent;
   getByTaskOutput(taskId: string, outputName: string): Artifact | null;
-  list(projectId: string, type?: ArtifactType): Artifact[];
+  list(projectId: string, type?: ArtifactType, taskId?: string): Artifact[];
   latestOfType(projectId: string, type: ArtifactType): Artifact | null;
 }
 
@@ -181,8 +181,6 @@ export interface ILoopRunRepository {
   recoverStalledRuns(): number;
 }
 
-/** @deprecated Use ILoopRunRepository */
-export type IEngineRunRepository = ILoopRunRepository;
 
 export interface ITaskRepository {
   create(task: NewTask): Task;
@@ -264,8 +262,6 @@ export interface IFoundryRepository {
   readonly artifacts: IArtifactRepository;
   readonly activity: IActivityRepository;
   readonly loopRuns: ILoopRunRepository;
-  /** @deprecated Use loopRuns */
-  readonly engineRuns: ILoopRunRepository;
   readonly executions: IExecutionRepository;
   readonly onboarding: IOnboardingRepository;
   readonly tasks: ITaskRepository;

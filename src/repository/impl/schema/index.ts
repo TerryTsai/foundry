@@ -86,8 +86,8 @@ export const activityLog = sqliteTable(
   ]
 );
 
-export const engineRuns = sqliteTable(
-  "engine_runs",
+export const loopRuns = sqliteTable(
+  "loop_runs",
   {
     id: text("id").primaryKey(),
     projectId: text("project_id")
@@ -96,14 +96,12 @@ export const engineRuns = sqliteTable(
     startedAt: text("started_at").notNull(),
     completedAt: text("completed_at"),
     status: text("status").notNull().default("running"),
-    decisionsMade: integer("decisions_made").default(0),
-    escalationsCreated: integer("escalations_created").default(0),
-    actionsExecuted: integer("actions_executed").default(0),
+    tasksDispatched: integer("tasks_dispatched").default(0),
     summary: text("summary"),
     error: text("error"),
   },
   (t) => [
-    index("idx_engine_runs_project").on(t.projectId, t.startedAt),
+    index("idx_loop_runs_project").on(t.projectId, t.startedAt),
   ]
 );
 

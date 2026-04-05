@@ -161,20 +161,17 @@ export class ArtifactStore {
     return row ? rowToArtifact(row) : null;
   }
 
-  list(projectId: string, type?: ArtifactType): Artifact[] {
-    const rows = type
-      ? this.db
-          .select()
-          .from(artifacts)
-          .where(and(eq(artifacts.projectId, projectId), eq(artifacts.type, type)))
-          .orderBy(desc(artifacts.createdAt))
-          .all()
-      : this.db
-          .select()
-          .from(artifacts)
-          .where(eq(artifacts.projectId, projectId))
-          .orderBy(desc(artifacts.createdAt))
-          .all();
+  list(projectId: string, type?: ArtifactType, taskId?: string): Artifact[] {
+    const conditions = [eq(artifacts.projectId, projectId)];
+    if (type) conditions.push(eq(artifacts.type, type));
+    if (taskId) conditions.push(eq(artifacts.taskId, taskId));
+
+    const rows = this.db
+      .select()
+      .from(artifacts)
+      .where(and(...conditions))
+      .orderBy(desc(artifacts.createdAt))
+      .all();
 
     return rows.map(rowToArtifact);
   }

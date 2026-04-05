@@ -37,7 +37,13 @@ When ready to produce the brief, output it as XML inside <brief> tags, embedded 
   </assumptions>
 </brief>
 
-When you have enough context to suggest an initial agent workforce, output a config block:
+When you have enough context to suggest an initial agent workforce, output a config block.
+
+Each agent's "prompt" field is its complete system prompt — write it as a full, specific paragraph that tells the agent exactly what it does, what artifacts it should read, what it should produce, and how to decide when to call create_task vs write_artifact. Make prompts specific to this project.
+
+Example strategist prompt: "You are the strategist for SnapQuery, a data-exploration tool. When given a brief, read it carefully and decompose the MVP into concrete engineering tasks. For each task, call create_task with the appropriate agent (coder, deployer), a clear description, and the right input artifact ids. Produce a task_graph artifact summarizing the plan. If you encounter a major architectural decision, write a decision artifact explaining your choice."
+
+Example coder prompt: "You are the coder for SnapQuery. You receive tasks describing features to implement. Read the relevant brief or prior code artifacts, then use run_command and write_file to implement the feature in /home/terry/projects/snapquery. When done, write a code_artifact with the path and a summary."
 
 <config>
 {
@@ -48,19 +54,42 @@ When you have enough context to suggest an initial agent workforce, output a con
       "consumes": ["brief", "decision"],
       "produces": ["decision", "task_graph"],
       "tools": ["read_artifact", "write_artifact", "create_task"],
-      "prompt": "..."
+      "prompt": "You are the strategist for {ProjectName}. Read the brief, then decompose the MVP into concrete, ordered tasks. For each task call create_task with the appropriate agent name, a clear description, and the brief artifact_id as input. When all tasks are dispatched, write a task_graph artifact (name: task_graph, type: task_graph) summarizing the plan as JSON with fields: phases (array of {phase, tasks: [description]}). If you face a major architectural fork, write a decision artifact first and pass its artifact_id to affected tasks."
     },
-    ... (add coder, deployer, marketer, planner, founder as appropriate for this project)
+    {
+      "name": "coder",
+      "consumes": ["task_graph", "decision", "code_artifact"],
+      "produces": ["code_artifact"],
+      "tools": ["read_artifact", "write_artifact", "run_command", "read_file", "write_file"],
+      "prompt": "You are the coder for {ProjectName}. Read the task description and input artifacts. Implement the feature in the project workspace using run_command and write_file. When done, write a code_artifact (name matching the task output, type: code_artifact) summarizing what was implemented and which files were changed."
+    },
+    {
+      "name": "deployer",
+      "consumes": ["code_artifact"],
+      "produces": ["environment"],
+      "tools": ["read_artifact", "write_artifact", "run_command"],
+      "prompt": "You are the deployer for {ProjectName}. Read the code_artifact, then run deployment commands in the workspace. Write an environment artifact (name: deployed_app, type: environment) with the deployment URL and status."
+    },
+    {
+      "name": "founder",
+      "consumes": ["*"],
+      "produces": ["*"],
+      "tools": [],
+      "prompt": null
+    }
   ],
   "tail": [
-    { "name": "deployed_app", "type": "environment" },
-    { "name": "launch_announcement", "type": "content" }
+    { "name": "deployed_app", "type": "environment" }
   ]
 }
 </config>
 
-Always include a 'founder' agent with consumes: ["*"], produces: ["*"], tools: [], prompt: null.
-Tailor the workforce to the project type. A content site needs different agents than a SaaS app.
+RULES:
+- Every type in "tail" MUST appear in the "produces" array of at least one non-founder agent.
+- Always include a 'founder' agent exactly as shown (consumes: ["*"], produces: ["*"], tools: [], prompt: null).
+- Tailor the agent list to the project — add a marketer, writer, researcher, etc. as needed.
+- Replace {ProjectName} in prompts with the actual project name.
+- Write prompts as complete instructions, not placeholders.
 
 After outputting the brief, ask the founder to review and approve it, or let you know what to change.`;
 
@@ -200,11 +229,18 @@ export function buildOnboardingRouter(repo: IFoundryRepository): Router {
         workspace: config.workspace,
         agents: config.agents,
         tail: config.tail,
-        head: [{ name: "brief", type: "generated-content", artifact_id: "placeholder" }],
+        head: [{ name: "brief", type: "brief", artifact_id: "placeholder" }],
       };
       const dagResult = repo.projectConfig.validateDag(configForValidation);
       if (!dagResult.valid) {
-        res.status(400).json({ errors: dagResult });
+        const problems: string[] = [];
+        if (dagResult.unreachableTail.length > 0)
+          problems.push(`Unreachable tail: ${dagResult.unreachableTail.join(", ")}`);
+        if (dagResult.missingProducers.length > 0)
+          problems.push(`No agent produces: ${dagResult.missingProducers.join(", ")}`);
+        if (dagResult.orphanedAgents.length > 0)
+          problems.push(`Orphaned agents (no inputs reachable): ${dagResult.orphanedAgents.join(", ")}`);
+        res.status(400).json({ error: `Invalid agent config: ${problems.join("; ")}`, dag: dagResult });
         return;
       }
 
@@ -226,7 +262,7 @@ export function buildOnboardingRouter(repo: IFoundryRepository): Router {
       // Write the brief as a bootstrap artifact
       const briefArtifact = repo.artifacts.store({
         projectId: project.id,
-        type: "generated-content",
+        type: "brief",
         name: "brief",
         content: JSON.stringify(brief),
         createdBy: "system",
@@ -235,7 +271,7 @@ export function buildOnboardingRouter(repo: IFoundryRepository): Router {
       // Build the full config with head pointing to the brief artifact
       const fullConfig = {
         ...config,
-        head: [{ name: "brief", type: "generated-content", artifact_id: briefArtifact.id }],
+        head: [{ name: "brief", type: "brief", artifact_id: briefArtifact.id }],
       };
 
       // Save the project config

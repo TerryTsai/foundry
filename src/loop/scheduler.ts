@@ -3,7 +3,7 @@
 
 import type { IFoundryRepository } from '../repository/index.js';
 import type { Project } from '../repository/types.js';
-import type { ActivityEvent } from '../repository/types.js';
+
 import { dispatch } from './router.js';
 
 export interface SchedulerConfig {
@@ -59,7 +59,7 @@ export class Scheduler {
     const run = this.repo.loopRuns.start(project.id);
     this.repo.activity.append(
       project.id,
-      'loop-run-started' as ActivityEvent,
+      'loop-run-started',
       { runId: run.id }
     );
 
@@ -73,14 +73,12 @@ export class Scheduler {
       }
 
       this.repo.loopRuns.complete(run.id, {
-        decisionsMade: 0,
-        escalationsCreated: 0,
-        actionsExecuted: dispatched,
+        tasksDispatched: dispatched,
         summary: `Dispatched ${dispatched} task(s)`,
       });
       this.repo.activity.append(
         project.id,
-        'loop-run-complete' as ActivityEvent,
+        'loop-run-complete',
         { runId: run.id, tasksDispatched: dispatched }
       );
     } catch (err) {
@@ -88,7 +86,7 @@ export class Scheduler {
       this.repo.loopRuns.fail(run.id, errorMessage);
       this.repo.activity.append(
         project.id,
-        'loop-run-failed' as ActivityEvent,
+        'loop-run-failed',
         { runId: run.id, error: errorMessage }
       );
       throw err;

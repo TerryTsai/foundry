@@ -86,6 +86,27 @@ function buildSystemPrompt(
     lines.push('');
   }
 
+  // Founder task format
+  const hasCreateTask = agentDef.tools.includes('create_task');
+  if (hasCreateTask) {
+    lines.push('## Creating founder tasks');
+    lines.push('When you need founder input, create a task with `agent: "founder"`. The input artifact must be JSON in this exact structure:');
+    lines.push('```json');
+    lines.push('{');
+    lines.push('  "question": "The specific question requiring founder input",');
+    lines.push('  "context": "Why this decision matters and relevant constraints",');
+    lines.push('  "recommendation": "Your recommended option (must match one of the alternatives)",');
+    lines.push('  "rationale": "Why you recommend this option",');
+    lines.push('  "alternatives": [');
+    lines.push('    { "option": "Option A", "tradeoff": "What is good and bad about it" },');
+    lines.push('    { "option": "Option B", "tradeoff": "What is good and bad about it" }');
+    lines.push('  ]');
+    lines.push('}');
+    lines.push('```');
+    lines.push('The founder taps their chosen option in the UI — no typing required. Always provide 2–4 alternatives. Always include a recommendation.');
+    lines.push('');
+  }
+
   // Tool notes
   lines.push('## Tool notes');
   lines.push('- `write_artifact` returns `{ artifact_id }` — use it in `create_task` inputs.');

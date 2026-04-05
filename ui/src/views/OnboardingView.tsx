@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { api, type OnboardingMessage, type OnboardingBrief } from "../api";
+import { api, type OnboardingMessage, type OnboardingBrief, type OnboardingConfig } from "../api";
 
 // ── Brief XML parser ──────────────────────────────────────────────
 
@@ -32,7 +32,30 @@ function parseBrief(text: string): OnboardingBrief | null {
 }
 
 function stripBrief(text: string): string {
-  return text.replace(/<brief>[\s\S]*?<\/brief>/, "").trim();
+  return text
+    .replace(/<brief>[\s\S]*?<\/brief>/, "")
+    .replace(/<config>[\s\S]*?<\/config>/, "")
+    .trim();
+}
+
+function parseConfig(text: string): OnboardingConfig | null {
+  const match = text.match(/<config>([\s\S]*?)<\/config>/);
+  if (!match) return null;
+  try {
+    const parsed = JSON.parse(match[1]!.trim()) as unknown;
+    if (
+      parsed !== null &&
+      typeof parsed === "object" &&
+      "workspace" in parsed &&
+      "agents" in parsed &&
+      "tail" in parsed
+    ) {
+      return parsed as OnboardingConfig;
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 // ── Message bubble ────────────────────────────────────────────────
@@ -172,11 +195,12 @@ export function OnboardingView() {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // Find latest brief in assistant messages
+  // Find latest brief + config in assistant messages
   const latestBrief = [...messages]
     .reverse()
     .find((m) => m.role === "assistant" && parseBrief(m.content) !== null);
   const pendingBrief = latestBrief ? parseBrief(latestBrief.content) : null;
+  const pendingConfig = latestBrief ? parseConfig(latestBrief.content) : null;
 
   async function sendMessage() {
     const text = input.trim();
@@ -215,12 +239,12 @@ export function OnboardingView() {
   }
 
   async function approveBrief() {
-    if (!pendingBrief || !currentSessionId || approving) return;
+    if (!pendingBrief || !pendingConfig || !currentSessionId || approving) return;
     setApproving(true);
     setError(null);
     try {
-      const project = await api.onboarding.approve(currentSessionId, pendingBrief);
-      navigate(`/${project.id}/world`, { replace: true });
+      const project = await api.onboarding.approve(currentSessionId, pendingBrief, pendingConfig);
+      navigate(`/${project.id}/dag`, { replace: true });
     } catch (e) {
       setError(String(e));
       setApproving(false);
@@ -274,11 +298,16 @@ export function OnboardingView() {
               <MessageBubble msg={msg} />
               {brief && isLatestWithBrief && !sessionComplete && (
                 <div className="flex justify-start mb-3">
-                  <div className="max-w-[80%]">
+                  <div className="max-w-[80%] space-y-1.5">
+                    {!pendingConfig && (
+                      <p className="text-[10px] font-mono text-accent-amber px-1">
+                        Waiting for agent config… ask "suggest an agent config" if it hasn't appeared.
+                      </p>
+                    )}
                     <button
                       onClick={approveBrief}
-                      disabled={approving}
-                      className="w-full bg-accent-blue hover:bg-accent-blue/90 disabled:opacity-50 text-white text-xs font-syne font-semibold rounded-xl py-2.5 px-4 transition-colors"
+                      disabled={approving || !pendingConfig}
+                      className="w-full bg-accent-blue hover:bg-accent-blue/90 disabled:opacity-40 text-white text-xs font-syne font-semibold rounded-xl py-2.5 px-4 transition-colors"
                     >
                       {approving ? "Creating project…" : "Approve & Create Project"}
                     </button>

@@ -1,4 +1,4 @@
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, sql } from "drizzle-orm";
 import type { BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 import { randomUUID } from "node:crypto";
 import { projectConfigs } from "../schema/index.js";
@@ -18,7 +18,7 @@ export class ProjectConfigStore {
       .select()
       .from(projectConfigs)
       .where(eq(projectConfigs.projectId, projectId))
-      .orderBy(desc(projectConfigs.createdAt))
+      .orderBy(desc(projectConfigs.createdAt), sql`rowid desc`)
       .limit(1)
       .get();
 
@@ -54,8 +54,10 @@ export class ProjectConfigStore {
     while (changed) {
       changed = false;
       for (const agent of regularAgents) {
-        const allConsumed = agent.consumes.every((c) => reachable.has(c));
-        if (allConsumed) {
+        // An agent can run if ANY of its consumed types is reachable —
+        // consumes[] declares what it accepts, not what it needs simultaneously.
+        const anyConsumed = agent.consumes.length === 0 || agent.consumes.some((c) => reachable.has(c));
+        if (anyConsumed) {
           for (const p of agent.produces) {
             if (!reachable.has(p)) {
               reachable.add(p);
@@ -76,13 +78,15 @@ export class ProjectConfigStore {
       .filter((a) => a.consumes.length > 0 && !a.consumes.some((c) => reachable.has(c)))
       .map((a) => a.name);
 
-    // missingProducers: tail types that no agent produces
+    // missingProducers: tail types that no agent can produce.
+    // If any agent produces "*" (i.e. founder), all types are coverable.
+    const hasStarProducer = config.agents.some((a) => a.produces.includes("*"));
     const allProduced = new Set<string>(
       config.agents.flatMap((a) => (a.produces.includes("*") ? [] : a.produces))
     );
-    const missingProducers = config.tail
-      .filter((t) => !allProduced.has(t.type))
-      .map((t) => t.name);
+    const missingProducers = hasStarProducer
+      ? []
+      : config.tail.filter((t) => !allProduced.has(t.type)).map((t) => t.name);
 
     const valid = unreachableTail.length === 0 && missingProducers.length === 0;
 
@@ -94,7 +98,7 @@ export class ProjectConfigStore {
       .select()
       .from(projectConfigs)
       .where(eq(projectConfigs.projectId, projectId))
-      .orderBy(desc(projectConfigs.createdAt))
+      .orderBy(desc(projectConfigs.createdAt), sql`rowid desc`)
       .all();
 
     return rows.map((r) => JSON.parse(r.config) as ProjectConfig);

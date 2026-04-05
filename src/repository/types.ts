@@ -102,16 +102,18 @@ export interface EscalationResolution {
 }
 
 export type ActivityEvent =
+  | "loop-run-started"
+  | "loop-run-complete"
+  | "loop-run-failed"
+  | "task-claimed"
+  | "founder-task-surfaced"
+  | "task-complete"
+  | "artifact-created"
   | "decision-made"
   | "escalation-created"
   | "escalation-resolved"
   | "override-logged"
-  | "engine-run-started"
-  | "engine-run-complete"
-  | "engine-run-failed"
-  | "stage-advanced"
   | "capability-executed"
-  | "artifact-created"
   | "recovery-triggered";
 
 export interface ActivityEntry {
@@ -130,17 +132,13 @@ export interface EngineRun {
   startedAt: string;
   completedAt: string | null;
   status: EngineRunStatus;
-  decisionsMade: number;
-  escalationsCreated: number;
-  actionsExecuted: number;
+  tasksDispatched: number;
   summary: string | null;
   error: string | null;
 }
 
 export interface RunSummary {
-  decisionsMade: number;
-  escalationsCreated: number;
-  actionsExecuted: number;
+  tasksDispatched: number;
   summary: string;
 }
 
@@ -237,14 +235,9 @@ export interface AccountState {
   triggeredByExecution: string | null;
 }
 
-export type ArtifactType =
-  | "code-snapshot"
-  | "git-bundle"
-  | "account-state"
-  | "deployed-config"
-  | "generated-content"
-  | "environment-snapshot"
-  | "build-output";
+// Artifact types are project-defined strings in v1.2. The union below is kept
+// for legacy v1.1 compatibility but the type accepts any string.
+export type ArtifactType = string;
 
 export interface Artifact {
   id: string;

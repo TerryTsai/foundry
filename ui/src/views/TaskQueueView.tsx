@@ -63,103 +63,218 @@ function StateBadge({ state }: { state: TaskState }) {
   );
 }
 
+interface DecisionRequest {
+  question: string;
+  context?: string;
+  recommendation?: string;
+  rationale?: string;
+  alternatives: Array<{ option: string; tradeoff: string }>;
+}
+
+function parseDecisionRequest(content: string): DecisionRequest | null {
+  try {
+    const parsed = JSON.parse(content) as unknown;
+    if (
+      parsed !== null &&
+      typeof parsed === "object" &&
+      "alternatives" in parsed &&
+      Array.isArray((parsed as Record<string, unknown>).alternatives) &&
+      ((parsed as Record<string, unknown>).alternatives as unknown[]).length > 0
+    ) {
+      return parsed as DecisionRequest;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 interface FounderTaskFormProps {
   task: Task;
   onSubmitted: () => void;
 }
 
 function FounderTaskForm({ task, onSubmitted }: FounderTaskFormProps) {
-  const [selectedOutput, setSelectedOutput] = useState(
-    task.outputs.find((o) => !o.isFailure)?.name ?? task.outputs[0]?.name ?? ""
-  );
-  const [content, setContent] = useState("");
-  const [submitting, setSubmitting] = useState(false);
+  const successOutput = task.outputs.find((o) => !o.isFailure) ?? task.outputs[0];
+  const [decision, setDecision] = useState<DecisionRequest | null>(null);
+  const [loadingArtifacts, setLoadingArtifacts] = useState(true);
+  const [submittingOption, setSubmittingOption] = useState<string | null>(null);
+  const [showCustom, setShowCustom] = useState(false);
+  const [customContent, setCustomContent] = useState("");
   const [error, setError] = useState<string | null>(null);
 
-  const successOutputs = task.outputs.filter((o) => !o.isFailure);
-  const chosenOutput = task.outputs.find((o) => o.name === selectedOutput);
+  // Fetch input artifact content on mount
+  useEffect(() => {
+    if (task.inputs.length === 0) { setLoadingArtifacts(false); return; }
+    let cancelled = false;
+    Promise.all(
+      task.inputs.map((inp) =>
+        api.artifacts.get(inp.artifact_id).catch(() => null)
+      )
+    ).then((artifacts) => {
+      if (cancelled) return;
+      for (const artifact of artifacts) {
+        if (!artifact) continue;
+        // Try inline content first
+        const raw = (artifact as unknown as { content?: string }).content;
+        if (raw) {
+          const dr = parseDecisionRequest(raw);
+          if (dr) { setDecision(dr); break; }
+        }
+      }
+      setLoadingArtifacts(false);
+    });
+    return () => { cancelled = true; };
+  }, [task.inputs]);
 
-  async function handleSubmit() {
-    if (!content.trim() || !chosenOutput) return;
-    setSubmitting(true);
+  async function submitOption(option: string, tradeoff: string) {
+    if (!successOutput) return;
+    setSubmittingOption(option);
     setError(null);
     try {
       await api.tasks.complete(task.id, {
-        outputName: selectedOutput,
-        content: content.trim(),
-        type: chosenOutput.type,
+        outputName: successOutput.name,
+        content: JSON.stringify({ decision: option, tradeoff, selected_by: "founder" }),
+        type: successOutput.type,
       });
       onSubmitted();
     } catch (err) {
       setError(String(err));
-      setSubmitting(false);
+      setSubmittingOption(null);
     }
+  }
+
+  async function submitCustom() {
+    if (!successOutput || !customContent.trim()) return;
+    setSubmittingOption("__custom__");
+    setError(null);
+    try {
+      await api.tasks.complete(task.id, {
+        outputName: successOutput.name,
+        content: customContent.trim(),
+        type: successOutput.type,
+      });
+      onSubmitted();
+    } catch (err) {
+      setError(String(err));
+      setSubmittingOption(null);
+    }
+  }
+
+  const isSubmitting = submittingOption !== null;
+
+  if (loadingArtifacts) {
+    return (
+      <div className="mt-3 pt-3 border-t border-border">
+        <p className="text-xs font-mono text-text-dim animate-pulse">loading…</p>
+      </div>
+    );
   }
 
   return (
     <div className="mt-3 pt-3 border-t border-border space-y-3">
-      {/* Input content */}
-      {task.inputs.length > 0 && (
-        <div>
-          <p className="text-xs font-mono text-text-dim mb-1">inputs</p>
-          <div className="space-y-1">
-            {task.inputs.map((inp) => (
-              <div key={inp.name} className="bg-surface-3 rounded-lg p-2">
-                <p className="text-xs font-mono text-text-secondary">{inp.name}</p>
-                <p className="text-[10px] font-mono text-text-dim truncate">{inp.artifact_id}</p>
-              </div>
-            ))}
+      {decision ? (
+        <>
+          {/* Question */}
+          <div>
+            <p className="text-sm font-lora text-text-primary leading-snug">{decision.question}</p>
+            {decision.context && (
+              <p className="text-xs font-lora text-text-secondary mt-1 leading-snug">{decision.context}</p>
+            )}
           </div>
-        </div>
-      )}
 
-      {/* Output selector */}
-      {successOutputs.length > 1 && (
-        <div>
-          <p className="text-xs font-mono text-text-dim mb-1">output</p>
-          <div className="flex gap-2 flex-wrap">
-            {successOutputs.map((o) => (
+          {/* Alternatives */}
+          <div className="space-y-2">
+            {decision.alternatives.map((alt) => {
+              const isRecommended = alt.option === decision.recommendation;
+              const isSubmittingThis = submittingOption === alt.option;
+              return (
+                <button
+                  key={alt.option}
+                  onClick={() => void submitOption(alt.option, alt.tradeoff)}
+                  disabled={isSubmitting}
+                  className={`w-full text-left rounded-xl border p-3.5 transition-colors min-h-[64px] ${
+                    isRecommended
+                      ? "bg-accent-blue/10 border-accent-blue/40 hover:bg-accent-blue/20"
+                      : "bg-surface-3 border-border hover:bg-surface-3/80"
+                  } disabled:opacity-50`}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className={`text-sm font-syne font-medium ${isRecommended ? "text-accent-blue" : "text-text-primary"}`}>
+                          {alt.option}
+                        </span>
+                        {isRecommended && (
+                          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-accent-blue/20 text-accent-blue border border-accent-blue/30">
+                            recommended
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs font-lora text-text-secondary mt-0.5 leading-snug">{alt.tradeoff}</p>
+                    </div>
+                    <div className="flex-shrink-0 w-5 h-5 mt-0.5 flex items-center justify-center">
+                      {isSubmittingThis ? (
+                        <span className="w-3.5 h-3.5 rounded-full border-2 border-accent-blue/40 border-t-accent-blue animate-spin block" />
+                      ) : (
+                        <span className={`text-base leading-none ${isRecommended ? "text-accent-blue" : "text-text-dim"}`}>›</span>
+                      )}
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Custom override toggle */}
+          {!showCustom ? (
+            <button
+              onClick={() => setShowCustom(true)}
+              disabled={isSubmitting}
+              className="text-xs font-mono text-text-dim hover:text-text-secondary transition-colors disabled:opacity-40"
+            >
+              write custom response ↓
+            </button>
+          ) : (
+            <div className="space-y-2">
+              <textarea
+                value={customContent}
+                onChange={(e) => setCustomContent(e.target.value)}
+                placeholder="Custom response…"
+                rows={3}
+                className="w-full bg-surface-3 border border-border rounded-xl px-3 py-2.5 text-sm font-lora text-text-primary placeholder-text-dim focus:outline-none focus:border-white/30 resize-none"
+              />
               <button
-                key={o.name}
-                onClick={() => setSelectedOutput(o.name)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-mono border transition-colors min-h-[36px] ${
-                  selectedOutput === o.name
-                    ? "bg-accent-blue/20 text-accent-blue border-accent-blue/40"
-                    : "bg-white/5 text-text-dim border-border"
-                }`}
+                onClick={() => void submitCustom()}
+                disabled={isSubmitting || !customContent.trim()}
+                className="w-full py-3 rounded-xl bg-white/5 text-text-secondary border border-border font-syne font-medium text-sm hover:bg-white/10 transition-colors disabled:opacity-40 min-h-[48px]"
               >
-                {o.name} ({o.type})
+                {submittingOption === "__custom__" ? "Submitting…" : "Submit Custom"}
               </button>
-            ))}
-          </div>
-        </div>
+            </div>
+          )}
+        </>
+      ) : (
+        <>
+          {/* Fallback: plain textarea for unstructured inputs */}
+          <textarea
+            value={customContent}
+            onChange={(e) => setCustomContent(e.target.value)}
+            placeholder="Enter your response…"
+            rows={4}
+            className="w-full bg-surface-3 border border-border rounded-xl px-3 py-2.5 text-sm font-lora text-text-primary placeholder-text-dim focus:outline-none focus:border-white/30 resize-none"
+          />
+          <button
+            onClick={() => void submitCustom()}
+            disabled={isSubmitting || !customContent.trim()}
+            className="w-full py-3 rounded-xl bg-accent-blue/20 text-accent-blue border border-accent-blue/30 font-syne font-medium text-sm hover:bg-accent-blue/30 transition-colors disabled:opacity-40 min-h-[48px]"
+          >
+            {submittingOption === "__custom__" ? "Submitting…" : "Submit Response"}
+          </button>
+        </>
       )}
 
-      {/* Content textarea */}
-      <div>
-        <p className="text-xs font-mono text-text-dim mb-1">
-          response{chosenOutput ? ` · ${chosenOutput.type}` : ""}
-        </p>
-        <textarea
-          value={content}
-          onChange={(e) => setContent(e.target.value)}
-          placeholder="Enter your response…"
-          rows={4}
-          className="w-full bg-surface-3 border border-border rounded-xl px-3 py-2.5 text-sm font-lora text-text-primary placeholder-text-dim focus:outline-none focus:border-white/30 resize-none"
-        />
-      </div>
-
-      {error && (
-        <p className="text-xs font-mono text-accent-red">{error}</p>
-      )}
-
-      <button
-        onClick={() => void handleSubmit()}
-        disabled={submitting || !content.trim()}
-        className="w-full py-3 rounded-xl bg-accent-blue/20 text-accent-blue border border-accent-blue/30 font-syne font-medium text-sm hover:bg-accent-blue/30 transition-colors disabled:opacity-40 min-h-[48px]"
-      >
-        {submitting ? "Submitting…" : "Submit Response"}
-      </button>
+      {error && <p className="text-xs font-mono text-accent-red">{error}</p>}
     </div>
   );
 }

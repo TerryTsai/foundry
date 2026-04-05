@@ -12,19 +12,27 @@ import type {
   DagValidationResult,
 } from "./types";
 
+async function extractError(res: Response): Promise<string> {
+  try {
+    const body = await res.clone().json() as { error?: string };
+    if (body?.error) return body.error;
+  } catch { /* fall through */ }
+  return `${res.status} ${res.statusText}`;
+}
+
 async function put<T>(path: string, body: unknown): Promise<T> {
   const res = await fetch(path, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  if (!res.ok) throw new Error(await extractError(res));
   return res.json() as Promise<T>;
 }
 
 async function get<T>(path: string): Promise<T> {
   const res = await fetch(path);
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  if (!res.ok) throw new Error(await extractError(res));
   return res.json() as Promise<T>;
 }
 
@@ -34,7 +42,7 @@ async function post<T>(path: string, body: unknown): Promise<T> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  if (!res.ok) throw new Error(await extractError(res));
   return res.json() as Promise<T>;
 }
 
@@ -135,8 +143,8 @@ export const api = {
       get<{ session: { id: string; completedAt: string | null; projectId: string | null }; messages: OnboardingMessage[] }>(`/api/onboarding/sessions/${id}`),
     sendMessage: (sessionId: string, content: string) =>
       post<{ message: OnboardingMessage }>(`/api/onboarding/sessions/${sessionId}/message`, { content }),
-    approve: (sessionId: string, brief: OnboardingBrief) =>
-      post<Project>("/api/onboarding/approve", { sessionId, brief }),
+    approve: (sessionId: string, brief: OnboardingBrief, config: OnboardingConfig) =>
+      post<Project>("/api/onboarding/approve", { sessionId, brief, config }),
   },
 };
 
@@ -157,4 +165,10 @@ export interface OnboardingBrief {
   constraints: string;
   existing: string;
   assumptions: string[];
+}
+
+export interface OnboardingConfig {
+  workspace: string;
+  agents: import("./types").AgentDefinition[];
+  tail: Array<{ name: string; type: string }>;
 }

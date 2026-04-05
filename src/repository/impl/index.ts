@@ -50,10 +50,14 @@ export class FoundryRepository implements IFoundryRepository {
   private readonly db: Database.Database;
   private readonly blobDir: string;
 
-  constructor(config: RepositoryConfig) {
-    this.db = new Database(config.dbPath);
-    this.db.pragma("journal_mode = WAL");
-    this.db.pragma("foreign_keys = ON");
+  constructor(config: RepositoryConfig, _db?: Database.Database) {
+    if (_db) {
+      this.db = _db;
+    } else {
+      this.db = new Database(config.dbPath);
+      this.db.pragma("journal_mode = WAL");
+      this.db.pragma("foreign_keys = ON");
+    }
 
     this.blobDir = config.blobDir;
     const blobs = new BlobStore(config.blobDir);
@@ -70,11 +74,6 @@ export class FoundryRepository implements IFoundryRepository {
     this.onboarding = new OnboardingStore(drizzleDb);
     this.tasks = new TaskStore(drizzleDb);
     this.projectConfig = new ProjectConfigStore(drizzleDb);
-  }
-
-  /** @deprecated Use loopRuns */
-  get engineRuns(): ILoopRunRepository {
-    return this.loopRuns;
   }
 
   async backup(options: BackupOptions): Promise<BackupResult> {

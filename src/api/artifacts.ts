@@ -8,12 +8,12 @@ export function buildArtifactsRouter(repo: IFoundryRepository): Router {
   // GET /api/artifacts?projectId=&type=
   router.get("/", (req, res) => {
     try {
-      const { projectId, type } = req.query as Record<string, string | undefined>;
+      const { projectId, type, taskId } = req.query as Record<string, string | undefined>;
       if (!projectId) {
         res.status(400).json({ error: "projectId is required" });
         return;
       }
-      const artifacts = repo.artifacts.list(projectId, type as ArtifactType | undefined);
+      const artifacts = repo.artifacts.list(projectId, type as ArtifactType | undefined, taskId);
       res.json(artifacts);
     } catch (err) {
       res.status(500).json({ error: String(err) });

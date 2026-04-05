@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import type { IFoundryRepository } from '../repository/index.js';
-import type { ArtifactType, ActivityEvent } from '../repository/types.js';
+import type { ArtifactType, TaskFilter } from '../repository/types.js';
 
 export function buildTasksRouter(repo: IFoundryRepository): Router {
   const router = Router();
@@ -8,12 +8,15 @@ export function buildTasksRouter(repo: IFoundryRepository): Router {
   // GET /api/tasks?projectId=
   router.get('/', (req, res) => {
     try {
-      const { projectId } = req.query as Record<string, string | undefined>;
+      const { projectId, agent, state } = req.query as Record<string, string | undefined>;
       if (!projectId) {
         res.status(400).json({ error: 'projectId is required' });
         return;
       }
-      const tasks = repo.tasks.listForProject(projectId);
+      const filter: TaskFilter = {};
+      if (agent) filter.agent = agent;
+      if (state) filter.state = state as TaskFilter["state"];
+      const tasks = repo.tasks.listForProject(projectId, filter);
       const artifactLookup = {
         getByTaskOutput: (tid: string, name: string) =>
           repo.artifacts.getByTaskOutput(tid, name),
@@ -108,7 +111,7 @@ export function buildTasksRouter(repo: IFoundryRepository): Router {
 
       repo.activity.append(
         task.projectId,
-        'artifact-created' as ActivityEvent,
+        'artifact-created',
         { taskId: task.id, outputName, artifactId: artifact.id, agent: 'founder' },
       );
 
