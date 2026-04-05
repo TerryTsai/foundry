@@ -1,0 +1,95 @@
+services:
+
+  nginx:
+    build: ./nginx
+    ports:
+      - "3000:80"
+      - "3443:443"
+    volumes:
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+    depends_on:
+      - project
+      - ticket
+      - repo
+      - sandbox
+      - agent
+      - web
+    restart: unless-stopped
+
+  project:
+    build: ./project
+    expose:
+      - "3001"
+    environment:
+      PROJECT_PORT: "3001"
+      DB_PATH: /data/project.db
+      TICKET_URL: http://ticket:3002
+      AGENT_URL: http://agent:3005
+    volumes:
+      - project-data:/data
+    restart: unless-stopped
+
+  ticket:
+    build: ./ticket
+    expose:
+      - "3002"
+    environment:
+      TICKET_PORT: "3002"
+      DB_PATH: /data/ticket.db
+    volumes:
+      - ticket-data:/data
+    restart: unless-stopped
+
+  repo:
+    build: ./repo
+    expose:
+      - "3003"
+    environment:
+      REPO_PORT: "3003"
+      REPO_BASE: /repos
+    volumes:
+      - repos:/repos
+    restart: unless-stopped
+
+  sandbox:
+    build: ./sandbox
+    expose:
+      - "3004"
+    environment:
+      SANDBOX_PORT: "3004"
+      DB_PATH: /data/sandbox.db
+    volumes:
+      - sandbox-data:/data
+      - /var/run/podman/podman.sock:/var/run/podman/podman.sock
+    restart: unless-stopped
+
+  agent:
+    build: ./agent
+    expose:
+      - "3005"
+    environment:
+      AGENT_PORT: "3005"
+      DB_PATH: /data/agent.db
+      TICKET_URL: http://ticket:3002
+      SANDBOX_URL: http://sandbox:3004
+      REPO_URL: http://repo:3003
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      FOUNDRY_ENCRYPTION_KEY: ${FOUNDRY_ENCRYPTION_KEY}
+    env_file:
+      - .env
+    volumes:
+      - agent-data:/data
+    restart: unless-stopped
+
+  web:
+    build: ./web
+    expose:
+      - "3006"
+    restart: unless-stopped
+
+volumes:
+  project-data:
+  ticket-data:
+  sandbox-data:
+  agent-data:
+  repos:

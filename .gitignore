@@ -3,19 +3,19 @@
 .env.local
 .env.*.local
 
-# Database and blob store — runtime data, not source
-foundry.db
-foundry.db-shm
-foundry.db-wal
-foundry.blobs/
+# Runtime data
+*.db
+*.db-shm
+*.db-wal
 
 # Build output
 dist/
-ui/dist/
+*/dist/
+web/dist/
 
 # Dependencies
 node_modules/
-ui/node_modules/
+*/node_modules/
 
 # macOS
 .DS_Store
@@ -30,6 +30,6 @@ ui/node_modules/
 *.log
 npm-debug.log*
 
-# Temporary files
+# Temporary
 *.tmp
 *.temp
