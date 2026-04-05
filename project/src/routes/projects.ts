@@ -13,7 +13,14 @@ function slugify(name: string): string {
     .replace(/^-+|-+$/g, '')
 }
 
-export function projectRouter(db: Db, dispatch: (projectId: string) => Promise<void>) {
+export interface ProjectHooks {
+  triggerDispatch: (projectId: string) => Promise<void>
+  onProjectCreated: (projectId: string, intervalSeconds: number) => void
+  onProjectPaused: (projectId: string) => void
+  onProjectResumed: (projectId: string, intervalSeconds: number) => void
+}
+
+export function projectRouter(db: Db, hooks: ProjectHooks) {
   const router = Router()
 
   // GET /project
@@ -26,7 +33,7 @@ export function projectRouter(db: Db, dispatch: (projectId: string) => Promise<v
   })
 
   // POST /project
-  router.post('/', async (req, res) => {
+  router.post('/', (req, res) => {
     const body = z.object({
       name: z.string().min(1),
       workspace: z.string().min(1),
@@ -42,7 +49,6 @@ export function projectRouter(db: Db, dispatch: (projectId: string) => Promise<v
     const { name, workspace, schedule_interval = 600, concurrency_limit = 3 } = body.data
     const slug = slugify(name)
 
-    // Check slug uniqueness
     const existing = db.select().from(projects).where(eq(projects.slug, slug)).get()
     if (existing) {
       res.status(409).json({ error: `slug '${slug}' already exists` })
@@ -62,6 +68,8 @@ export function projectRouter(db: Db, dispatch: (projectId: string) => Promise<v
       concurrency_limit,
       created_at: now,
     }).run()
+
+    hooks.onProjectCreated(id, schedule_interval)
 
     const project = db.select().from(projects).where(eq(projects.id, id)).get()
     res.status(201).json(project)
@@ -115,12 +123,22 @@ export function projectRouter(db: Db, dispatch: (projectId: string) => Promise<v
     }
 
     db.update(projects).set(updates).where(eq(projects.id, req.params.id)).run()
-    const updated = db.select().from(projects).where(eq(projects.id, req.params.id)).get()
+    const updated = db.select().from(projects).where(eq(projects.id, req.params.id)).get()!
+
+    // Handle scheduler changes
+    if (status === 'paused') hooks.onProjectPaused(project.id)
+    if (status === 'active' && project.status === 'paused') {
+      hooks.onProjectResumed(project.id, updated.schedule_interval)
+    }
+    if (schedule_interval !== undefined && updated.status === 'active') {
+      hooks.onProjectResumed(project.id, updated.schedule_interval)
+    }
+
     res.json(updated)
   })
 
   // POST /project/:id/run — trigger immediate dispatch
-  router.post('/:id/run', async (req, res) => {
+  router.post('/:id/run', (req, res) => {
     const project = db.select().from(projects).where(eq(projects.id, req.params.id)).get()
     if (!project) {
       res.status(404).json({ error: 'not found' })
@@ -131,8 +149,7 @@ export function projectRouter(db: Db, dispatch: (projectId: string) => Promise<v
       return
     }
 
-    // Fire-and-forget — dispatch runs asynchronously
-    dispatch(project.id).catch((err: unknown) => {
+    hooks.triggerDispatch(project.id).catch((err: unknown) => {
       console.error(`dispatch error for project ${project.id}:`, err)
     })
 

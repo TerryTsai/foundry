@@ -4,12 +4,18 @@ import request from 'supertest'
 import { createTestDb } from '../helpers/db.js'
 import { projectRouter } from '../../routes/projects.js'
 
-function buildApp(dispatch = vi.fn().mockResolvedValue(undefined)) {
+function buildApp(triggerDispatch = vi.fn().mockResolvedValue(undefined)) {
   const { db } = createTestDb()
   const app = express()
   app.use(express.json())
-  app.use('/project', projectRouter(db, dispatch))
-  return { app, dispatch }
+  const hooks = {
+    triggerDispatch,
+    onProjectCreated: vi.fn(),
+    onProjectPaused: vi.fn(),
+    onProjectResumed: vi.fn(),
+  }
+  app.use('/project', projectRouter(db, hooks))
+  return { app, dispatch: triggerDispatch, hooks }
 }
 
 const base = { name: 'My Project', workspace: '/repos/my-project.git' }
@@ -125,8 +131,9 @@ describe('PUT /project/:id', () => {
 
 describe('POST /project/:id/run', () => {
   it('triggers dispatch and returns 202', async () => {
-    const dispatch = vi.fn().mockResolvedValue(undefined)
-    const { app } = buildApp(dispatch)
+    const triggerDispatch = vi.fn().mockResolvedValue(undefined)
+    const { app } = buildApp(triggerDispatch)
+    const dispatch = triggerDispatch
     const created = await request(app).post('/project').send(base)
     const res = await request(app).post(`/project/${created.body.id}/run`)
     expect(res.status).toBe(202)
