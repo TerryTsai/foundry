@@ -7,7 +7,20 @@ import type {
   ProjectCapability,
   Artifact,
   EngineRun,
+  Task,
+  ProjectConfig,
+  DagValidationResult,
 } from "./types";
+
+async function put<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(path, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  return res.json() as Promise<T>;
+}
 
 async function get<T>(path: string): Promise<T> {
   const res = await fetch(path);
@@ -71,10 +84,39 @@ export const api = {
   },
 
   artifacts: {
-    list: (projectId: string) =>
-      get<Artifact[]>(`/api/artifacts?projectId=${projectId}`),
+    list: (projectId: string, type?: string, taskId?: string) => {
+      const params = new URLSearchParams({ projectId });
+      if (type) params.set("type", type);
+      if (taskId) params.set("taskId", taskId);
+      return get<Artifact[]>(`/api/artifacts?${params}`);
+    },
+    get: (id: string) => get<Artifact>(`/api/artifacts/${id}`),
+    content: (id: string) =>
+      fetch(`/api/artifacts/${id}/download`).then((r) =>
+        r.ok ? r.text() : Promise.reject(new Error(`${r.status}`))
+      ),
     snapshot: (projectId: string, repoPath: string) =>
       post<Artifact>("/api/artifacts/snapshot", { projectId, repoPath }),
+  },
+
+  tasks: {
+    list: (projectId: string, agent?: string, state?: string) => {
+      const params = new URLSearchParams({ projectId });
+      if (agent) params.set("agent", agent);
+      if (state) params.set("state", state);
+      return get<Task[]>(`/api/tasks?${params}`);
+    },
+    get: (id: string) => get<Task>(`/api/tasks/${id}`),
+    complete: (
+      id: string,
+      body: { outputName: string; content: string; type: string; metadata?: Record<string, unknown> }
+    ) => post<{ artifact_id: string }>(`/api/tasks/${id}/complete`, body),
+  },
+
+  config: {
+    get: (projectId: string) => get<ProjectConfig>(`/api/projects/${projectId}/config`),
+    update: (projectId: string, config: ProjectConfig) =>
+      put<ProjectConfig>(`/api/projects/${projectId}/config`, config),
   },
 
   admin: {
@@ -82,6 +124,8 @@ export const api = {
       post<{ queued: boolean }>(`/api/admin/run/${projectId}`, {}),
     getRuns: (projectId: string) =>
       get<{ current: EngineRun | null; last: EngineRun | null }>(`/api/admin/runs/${projectId}`),
+    validateDag: (projectId: string) =>
+      get<DagValidationResult>(`/api/admin/dag/${projectId}`),
   },
 
   onboarding: {

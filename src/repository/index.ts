@@ -34,6 +34,17 @@ export type {
   ArtifactWithContent,
   NewArtifact,
   ArtifactType,
+  Task,
+  NewTask,
+  TaskInput,
+  TaskOutput,
+  TaskState,
+  TaskFilter,
+  ProjectConfig,
+  ProjectConfigHead,
+  ProjectConfigTail,
+  AgentDefinition,
+  DagValidationResult,
 } from "./types.js";
 
 export type { RepositoryConfig } from "./config.js";
@@ -68,6 +79,12 @@ import type {
   ArtifactWithContent,
   NewArtifact,
   ArtifactType,
+  Task,
+  NewTask,
+  TaskState,
+  TaskFilter,
+  ProjectConfig,
+  DagValidationResult,
 } from "./types.js";
 
 export interface IProjectRepository {
@@ -141,6 +158,7 @@ export interface IArtifactRepository {
   restoreCode(artifactId: string, targetPath: string): Promise<void>;
   store(item: NewArtifact): Artifact;
   get(artifactId: string): ArtifactWithContent;
+  getByTaskOutput(taskId: string, outputName: string): Artifact | null;
   list(projectId: string, type?: ArtifactType): Artifact[];
   latestOfType(projectId: string, type: ArtifactType): Artifact | null;
 }
@@ -154,13 +172,36 @@ export interface IActivityRepository {
   list(projectId: string, limit?: number): ActivityEntry[];
 }
 
-export interface IEngineRunRepository {
+export interface ILoopRunRepository {
   start(projectId: string): EngineRun;
   complete(runId: string, summary: RunSummary): void;
   fail(runId: string, error: string): void;
   getCurrent(projectId: string): EngineRun | null;
   getLastCompleted(projectId: string): EngineRun | null;
   recoverStalledRuns(): number;
+}
+
+/** @deprecated Use ILoopRunRepository */
+export type IEngineRunRepository = ILoopRunRepository;
+
+export interface ITaskRepository {
+  create(task: NewTask): Task;
+  get(id: string): Task | null;
+  findRoutable(projectId: string): Task[];
+  claim(taskId: string): void;
+  recoverStalledTasks(): number;
+  listForProject(projectId: string, filter?: TaskFilter): Task[];
+  deriveState(
+    task: Task,
+    artifactStore: { getByTaskOutput(taskId: string, outputName: string): unknown | null }
+  ): TaskState;
+}
+
+export interface IProjectConfigRepository {
+  get(projectId: string): ProjectConfig | null;
+  set(projectId: string, config: ProjectConfig, createdBy: string): ProjectConfig;
+  validateDag(config: ProjectConfig): DagValidationResult;
+  listVersions(projectId: string): ProjectConfig[];
 }
 
 export interface IExecutionRepository {
@@ -222,9 +263,13 @@ export interface IFoundryRepository {
   readonly capabilities: ICapabilityRepository;
   readonly artifacts: IArtifactRepository;
   readonly activity: IActivityRepository;
-  readonly engineRuns: IEngineRunRepository;
+  readonly loopRuns: ILoopRunRepository;
+  /** @deprecated Use loopRuns */
+  readonly engineRuns: ILoopRunRepository;
   readonly executions: IExecutionRepository;
   readonly onboarding: IOnboardingRepository;
+  readonly tasks: ITaskRepository;
+  readonly projectConfig: IProjectConfigRepository;
 
   backup(options: BackupOptions): Promise<BackupResult>;
   healthCheck(): Promise<HealthStatus>;

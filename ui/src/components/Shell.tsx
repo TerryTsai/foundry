@@ -1,7 +1,8 @@
-import { useState } from "react";
-import { NavLink, useParams } from "react-router-dom";
+import { useState, useEffect, useCallback } from "react";
+import { NavLink, useParams, useNavigate } from "react-router-dom";
 import type { Escalation } from "../types";
 import { EscalationModal } from "./EscalationModal";
+import { api } from "../api";
 
 interface ShellProps {
   children: React.ReactNode;
@@ -12,7 +13,11 @@ interface ShellProps {
 
 export function Shell({ children, escalations, onEscalationResolved, projectName }: ShellProps) {
   const { projectId } = useParams<{ projectId: string }>();
+  const navigate = useNavigate();
   const [modalEscalation, setModalEscalation] = useState<Escalation | null>(null);
+  const [showConfigMenu, setShowConfigMenu] = useState(false);
+  const [founderTaskCount, setFounderTaskCount] = useState(0);
+  const [isLoopRunning, setIsLoopRunning] = useState(false);
 
   const openCount = escalations.length;
 
@@ -21,6 +26,35 @@ export function Shell({ children, escalations, onEscalationResolved, projectName
     onEscalationResolved();
   }
 
+  // Poll for founder tasks and loop run status
+  const pollStatus = useCallback(() => {
+    if (!projectId) return;
+    // Founder tasks
+    api.tasks
+      .list(projectId)
+      .then((tasks) => {
+        const founderPending = tasks.filter(
+          (t) => t.agent === "founder" && t.state === "pending"
+        ).length;
+        setFounderTaskCount(founderPending);
+      })
+      .catch(() => {});
+
+    // Loop run status
+    api.admin
+      .getRuns(projectId)
+      .then((runs) => {
+        setIsLoopRunning(runs.current?.status === "running");
+      })
+      .catch(() => {});
+  }, [projectId]);
+
+  useEffect(() => {
+    pollStatus();
+    const interval = setInterval(pollStatus, 10_000);
+    return () => clearInterval(interval);
+  }, [pollStatus]);
+
   return (
     <div className="h-dvh flex flex-col bg-surface-0 overflow-hidden">
       {/* Topbar */}
@@ -28,7 +62,47 @@ export function Shell({ children, escalations, onEscalationResolved, projectName
         <span className="font-syne font-semibold text-sm text-text-primary tracking-wide">
           {projectName ?? "Foundry"}
         </span>
-        <span className="font-mono text-xs text-text-dim">foundry</span>
+        <div className="flex items-center gap-3">
+          <span className="font-mono text-xs text-text-dim">foundry</span>
+          <div className="relative">
+            <button
+              onClick={() => setShowConfigMenu((v) => !v)}
+              className="w-8 h-8 flex items-center justify-center text-text-dim hover:text-text-primary transition-colors rounded-lg hover:bg-surface-3"
+              aria-label="Project settings"
+            >
+              <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <circle cx="12" cy="5" r="1" fill="currentColor" />
+                <circle cx="12" cy="12" r="1" fill="currentColor" />
+                <circle cx="12" cy="19" r="1" fill="currentColor" />
+              </svg>
+            </button>
+            {showConfigMenu && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setShowConfigMenu(false)} />
+                <div className="absolute right-0 top-9 z-50 bg-surface-2 border border-border rounded-xl shadow-xl min-w-[140px] overflow-hidden">
+                  <button
+                    onClick={() => {
+                      setShowConfigMenu(false);
+                      navigate(`/${projectId}/config`);
+                    }}
+                    className="w-full text-left px-4 py-3 text-xs font-syne text-text-primary hover:bg-surface-3 transition-colors min-h-[44px]"
+                  >
+                    Config
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowConfigMenu(false);
+                      navigate("/");
+                    }}
+                    className="w-full text-left px-4 py-3 text-xs font-syne text-text-secondary hover:bg-surface-3 transition-colors min-h-[44px]"
+                  >
+                    Switch Project
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
       </header>
 
       {/* Escalation banner */}
@@ -54,11 +128,33 @@ export function Shell({ children, escalations, onEscalationResolved, projectName
 
       {/* Bottom nav */}
       <nav className="flex-shrink-0 flex border-t border-border bg-surface-1 pb-safe">
-        <NavItem to={`/${projectId}/world`} label="World" icon={<WorldIcon />} badge={openCount} />
-        <NavItem to={`/${projectId}/activity`} label="Activity" icon={<ActivityIcon />} />
-        <NavItem to={`/${projectId}/log`} label="Log" icon={<LogIcon />} />
-        <NavItem to={`/${projectId}/capabilities`} label="Integrations" icon={<CapIcon />} />
-        <NavItem to={`/${projectId}/artifacts`} label="Artifacts" icon={<ArtifactsIcon />} />
+        <NavItem
+          to={`/${projectId}/dag`}
+          label="DAG"
+          icon={<DagIcon />}
+          pulse={isLoopRunning}
+        />
+        <NavItem
+          to={`/${projectId}/tasks`}
+          label="Tasks"
+          icon={<TasksIcon />}
+          badge={founderTaskCount}
+        />
+        <NavItem
+          to={`/${projectId}/artifacts`}
+          label="Artifacts"
+          icon={<ArtifactsIcon />}
+        />
+        <NavItem
+          to={`/${projectId}/capabilities`}
+          label="Integrations"
+          icon={<CapIcon />}
+        />
+        <NavItem
+          to={`/${projectId}/activity`}
+          label="Activity"
+          icon={<ActivityIcon />}
+        />
       </nav>
 
       {/* Escalation modal */}
@@ -78,11 +174,13 @@ function NavItem({
   label,
   icon,
   badge,
+  pulse,
 }: {
   to: string;
   label: string;
   icon: React.ReactNode;
   badge?: number;
+  pulse?: boolean;
 }) {
   return (
     <NavLink
@@ -100,17 +198,38 @@ function NavItem({
             {badge > 9 ? "9+" : badge}
           </span>
         )}
+        {pulse && (
+          <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-accent-green animate-pulse" />
+        )}
       </span>
       {label}
     </NavLink>
   );
 }
 
-function WorldIcon() {
+function DagIcon() {
   return (
     <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-      <circle cx="12" cy="12" r="9" />
-      <path d="M3 12h18M12 3c-2.5 3-4 5.5-4 9s1.5 6 4 9M12 3c2.5 3 4 5.5 4 9s-1.5 6-4 9" />
+      <rect x="3" y="3" width="5" height="4" rx="1" />
+      <rect x="16" y="3" width="5" height="4" rx="1" />
+      <rect x="9.5" y="10" width="5" height="4" rx="1" />
+      <rect x="3" y="17" width="5" height="4" rx="1" />
+      <rect x="16" y="17" width="5" height="4" rx="1" />
+      <line x1="8" y1="5" x2="16" y2="5" />
+      <line x1="5.5" y1="7" x2="10.5" y2="10" />
+      <line x1="18.5" y1="7" x2="13.5" y2="10" />
+      <line x1="10.5" y1="14" x2="5.5" y2="17" />
+      <line x1="13.5" y1="14" x2="18.5" y2="17" />
+    </svg>
+  );
+}
+
+function TasksIcon() {
+  return (
+    <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+      <path d="M9 12h6M9 16h4M7 4H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V6a2 2 0 00-2-2h-2" />
+      <rect x="7" y="2" width="10" height="4" rx="1" />
+      <path d="M9 8l1 1 2-2" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
@@ -119,15 +238,6 @@ function ActivityIcon() {
   return (
     <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
       <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
-    </svg>
-  );
-}
-
-function LogIcon() {
-  return (
-    <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-      <path d="M9 12h6M9 16h4M7 4H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V6a2 2 0 00-2-2h-2" />
-      <rect x="7" y="2" width="10" height="4" rx="1" />
     </svg>
   );
 }

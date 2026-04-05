@@ -210,6 +210,50 @@ export const accountSnapshots = sqliteTable(
   ]
 );
 
+// ── Tasks ─────────────────────────────────────────────────────────
+
+// IMMUTABLE. No UPDATE. No DELETE.
+export const tasks = sqliteTable(
+  "tasks",
+  {
+    id: text("id").primaryKey(),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => projects.id),
+    agent: text("agent").notNull(),
+    description: text("description").notNull(),
+    createdAt: text("created_at").notNull(),
+    createdBy: text("created_by").notNull(), // task_id or 'system'
+    claimedAt: text("claimed_at"), // set by loop, cleared on recovery
+    inputs: text("inputs").notNull().default("[]"), // JSON: [{name, artifact_id}]
+    outputs: text("outputs").notNull().default("[]"), // JSON: [{name, type, isFailure?: boolean}]
+  },
+  (t) => [
+    index("idx_tasks_project").on(t.projectId, t.createdAt),
+    index("idx_tasks_agent").on(t.projectId, t.agent),
+    index("idx_tasks_claimed").on(t.claimedAt),
+  ]
+);
+
+// ── Project Configs ───────────────────────────────────────────────
+
+// APPEND ONLY.
+export const projectConfigs = sqliteTable(
+  "project_configs",
+  {
+    id: text("id").primaryKey(),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => projects.id),
+    config: text("config").notNull(), // JSON: ProjectConfig
+    createdAt: text("created_at").notNull(),
+    createdBy: text("created_by").notNull(), // 'founder' | 'system'
+  },
+  (t) => [
+    index("idx_project_configs_project").on(t.projectId, t.createdAt),
+  ]
+);
+
 // ── Artifacts ─────────────────────────────────────────────────────
 
 export const artifacts = sqliteTable(
@@ -232,10 +276,14 @@ export const artifacts = sqliteTable(
     supersedes: text("supersedes").references((): ReturnType<typeof text> => artifacts.id),
     createdAt: text("created_at").notNull(),
     createdBy: text("created_by").notNull(),
+    taskId: text("task_id").references(() => tasks.id), // nullable — system/bootstrap artifacts have no task
+    outputName: text("output_name"), // nullable
   },
   (t) => [
     index("idx_artifacts_project").on(t.projectId, t.type, t.createdAt),
     index("idx_artifacts_hash").on(t.contentHash),
+    index("idx_artifacts_task").on(t.taskId, t.outputName),
+    uniqueIndex("uq_artifacts_task_output").on(t.taskId, t.outputName),
     check(
       "content_xor_blob",
       sql`(${t.content} IS NOT NULL) != (${t.blobHash} IS NOT NULL)`

@@ -1,10 +1,11 @@
 import { BrowserRouter, Routes, Route, Navigate, useParams } from "react-router-dom";
 import { Shell } from "./components/Shell";
-import { WorldView } from "./views/WorldView";
+import { DagView } from "./views/DagView";
+import { TaskQueueView } from "./views/TaskQueueView";
 import { ActivityView } from "./views/ActivityView";
-import { LogView } from "./views/LogView";
 import { CapabilitiesView } from "./views/CapabilitiesView";
 import { ArtifactsView } from "./views/ArtifactsView";
+import { ConfigView } from "./views/ConfigView";
 import { ProjectSelect } from "./views/ProjectSelect";
 import { OnboardingView } from "./views/OnboardingView";
 import { useProject } from "./hooks/useProject";
@@ -25,12 +26,16 @@ function ProjectLayout() {
       projectName={project?.name}
     >
       <Routes>
-        <Route path="world" element={<WorldView />} />
-        <Route path="activity" element={<ActivityView />} />
-        <Route path="log" element={<LogView />} />
-        <Route path="capabilities" element={<CapabilitiesView />} />
+        <Route path="dag" element={<DagView />} />
+        <Route path="tasks" element={<TaskQueueView />} />
         <Route path="artifacts" element={<ArtifactsView />} />
-        <Route path="*" element={<Navigate to="world" replace />} />
+        <Route path="capabilities" element={<CapabilitiesView />} />
+        <Route path="activity" element={<ActivityView />} />
+        <Route path="config" element={<ConfigView />} />
+        {/* Legacy routes kept for backwards compat */}
+        <Route path="world" element={<Navigate to={`/${projectId}/dag`} replace />} />
+        <Route path="log" element={<Navigate to={`/${projectId}/activity`} replace />} />
+        <Route path="*" element={<Navigate to="dag" replace />} />
       </Routes>
     </Shell>
   );

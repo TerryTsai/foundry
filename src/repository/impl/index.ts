@@ -7,11 +7,13 @@ import { ProjectStore } from "./stores/projects.js";
 import { DecisionStore } from "./stores/decisions.js";
 import { EscalationStore } from "./stores/escalations.js";
 import { ActivityStore } from "./stores/activity.js";
-import { EngineRunStore } from "./stores/engine-runs.js";
+import { LoopRunStore } from "./stores/loop-runs.js";
 import { CapabilityStore } from "./stores/capabilities.js";
 import { ArtifactStore } from "./stores/artifacts.js";
 import { ExecutionStore } from "./stores/executions.js";
 import { OnboardingStore } from "./stores/onboarding.js";
+import { TaskStore } from "./stores/tasks.js";
+import { ProjectConfigStore } from "./stores/project-config.js";
 import { createBackup } from "./backup.js";
 import type {
   IFoundryRepository,
@@ -21,9 +23,11 @@ import type {
   ICapabilityRepository,
   IArtifactRepository,
   IActivityRepository,
-  IEngineRunRepository,
+  ILoopRunRepository,
   IExecutionRepository,
   IOnboardingRepository,
+  ITaskRepository,
+  IProjectConfigRepository,
   BackupOptions,
   BackupResult,
   HealthStatus,
@@ -37,9 +41,11 @@ export class FoundryRepository implements IFoundryRepository {
   readonly capabilities: ICapabilityRepository;
   readonly artifacts: IArtifactRepository;
   readonly activity: IActivityRepository;
-  readonly engineRuns: IEngineRunRepository;
+  readonly loopRuns: ILoopRunRepository;
   readonly executions: IExecutionRepository;
   readonly onboarding: IOnboardingRepository;
+  readonly tasks: ITaskRepository;
+  readonly projectConfig: IProjectConfigRepository;
 
   private readonly db: Database.Database;
   private readonly blobDir: string;
@@ -57,11 +63,18 @@ export class FoundryRepository implements IFoundryRepository {
     this.decisions = new DecisionStore(drizzleDb);
     this.escalations = new EscalationStore(drizzleDb);
     this.activity = new ActivityStore(drizzleDb);
-    this.engineRuns = new EngineRunStore(drizzleDb);
+    this.loopRuns = new LoopRunStore(drizzleDb);
     this.capabilities = new CapabilityStore(drizzleDb, config.encryptionKey);
     this.artifacts = new ArtifactStore(drizzleDb, blobs, config.blobThresholdMb ?? 50);
     this.executions = new ExecutionStore(drizzleDb);
     this.onboarding = new OnboardingStore(drizzleDb);
+    this.tasks = new TaskStore(drizzleDb);
+    this.projectConfig = new ProjectConfigStore(drizzleDb);
+  }
+
+  /** @deprecated Use loopRuns */
+  get engineRuns(): ILoopRunRepository {
+    return this.loopRuns;
   }
 
   async backup(options: BackupOptions): Promise<BackupResult> {

@@ -3,8 +3,8 @@ loadEnv();
 
 import { openRepository, repositoryConfigFromEnv } from "./repository/index.js";
 import { startServer } from "./server.js";
-import { Scheduler } from "./engine/scheduler.js";
-import { seedCapabilities } from "./engine/seed.js";
+import { Scheduler } from "./loop/scheduler.js";
+import { seedCapabilities } from "./capabilities/seed.js";
 
 async function main(): Promise<void> {
   const repoConfig = repositoryConfigFromEnv();
@@ -16,7 +16,7 @@ async function main(): Promise<void> {
   await seedCapabilities(repo);
 
   const intervalMinutes = parseInt(
-    process.env["ENGINE_INTERVAL_MINUTES"] ?? "10",
+    process.env["LOOP_INTERVAL_MINUTES"] ?? process.env["ENGINE_INTERVAL_MINUTES"] ?? "10",
     10
   );
   const scheduler = new Scheduler(

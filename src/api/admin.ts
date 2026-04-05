@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { join } from "node:path";
 import type { IFoundryRepository } from "../repository/index.js";
-import type { Scheduler } from "../engine/scheduler.js";
+import type { Scheduler } from "../loop/scheduler.js";
 
 export function buildAdminRouter(
   repo: IFoundryRepository,
@@ -47,7 +47,7 @@ export function buildAdminRouter(
         return;
       }
 
-      const current = repo.engineRuns.getCurrent(projectId);
+      const current = repo.loopRuns.getCurrent(projectId);
       if (current?.status === "running") {
         res.status(409).json({ error: "Engine run already in progress" });
         return;
@@ -68,9 +68,25 @@ export function buildAdminRouter(
   router.get("/runs/:projectId", (req, res) => {
     try {
       const { projectId } = req.params as { projectId: string };
-      const current = repo.engineRuns.getCurrent(projectId);
-      const last = repo.engineRuns.getLastCompleted(projectId);
+      const current = repo.loopRuns.getCurrent(projectId);
+      const last = repo.loopRuns.getLastCompleted(projectId);
       res.json({ current, last });
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
+  });
+
+  // GET /api/admin/dag/:projectId — validate DAG for a project's config
+  router.get("/dag/:projectId", (req, res) => {
+    try {
+      const { projectId } = req.params as { projectId: string };
+      const config = repo.projectConfig.get(projectId);
+      if (!config) {
+        res.status(404).json({ error: "Project config not found" });
+        return;
+      }
+      const result = repo.projectConfig.validateDag(config);
+      res.json(result);
     } catch (err) {
       res.status(500).json({ error: String(err) });
     }

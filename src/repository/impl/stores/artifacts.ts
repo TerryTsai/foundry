@@ -67,6 +67,17 @@ export class ArtifactStore {
   }
 
   store(item: NewArtifact): Artifact {
+    // Idempotent: if taskId + outputName both set, use INSERT OR IGNORE and return existing if duplicate
+    const hasTaskOutput = item.taskId !== undefined && item.outputName !== undefined;
+
+    if (hasTaskOutput) {
+      // Check for existing artifact with this task+output first
+      const existing = this.getByTaskOutput(item.taskId as string, item.outputName as string);
+      if (existing !== null) {
+        return existing;
+      }
+    }
+
     const id = randomUUID();
     const raw =
       typeof item.content === "string"
@@ -106,6 +117,8 @@ export class ArtifactStore {
       supersedes: item.supersedes ?? null,
       createdAt: new Date().toISOString(),
       createdBy: item.createdBy,
+      ...(item.taskId !== undefined && { taskId: item.taskId }),
+      ...(item.outputName !== undefined && { outputName: item.outputName }),
     }).run();
 
     return this.getMetaOrThrow(id);
@@ -131,6 +144,21 @@ export class ArtifactStore {
     }
 
     return { ...rowToArtifact(row), content };
+  }
+
+  getByTaskOutput(taskId: string, outputName: string): Artifact | null {
+    const row = this.db
+      .select()
+      .from(artifacts)
+      .where(
+        and(
+          eq(artifacts.taskId, taskId),
+          eq(artifacts.outputName, outputName)
+        )
+      )
+      .get();
+
+    return row ? rowToArtifact(row) : null;
   }
 
   list(projectId: string, type?: ArtifactType): Artifact[] {
@@ -190,5 +218,7 @@ function rowToArtifact(row: typeof artifacts.$inferSelect): Artifact {
     supersedes: row.supersedes ?? null,
     createdAt: row.createdAt,
     createdBy: row.createdBy as "agent" | "founder" | "system",
+    taskId: row.taskId ?? null,
+    outputName: row.outputName ?? null,
   };
 }

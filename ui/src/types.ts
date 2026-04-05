@@ -98,11 +98,78 @@ export interface ProjectCapability {
 export interface EngineRun {
   id: string;
   projectId: string;
-  status: "running" | "completed" | "failed";
+  status: "running" | "completed" | "failed" | "complete" | "recovered";
   startedAt: string;
   completedAt: string | null;
   summary: string | null;
   error: string | null;
+}
+
+export interface TaskInput {
+  name: string;
+  artifact_id: string;
+}
+
+export interface TaskOutput {
+  name: string;
+  type: string;
+  isFailure?: boolean;
+}
+
+export type TaskState = "pending" | "running" | "complete" | "failed";
+
+export interface Task {
+  id: string;
+  projectId: string;
+  agent: string;
+  description: string;
+  createdAt: string;
+  createdBy: string;
+  claimedAt: string | null;
+  inputs: TaskInput[];
+  outputs: TaskOutput[];
+  state: TaskState;
+}
+
+export interface ProjectConfigHead {
+  name: string;
+  type: string;
+  artifact_id: string;
+}
+
+export interface ProjectConfigTail {
+  name: string;
+  type: string;
+}
+
+export interface AgentDefinition {
+  name: string;
+  consumes: string[];
+  produces: string[];
+  tools: string[];
+  prompt: string | null;
+}
+
+export interface ProjectConfig {
+  workspace: string;
+  head: ProjectConfigHead[];
+  tail: ProjectConfigTail[];
+  agents: AgentDefinition[];
+}
+
+export interface DagValidationResult {
+  valid: boolean;
+  unreachableTail: string[];
+  orphanedAgents: string[];
+  missingProducers: string[];
+}
+
+export interface LoopRun {
+  id: string;
+  projectId: string;
+  status: "running" | "completed" | "failed";
+  startedAt: string;
+  completedAt: string | null;
 }
 
 export interface Artifact {
@@ -115,6 +182,9 @@ export interface Artifact {
   contentHash: string;
   metadata: Record<string, unknown> | null;
   snapshotOf: string | null;
+  supersedes: string | null;
   createdAt: string;
   createdBy: string;
+  taskId: string | null;
+  outputName: string | null;
 }

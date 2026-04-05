@@ -6,7 +6,7 @@ import { config as loadEnv } from "dotenv";
 loadEnv();
 
 import { openRepository, repositoryConfigFromEnv } from "../repository/index.js";
-import { seedCapabilities } from "../engine/seed.js";
+import { seedCapabilities } from "../capabilities/seed.js";
 
 async function main() {
   const config = repositoryConfigFromEnv();

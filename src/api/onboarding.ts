@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { IFoundryRepository } from "../repository/index.js";
+import type { AgentDefinition, ProjectConfigTail } from "../repository/types.js";
 
 const SYSTEM_PROMPT = `You are an onboarding assistant for Foundry — an autonomous project engine for solo founders.
 
@@ -35,6 +36,31 @@ When ready to produce the brief, output it as XML inside <brief> tags, embedded 
     <assumption>Each key assumption on its own line</assumption>
   </assumptions>
 </brief>
+
+When you have enough context to suggest an initial agent workforce, output a config block:
+
+<config>
+{
+  "workspace": "/home/terry/projects/{project-slug}",
+  "agents": [
+    {
+      "name": "strategist",
+      "consumes": ["brief", "decision"],
+      "produces": ["decision", "task_graph"],
+      "tools": ["read_artifact", "write_artifact", "create_task"],
+      "prompt": "..."
+    },
+    ... (add coder, deployer, marketer, planner, founder as appropriate for this project)
+  ],
+  "tail": [
+    { "name": "deployed_app", "type": "environment" },
+    { "name": "launch_announcement", "type": "content" }
+  ]
+}
+</config>
+
+Always include a 'founder' agent with consumes: ["*"], produces: ["*"], tools: [], prompt: null.
+Tailor the workforce to the project type. A content site needs different agents than a SaaS app.
 
 After outputting the brief, ask the founder to review and approve it, or let you know what to change.`;
 
@@ -137,10 +163,10 @@ export function buildOnboardingRouter(repo: IFoundryRepository): Router {
     }
   });
 
-  // POST /api/projects — create project from approved brief
+  // POST /api/onboarding/approve — create project from approved brief + config
   router.post("/approve", async (req, res) => {
     try {
-      const { sessionId, brief } = req.body as {
+      const { sessionId, brief, config } = req.body as {
         sessionId?: string;
         brief?: {
           name: string;
@@ -152,6 +178,11 @@ export function buildOnboardingRouter(repo: IFoundryRepository): Router {
           existing: string;
           assumptions: string[];
         };
+        config?: {
+          workspace: string;
+          agents: AgentDefinition[];
+          tail: ProjectConfigTail[];
+        };
       };
 
       if (!brief?.name || !brief.tagline) {
@@ -159,7 +190,25 @@ export function buildOnboardingRouter(repo: IFoundryRepository): Router {
         return;
       }
 
-      const { seedCapabilities } = await import("../engine/seed.js");
+      if (!config?.workspace || !Array.isArray(config.agents) || !Array.isArray(config.tail)) {
+        res.status(400).json({ error: "config with workspace, agents, and tail is required" });
+        return;
+      }
+
+      // Validate the DAG before creating anything — pass a placeholder head for validation
+      const configForValidation = {
+        workspace: config.workspace,
+        agents: config.agents,
+        tail: config.tail,
+        head: [{ name: "brief", type: "generated-content", artifact_id: "placeholder" }],
+      };
+      const dagResult = repo.projectConfig.validateDag(configForValidation);
+      if (!dagResult.valid) {
+        res.status(400).json({ errors: dagResult });
+        return;
+      }
+
+      const { seedCapabilities } = await import("../capabilities/seed.js");
       await seedCapabilities(repo);
 
       const project = repo.projects.create({
@@ -174,6 +223,41 @@ export function buildOnboardingRouter(repo: IFoundryRepository): Router {
         assumptions: brief.assumptions ?? [],
       });
 
+      // Write the brief as a bootstrap artifact
+      const briefArtifact = repo.artifacts.store({
+        projectId: project.id,
+        type: "generated-content",
+        name: "brief",
+        content: JSON.stringify(brief),
+        createdBy: "system",
+      });
+
+      // Build the full config with head pointing to the brief artifact
+      const fullConfig = {
+        ...config,
+        head: [{ name: "brief", type: "generated-content", artifact_id: briefArtifact.id }],
+      };
+
+      // Save the project config
+      repo.projectConfig.set(project.id, fullConfig, "founder");
+
+      // Create the bootstrap strategist task
+      repo.tasks.create({
+        projectId: project.id,
+        agent: "strategist",
+        description: "Analyze the project brief and produce an initial task graph",
+        createdBy: "system",
+        inputs: [{ name: "brief", artifact_id: briefArtifact.id }],
+        outputs: [{ name: "task_graph", type: "task_graph" }],
+      });
+
+      // Log activity
+      repo.activity.append(project.id, "artifact-created", {
+        event: "project-config-set",
+        artifactId: briefArtifact.id,
+        configWorkspace: config.workspace,
+      });
+
       if (sessionId) {
         const session = repo.onboarding.getSession(sessionId);
         if (session && !session.completedAt) {
@@ -181,7 +265,7 @@ export function buildOnboardingRouter(repo: IFoundryRepository): Router {
         }
       }
 
-      res.status(201).json(project);
+      res.status(201).json({ project, config: fullConfig, bootstrapArtifactId: briefArtifact.id });
     } catch (err) {
       res.status(500).json({ error: String(err) });
     }

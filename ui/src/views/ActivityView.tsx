@@ -25,22 +25,62 @@ const EVENT_LABEL: Record<string, string> = {
   "capability-executed": "Capability executed",
   "artifact-created": "Artifact created",
   "recovery-triggered": "Recovery triggered",
+  // New loop-based events
+  "loop-run-started": "Loop run started",
+  "loop-run-complete": "Loop run complete",
+  "loop-run-failed": "Loop run failed",
+  "task-claimed": "Task claimed",
+  "task-complete": "Task complete",
+  "task-failed": "Task failed",
+  "artifact-written": "Artifact written",
+  "founder-task-created": "Founder task created",
 };
 
-const EVENT_COLOR: Record<string, string> = {
-  "decision-made": "bg-purple-500",
-  "escalation-created": "bg-amber-500",
-  "escalation-resolved": "bg-green-500",
-  "override-logged": "bg-amber-400",
-  "engine-run-started": "bg-blue-500",
-  "engine-run-complete": "bg-blue-400",
-  "engine-run-failed": "bg-red-500",
-  "capability-executed": "bg-pink-500",
-  "artifact-created": "bg-teal-500",
+// Map event type to accent color style
+const EVENT_STYLE: Record<string, string> = {
+  "decision-made": "bg-accent-purple",
+  "escalation-created": "bg-accent-amber",
+  "escalation-resolved": "bg-accent-green",
+  "override-logged": "bg-accent-amber",
+  "engine-run-started": "bg-accent-blue",
+  "engine-run-complete": "bg-accent-blue",
+  "engine-run-failed": "bg-accent-red",
+  "loop-run-started": "bg-accent-blue",
+  "loop-run-complete": "bg-accent-blue",
+  "loop-run-failed": "bg-accent-red",
+  "task-claimed": "bg-accent-amber",
+  "task-complete": "bg-accent-green",
+  "task-failed": "bg-accent-red",
+  "artifact-created": "bg-accent-purple",
+  "artifact-written": "bg-accent-purple",
+  "capability-executed": "bg-white/20",
+  "stage-advanced": "bg-accent-blue",
+  "recovery-triggered": "bg-accent-amber",
+  "founder-task-created": "bg-accent-amber",
+};
+
+// Label text color for badge-like display
+const EVENT_TEXT_COLOR: Record<string, string> = {
+  "engine-run-started": "text-accent-blue",
+  "engine-run-complete": "text-accent-blue",
+  "engine-run-failed": "text-accent-red",
+  "loop-run-started": "text-accent-blue",
+  "loop-run-complete": "text-accent-blue",
+  "loop-run-failed": "text-accent-red",
+  "task-claimed": "text-accent-amber",
+  "task-complete": "text-accent-green",
+  "task-failed": "text-accent-red",
+  "artifact-created": "text-accent-purple",
+  "artifact-written": "text-accent-purple",
+  "capability-executed": "text-text-dim",
+  "founder-task-created": "text-accent-amber",
+  "decision-made": "text-accent-purple",
+  "escalation-created": "text-accent-amber",
+  "escalation-resolved": "text-accent-green",
 };
 
 function EventDot({ event }: { event: string }) {
-  const color = EVENT_COLOR[event] ?? "bg-white/20";
+  const color = EVENT_STYLE[event] ?? "bg-white/20";
   return <span className={`w-2 h-2 rounded-full flex-shrink-0 mt-1.5 ${color}`} />;
 }
 
@@ -59,7 +99,7 @@ function EventDetail({ event, detail }: { event: string; detail: Record<string, 
       </span>
     );
   }
-  if (event === "engine-run-complete") {
+  if (event === "engine-run-complete" || event === "loop-run-complete") {
     return (
       <span className="text-xs font-mono text-text-dim">
         {String(detail.decisionsMade ?? 0)} decisions · {String(detail.escalationsCreated ?? 0)} escalations
@@ -70,6 +110,29 @@ function EventDetail({ event, detail }: { event: string; detail: Record<string, 
     return (
       <span className="text-xs font-mono text-text-dim">
         {String(detail.actionName ?? "")} · {String(detail.status ?? "")}
+      </span>
+    );
+  }
+  if (event === "task-claimed" || event === "task-complete" || event === "task-failed") {
+    return (
+      <span className="text-xs font-mono text-text-dim">
+        {String(detail.agent ?? "")}
+        {detail.taskId ? ` · ${String(detail.taskId).slice(0, 8)}…` : ""}
+      </span>
+    );
+  }
+  if (event === "artifact-created" || event === "artifact-written") {
+    return (
+      <span className="text-xs font-mono text-text-dim">
+        {String(detail.outputName ?? detail.name ?? "")}
+        {detail.agent ? ` by ${String(detail.agent)}` : ""}
+      </span>
+    );
+  }
+  if (event === "founder-task-created") {
+    return (
+      <span className="text-xs font-mono text-text-dim">
+        {String(detail.description ?? "").slice(0, 60)}
       </span>
     );
   }
@@ -93,7 +156,7 @@ export function ActivityView() {
 
     const interval = setInterval(() => {
       api.activity.list(projectId, 150).then(setEntries).catch(() => {});
-    }, 15_000);
+    }, 10_000);
     return () => clearInterval(interval);
   }, [projectId]);
 
@@ -116,7 +179,11 @@ export function ActivityView() {
                 <EventDot event={entry.event} />
                 <div className="flex-1 min-w-0">
                   <div className="flex items-baseline gap-2 flex-wrap">
-                    <span className="text-sm font-syne text-text-primary">
+                    <span
+                      className={`text-sm font-syne ${
+                        EVENT_TEXT_COLOR[entry.event] ?? "text-text-primary"
+                      }`}
+                    >
                       {EVENT_LABEL[entry.event] ?? entry.event}
                     </span>
                     <span className="text-xs font-mono text-text-dim flex-shrink-0">

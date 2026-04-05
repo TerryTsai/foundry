@@ -259,6 +259,8 @@ export interface Artifact {
   supersedes: string | null;
   createdAt: string;
   createdBy: "agent" | "founder" | "system";
+  taskId: string | null;
+  outputName: string | null;
 }
 
 export interface ArtifactWithContent extends Artifact {
@@ -275,4 +277,82 @@ export interface NewArtifact {
   snapshotOf?: string;
   supersedes?: string;
   createdBy: "agent" | "founder" | "system";
+  taskId?: string;
+  outputName?: string;
+}
+
+// ── Task types ────────────────────────────────────────────────────
+
+export interface TaskInput {
+  name: string;
+  artifact_id: string;
+}
+
+export interface TaskOutput {
+  name: string;
+  type: string;
+  isFailure?: boolean;
+}
+
+export interface Task {
+  id: string;
+  projectId: string;
+  agent: string;
+  description: string;
+  createdAt: string;
+  createdBy: string;
+  claimedAt: string | null;
+  inputs: TaskInput[];
+  outputs: TaskOutput[];
+}
+
+export type TaskState = "pending" | "running" | "complete" | "failed";
+
+export interface NewTask {
+  projectId: string;
+  agent: string;
+  description: string;
+  createdBy: string; // task_id or 'system'
+  inputs: TaskInput[];
+  outputs: TaskOutput[];
+}
+
+export interface TaskFilter {
+  agent?: string;
+  state?: TaskState;
+}
+
+// ── ProjectConfig types ───────────────────────────────────────────
+
+export interface ProjectConfigHead {
+  name: string;
+  type: string;
+  artifact_id: string;
+}
+
+export interface ProjectConfigTail {
+  name: string;
+  type: string;
+}
+
+export interface AgentDefinition {
+  name: string;
+  consumes: string[];
+  produces: string[];
+  tools: string[];
+  prompt: string | null;
+}
+
+export interface ProjectConfig {
+  workspace: string;
+  head: ProjectConfigHead[];
+  tail: ProjectConfigTail[];
+  agents: AgentDefinition[];
+}
+
+export interface DagValidationResult {
+  valid: boolean;
+  unreachableTail: string[];
+  orphanedAgents: string[];
+  missingProducers: string[];
 }
