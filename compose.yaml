@@ -58,12 +58,16 @@ services:
   web:
     build: ./web
     restart: unless-stopped
+    volumes:
+      - nginx-logs:/var/log/nginx:ro
 
   nginx:
     build: ./nginx
     restart: unless-stopped
     ports:
       - "8080:80"
+    volumes:
+      - nginx-logs:/var/log/nginx
     depends_on:
       - ticket
       - project
@@ -78,3 +82,4 @@ volumes:
   sandbox-data:
   sandbox-images:
   agent-data:
+  nginx-logs:

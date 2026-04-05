@@ -37,7 +37,19 @@ export interface AgentSession {
   id: string
   ticket_id: string
   agent_def_id: string
+  agent_name: string | null
   status: 'running' | 'done' | 'failed'
+  started_at: string
+  ended_at: string | null
+}
+
+export interface SandboxRun {
+  id: string
+  session_id: string | null
+  image: string
+  command: string
+  status: 'running' | 'done' | 'failed'
+  exit_code: number | null
   started_at: string
   ended_at: string | null
 }

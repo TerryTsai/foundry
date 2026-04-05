@@ -4,6 +4,7 @@ import { TicketsView } from './views/TicketsView.js'
 import { ProjectsView } from './views/ProjectsView.js'
 import { AgentsView } from './views/AgentsView.js'
 import { RepoView } from './views/RepoView.js'
+import { LogsView } from './views/LogsView.js'
 
 export function App() {
   return (
@@ -17,6 +18,7 @@ export function App() {
             <Route path="/projects" element={<ProjectsView />} />
             <Route path="/agents" element={<AgentsView />} />
             <Route path="/repo" element={<RepoView />} />
+            <Route path="/logs" element={<LogsView />} />
           </Routes>
         </div>
         <BottomNav />

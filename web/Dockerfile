@@ -7,7 +7,7 @@ RUN npm run build
 
 FROM docker.io/library/nginx:alpine
 COPY --from=build /app/dist /usr/share/nginx/html
-# SPA fallback: serve index.html for all non-asset routes
-RUN printf 'server {\n  listen 3006;\n  root /usr/share/nginx/html;\n  location / {\n    try_files $uri $uri/ /index.html;\n  }\n}\n' > /etc/nginx/conf.d/default.conf
+# SPA fallback + nginx log endpoint
+RUN printf 'server {\n  listen 3006;\n  root /usr/share/nginx/html;\n  location = /log/nginx {\n    alias /var/log/nginx/access.log;\n    default_type text/plain;\n    add_header Content-Type text/plain;\n  }\n  location / {\n    try_files $uri $uri/ /index.html;\n  }\n}\n' > /etc/nginx/conf.d/default.conf
 EXPOSE 3006
 CMD ["nginx", "-g", "daemon off;"]

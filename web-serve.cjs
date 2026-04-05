@@ -22,6 +22,7 @@ const PROXY = {
   '/repo': 3003,
   '/sandbox': 3004,
   '/agent': 3005,
+  '/session': 3005,
 }
 
 function proxy(req, res, targetPort) {
@@ -43,8 +44,25 @@ function proxy(req, res, targetPort) {
   req.pipe(upstream)
 }
 
+const NGINX_LOG = '/var/log/nginx/access.log'
+
 http.createServer((req, res) => {
   const urlPath = req.url.split('?')[0]
+
+  // Nginx log tail endpoint
+  if (urlPath === '/log/nginx') {
+    if (!fs.existsSync(NGINX_LOG)) {
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify([]))
+      return
+    }
+    const content = fs.readFileSync(NGINX_LOG, 'utf8')
+    const lines = content.split('\n').filter(Boolean)
+    const tail = lines.slice(-500)
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify(tail))
+    return
+  }
 
   // Check if this request should be proxied
   for (const [prefix, port] of Object.entries(PROXY)) {

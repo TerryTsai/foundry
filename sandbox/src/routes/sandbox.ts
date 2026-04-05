@@ -15,6 +15,16 @@ type Spawn = (opts: RunOptions) => { emitter: EventEmitter; kill: () => void }
 export function sandboxRouter(db: Db, spawn: Spawn, timeoutMs = 5 * 60 * 1000) {
   const router = Router()
 
+  // GET /sandbox — list recent runs
+  router.get('/', (_req: Request, res: Response) => {
+    const runs = db.select().from(sandboxRuns)
+      .orderBy(sandboxRuns.started_at)
+      .all()
+      .reverse()
+      .slice(0, 200)
+    res.json(runs)
+  })
+
   // POST /sandbox
   router.post('/', (req: Request, res: Response) => {
     const body = z.object({

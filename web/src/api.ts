@@ -1,4 +1,4 @@
-import type { Project, Ticket, AgentDef } from './types.js'
+import type { Project, Ticket, AgentDef, AgentSession, SandboxRun } from './types.js'
 
 async function get<T>(url: string): Promise<T> {
   const res = await fetch(url)
@@ -69,6 +69,18 @@ export const agentApi = {
   update: (id: string, data: { prompt?: string; image?: string; env?: string[] }) =>
     put<AgentDef>(`/agent/${id}`, data),
   delete: (id: string) => del<{ ok: boolean }>(`/agent/${id}`),
+}
+
+// Logs
+export const logsApi = {
+  sessions: () => get<AgentSession[]>('/session'),
+  sandboxRuns: () => get<SandboxRun[]>('/sandbox'),
+  nginx: async (): Promise<string[]> => {
+    const res = await fetch('/log/nginx')
+    if (!res.ok) return []
+    const text = await res.text()
+    return text.split('\n').filter(Boolean).slice(-500)
+  },
 }
 
 // Repo
