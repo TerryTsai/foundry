@@ -25,14 +25,14 @@ export function Sheet({ open, onClose, children }: SheetProps) {
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col justify-end">
-      <div className="absolute inset-0 bg-black/40 dark:bg-black/60" onClick={onClose} />
-      <div className="relative bg-white dark:bg-zinc-950 border-t border-zinc-200 dark:border-zinc-800 max-h-[92dvh] flex flex-col">
-        <div className="flex items-center justify-between px-4 py-2 border-b border-zinc-100 dark:border-zinc-800/60 shrink-0">
-          <span className="font-mono text-[10px] uppercase tracking-widest text-zinc-400 dark:text-zinc-600">
+      <div className="absolute inset-0 bg-black/60" onClick={onClose} />
+      <div className="relative bg-zinc-950 border-t border-zinc-800 max-h-[92dvh] flex flex-col">
+        <div className="flex items-center justify-between px-4 py-2 border-b border-zinc-800 shrink-0">
+          <span className="font-mono text-[10px] uppercase tracking-widest text-zinc-600">
             detail
           </span>
           <button onClick={onClose}
-            className="font-mono text-xs text-zinc-400 dark:text-zinc-600 active:text-zinc-900 dark:active:text-zinc-100 px-1 py-1">
+            className="font-mono text-xs text-zinc-600 active:text-zinc-100 px-1 py-1">
             ✕
           </button>
         </div>

@@ -3,6 +3,11 @@ import { projectApi, agentApi } from '../api.js'
 import type { Project } from '../types.js'
 import { StatusBadge } from '../components/StatusBadge.js'
 import { Sheet } from '../components/Sheet.js'
+import { ListRow } from '../components/list/ListRow.js'
+import { EmptyState } from '../components/list/EmptyState.js'
+import { Field } from '../components/form/Field.js'
+import { TextInput } from '../components/form/TextInput.js'
+import { ActionButton } from '../components/form/ActionButton.js'
 
 const DEFAULT_AGENT_PROMPT = `You are a software engineering agent working on a codebase. You receive tickets describing tasks to implement.
 
@@ -16,11 +21,6 @@ Use run_command to run shell commands (git, npm, tests, etc).
 Use create_ticket to break large tasks into sub-tickets before starting work on them.
 
 Always read existing code before modifying it. Write clean, minimal changes that match the existing style.`
-
-const inputCls = 'w-full bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-700 text-zinc-900 dark:text-zinc-200 font-mono text-sm px-3 py-2 focus:border-zinc-400 dark:focus:border-zinc-500 transition-colors'
-const labelCls = 'font-mono text-[10px] uppercase tracking-widest text-zinc-400 dark:text-zinc-600'
-const btnPrimary = 'flex-1 font-mono text-xs uppercase tracking-wider bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 py-2.5 active:opacity-75 transition-opacity'
-const btnSecondary = 'flex-1 font-mono text-xs uppercase tracking-wider bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 py-2.5 active:opacity-75 transition-opacity'
 
 function ProjectSheet({ project, onClose, onUpdate }: { project: Project | null; onClose: () => void; onUpdate: () => void }) {
   const [name, setName] = useState('')
@@ -70,45 +70,37 @@ function ProjectSheet({ project, onClose, onUpdate }: { project: Project | null;
   return (
     <form onSubmit={handleSave} className="space-y-3">
       <div className="flex items-start justify-between gap-3">
-        <h2 className="font-display text-base font-bold text-zinc-900 dark:text-zinc-100">
+        <h2 className="font-display text-base font-bold text-zinc-100">
           {isNew ? 'New Project' : project.name}
         </h2>
         {project && <StatusBadge status={project.status} />}
       </div>
-      {error && <div className="font-mono text-xs text-red-500">{error}</div>}
-      <div className="space-y-1">
-        <label className={labelCls}>name</label>
-        <input value={name} onChange={e => setName(e.target.value)} required className={inputCls} />
-      </div>
-      <div className="space-y-1">
-        <label className={labelCls}>workspace path</label>
-        <input value={workspace} onChange={e => setWorkspace(e.target.value)} required
-          placeholder="/repos/myproject.git" className={inputCls} />
-      </div>
+      {error && <div className="font-mono text-xs text-red-400">{error}</div>}
+      <Field label="name">
+        <TextInput value={name} onChange={e => setName(e.target.value)} required />
+      </Field>
+      <Field label="workspace path">
+        <TextInput value={workspace} onChange={e => setWorkspace(e.target.value)} required
+          placeholder="/repos/myproject.git" />
+      </Field>
       <div className="grid grid-cols-2 gap-3">
-        <div className="space-y-1">
-          <label className={labelCls}>interval (s)</label>
-          <input type="number" value={interval} onChange={e => setInterval(e.target.value)} required min="10" className={inputCls} />
-        </div>
-        <div className="space-y-1">
-          <label className={labelCls}>concurrency</label>
-          <input type="number" value={concurrency} onChange={e => setConcurrency(e.target.value)} required min="1" className={inputCls} />
-        </div>
+        <Field label="interval (s)">
+          <TextInput type="number" value={interval} onChange={e => setInterval(e.target.value)} required min="10" />
+        </Field>
+        <Field label="concurrency">
+          <TextInput type="number" value={concurrency} onChange={e => setConcurrency(e.target.value)} required min="1" />
+        </Field>
       </div>
       <div className="flex gap-2 pt-1">
-        <button type="submit" className={btnPrimary}>{isNew ? 'create' : 'save'}</button>
-        <button type="button" onClick={onClose} className={btnSecondary}>cancel</button>
+        <ActionButton label={isNew ? 'create' : 'save'} type="submit" className="flex-1" />
+        <ActionButton label="cancel" variant="secondary" onClick={onClose} className="flex-1" />
       </div>
       {project && (
         <div className="flex gap-2">
-          <button type="button" onClick={handleRun} disabled={project.status !== 'active'}
-            className="flex-1 font-mono text-xs uppercase tracking-wider bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 py-2.5 active:opacity-75 disabled:opacity-30">
-            run now
-          </button>
-          <button type="button" onClick={handleToggle}
-            className="flex-1 font-mono text-xs uppercase tracking-wider bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 py-2.5 active:opacity-75">
-            {project.status === 'active' ? 'pause' : 'resume'}
-          </button>
+          <ActionButton label="run now" variant="secondary" onClick={handleRun}
+            disabled={project.status !== 'active'} className="flex-1" />
+          <ActionButton label={project.status === 'active' ? 'pause' : 'resume'}
+            variant="secondary" onClick={handleToggle} className="flex-1" />
         </div>
       )}
     </form>
@@ -130,36 +122,33 @@ export function ProjectsView() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="px-4 py-2 border-b border-zinc-200 dark:border-zinc-800 shrink-0 flex items-center gap-3">
-        <span className="font-mono text-[10px] uppercase tracking-widest text-zinc-400 dark:text-zinc-600">
+      <div className="px-4 py-2 border-b border-zinc-800 shrink-0 flex items-center gap-3">
+        <span className="font-mono text-[10px] uppercase tracking-widest text-zinc-600">
           {projects.length}
         </span>
         <button onClick={openNew}
-          className="font-mono text-[10px] uppercase tracking-wider border border-zinc-200 dark:border-zinc-700 text-zinc-500 dark:text-zinc-400 active:bg-zinc-100 dark:active:bg-zinc-800 px-3 py-1.5">
+          className="font-mono text-[10px] uppercase tracking-wider border border-zinc-700 text-zinc-400 active:bg-zinc-800 px-3 py-1.5">
           + new
         </button>
         <button onClick={load}
-          className="font-mono text-xs text-zinc-300 dark:text-zinc-600 active:text-zinc-900 dark:active:text-zinc-100 ml-auto px-1">
+          className="font-mono text-xs text-zinc-600 active:text-zinc-100 ml-auto px-1">
           ↻
         </button>
       </div>
 
       <div className="overflow-y-auto flex-1">
-        {projects.length === 0 && (
-          <div className="px-4 py-3 font-mono text-xs text-zinc-400 dark:text-zinc-600">no projects</div>
-        )}
-        {projects.map(p => (
-          <button key={p.id} onClick={() => openProject(p)}
-            className="w-full text-left border-b border-zinc-100 dark:border-zinc-800/50 active:bg-zinc-50 dark:active:bg-zinc-900/70 px-4 py-2.5 flex items-center gap-3">
-            <div className="flex-1 min-w-0">
-              <div className="text-zinc-800 dark:text-zinc-200 text-sm leading-snug truncate">{p.name}</div>
-              <div className="font-mono text-[10px] text-zinc-400 dark:text-zinc-600 mt-0.5 truncate">
-                {p.workspace} · {p.schedule_interval}s · {ts(p.created_at)}
-              </div>
-            </div>
-            <div className="shrink-0"><StatusBadge status={p.status} /></div>
-          </button>
-        ))}
+        {projects.length === 0
+          ? <EmptyState message="no projects" />
+          : projects.map(p => (
+            <ListRow
+              key={p.id}
+              title={p.name}
+              subtitle={`${p.workspace} · ${p.schedule_interval}s · ${ts(p.created_at)}`}
+              status={p.status}
+              onPress={() => openProject(p)}
+            />
+          ))
+        }
       </div>
 
       <Sheet open={open} onClose={() => setOpen(false)}>
