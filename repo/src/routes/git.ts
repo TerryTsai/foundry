@@ -1,7 +1,7 @@
 import { Router, type Request, type Response } from 'express'
 import { join } from 'path'
 // @ts-ignore — no types for node-git-server
-import Server from 'node-git-server'
+import { Git as Server } from 'node-git-server'
 
 export function gitRouter(repoBase: string) {
   const repos = new Server(repoBase, { autoCreate: false })
