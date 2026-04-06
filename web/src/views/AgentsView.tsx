@@ -64,13 +64,13 @@ function AgentSheet({
             className="disabled:opacity-40" />
         </Field>
         <Field label="prompt">
-          <TextArea value={prompt} onChange={e => setPrompt(e.target.value)} required rows={8} />
+          <TextArea label="prompt" value={prompt} onChange={e => setPrompt(e.target.value)} required rows={8} />
         </Field>
       </div>
       <div className="shrink-0 pt-3 space-y-2">
         <div className="flex gap-2">
-          <ActionButton label={isNew ? 'create' : 'save'} type="submit" className="flex-1" />
           <ActionButton label="cancel" variant="secondary" onClick={onClose} className="flex-1" />
+          <ActionButton label={isNew ? 'create' : 'save'} type="submit" className="flex-1" />
         </div>
         {!isNew && (
           <ActionButton label="delete agent" variant="destructive" onClick={handleDelete} className="w-full" />

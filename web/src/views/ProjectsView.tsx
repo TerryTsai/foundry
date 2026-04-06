@@ -25,48 +25,40 @@ Always read existing code before modifying it. Write clean, minimal changes that
 
 function ProjectSheet({ project, onClose, onUpdate }: { project: Project | null; onClose: () => void; onUpdate: () => void }) {
   const [name, setName] = useState('')
-  const [workspace, setWorkspace] = useState('')
   const [interval, setInterval] = useState('')
-  const [concurrency, setConcurrency] = useState('')
+  const [maxAgents, setMaxAgents] = useState('')
   const [error, setError] = useState('')
   const isNew = project === null
 
   useEffect(() => {
     if (project) {
       setName(project.name)
-      setWorkspace(project.workspace)
       setInterval(String(project.schedule_interval))
-      setConcurrency(String(project.concurrency_limit))
+      setMaxAgents(String(project.concurrency_limit))
     } else {
-      setName(''); setWorkspace(''); setInterval('600'); setConcurrency('3')
+      setName(''); setInterval('600'); setMaxAgents('3')
     }
     setError('')
   }, [project])
+
+  function toWorkspace(n: string) {
+    return `/repos/${n.toLowerCase().replace(/\s+/g, '-')}`
+  }
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault()
     setError('')
     try {
       if (isNew) {
-        const p = await projectApi.create({ name, workspace, schedule_interval: +interval, concurrency_limit: +concurrency })
+        const p = await projectApi.create({ name, workspace: toWorkspace(name), schedule_interval: +interval, concurrency_limit: +maxAgents })
         await agentApi.create({ project_id: p.id, name: 'coder', image: 'node:20', prompt: DEFAULT_AGENT_PROMPT, env: [] })
       } else {
-        await projectApi.update(project.id, { name, workspace, schedule_interval: +interval, concurrency_limit: +concurrency })
+        await projectApi.update(project.id, { schedule_interval: +interval, concurrency_limit: +maxAgents })
       }
       onUpdate(); onClose()
     } catch (err) { setError(err instanceof Error ? err.message : 'failed') }
   }
 
-  async function handleToggle() {
-    if (!project) return
-    await projectApi.update(project.id, { status: project.status === 'active' ? 'paused' : 'active' })
-    onUpdate(); onClose()
-  }
-
-  async function handleRun() {
-    if (!project) return
-    await projectApi.run(project.id)
-  }
 
   return (
     <form onSubmit={handleSave} className="h-full flex flex-col">
@@ -76,32 +68,20 @@ function ProjectSheet({ project, onClose, onUpdate }: { project: Project | null;
         <Field label="name">
           <TextInput value={name} onChange={e => setName(e.target.value)} required />
         </Field>
-        <Field label="workspace path">
-          <TextInput value={workspace} onChange={e => setWorkspace(e.target.value)} required
-            placeholder="/repos/myproject.git" />
-        </Field>
         <div className="grid grid-cols-2 gap-3">
           <Field label="interval (s)">
             <TextInput type="number" value={interval} onChange={e => setInterval(e.target.value)} required min="10" />
           </Field>
-          <Field label="concurrency">
-            <TextInput type="number" value={concurrency} onChange={e => setConcurrency(e.target.value)} required min="1" />
+          <Field label="max agents">
+            <TextInput type="number" value={maxAgents} onChange={e => setMaxAgents(e.target.value)} required min="1" />
           </Field>
         </div>
       </div>
       <div className="shrink-0 pt-3 space-y-2">
         <div className="flex gap-2">
-          <ActionButton label={isNew ? 'create' : 'save'} type="submit" className="flex-1" />
           <ActionButton label="cancel" variant="secondary" onClick={onClose} className="flex-1" />
+          <ActionButton label={isNew ? 'create' : 'save'} type="submit" className="flex-1" />
         </div>
-        {project && (
-          <div className="flex gap-2">
-            <ActionButton label="run now" variant="secondary" onClick={handleRun}
-              disabled={project.status !== 'active'} className="flex-1" />
-            <ActionButton label={project.status === 'active' ? 'pause' : 'resume'}
-              variant="secondary" onClick={handleToggle} className="flex-1" />
-          </div>
-        )}
       </div>
     </form>
   )

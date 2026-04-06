@@ -33,23 +33,25 @@ function ProjectForm({
   onCancel: () => void
 }) {
   const [name, setName] = useState('')
-  const [workspace, setWorkspace] = useState('')
   const [interval, setInterval] = useState('600')
-  const [concurrency, setConcurrency] = useState('3')
+  const [maxAgents, setMaxAgents] = useState('3')
   const [error, setError] = useState('')
   const isNew = project === null
 
   useEffect(() => {
     if (project) {
       setName(project.name)
-      setWorkspace(project.workspace)
       setInterval(String(project.schedule_interval))
-      setConcurrency(String(project.concurrency_limit))
+      setMaxAgents(String(project.concurrency_limit))
     } else {
-      setName(''); setWorkspace(''); setInterval('600'); setConcurrency('3')
+      setName(''); setInterval('600'); setMaxAgents('3')
     }
     setError('')
   }, [project])
+
+  function toWorkspace(n: string) {
+    return `/repos/${n.toLowerCase().replace(/\s+/g, '-')}`
+  }
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault()
@@ -57,25 +59,15 @@ function ProjectForm({
     try {
       let saved: Project
       if (isNew) {
-        saved = await projectApi.create({ name, workspace, schedule_interval: +interval, concurrency_limit: +concurrency })
+        saved = await projectApi.create({ name, workspace: toWorkspace(name), schedule_interval: +interval, concurrency_limit: +maxAgents })
         await agentApi.create({ project_id: saved.id, name: 'coder', prompt: DEFAULT_AGENT_PROMPT })
       } else {
-        saved = await projectApi.update(project.id, { name, workspace, schedule_interval: +interval, concurrency_limit: +concurrency })
+        saved = await projectApi.update(project.id, { schedule_interval: +interval, concurrency_limit: +maxAgents })
       }
       onSave(saved)
     } catch (err) { setError(err instanceof Error ? err.message : 'failed') }
   }
 
-  async function handleToggle() {
-    if (!project) return
-    const saved = await projectApi.update(project.id, { status: project.status === 'active' ? 'paused' : 'active' })
-    onSave(saved)
-  }
-
-  async function handleRun() {
-    if (!project) return
-    await projectApi.run(project.id)
-  }
 
   return (
     <form onSubmit={handleSave} className="h-full flex flex-col">
@@ -84,31 +76,20 @@ function ProjectForm({
         <Field label="name">
           <TextInput value={name} onChange={e => setName(e.target.value)} required />
         </Field>
-        <Field label="workspace path">
-          <TextInput value={workspace} onChange={e => setWorkspace(e.target.value)} required placeholder="/repos/myproject.git" />
-        </Field>
         <div className="grid grid-cols-2 gap-3">
           <Field label="interval (s)">
             <TextInput type="number" value={interval} onChange={e => setInterval(e.target.value)} required min="10" />
           </Field>
-          <Field label="concurrency">
-            <TextInput type="number" value={concurrency} onChange={e => setConcurrency(e.target.value)} required min="1" />
+          <Field label="max agents">
+            <TextInput type="number" value={maxAgents} onChange={e => setMaxAgents(e.target.value)} required min="1" />
           </Field>
         </div>
       </div>
       <div className="shrink-0 pt-3 space-y-2">
         <div className="flex gap-2">
-          <ActionButton label={isNew ? 'create' : 'save'} type="submit" className="flex-1" />
           <ActionButton label="cancel" variant="secondary" onClick={onCancel} className="flex-1" />
+          <ActionButton label={isNew ? 'create' : 'save'} type="submit" className="flex-1" />
         </div>
-        {project && (
-          <div className="flex gap-2">
-            <ActionButton label="run now" variant="secondary" onClick={handleRun}
-              disabled={project.status !== 'active'} className="flex-1" />
-            <ActionButton label={project.status === 'active' ? 'pause' : 'resume'}
-              variant="secondary" onClick={handleToggle} className="flex-1" />
-          </div>
-        )}
       </div>
     </form>
   )

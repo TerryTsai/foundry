@@ -1,9 +1,9 @@
 type Variant = 'primary' | 'secondary' | 'destructive'
 
 const variants: Record<Variant, string> = {
-  primary:     'bg-zinc-100 text-zinc-900 hover:bg-white',
-  secondary:   'bg-zinc-800 text-zinc-300 hover:bg-zinc-700',
-  destructive: 'border border-zinc-800 text-zinc-500 active:text-red-400 active:border-red-800',
+  primary:     'bg-sky-400 text-zinc-950 font-semibold active:bg-sky-300',
+  secondary:   'border border-zinc-700 text-zinc-400 active:border-zinc-500 active:text-zinc-200',
+  destructive: 'bg-red-500/10 border border-red-500/25 text-red-400 active:bg-red-500/20 active:border-red-500/40',
 }
 
 interface ActionButtonProps {

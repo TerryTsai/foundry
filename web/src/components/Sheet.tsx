@@ -32,7 +32,7 @@ export function Sheet({ open, onClose, title, children }: SheetProps) {
         <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-800/60 shrink-0">
           <span className="text-sm font-semibold text-zinc-100">{title}</span>
           <button onClick={onClose}
-            className="text-zinc-500 active:text-zinc-100 p-1 -mr-1">
+            className="text-zinc-500 active:text-sky-400 p-1 -mr-1">
             <X size={16} strokeWidth={2} />
           </button>
         </div>

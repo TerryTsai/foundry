@@ -21,10 +21,13 @@ export function TabBar({ current, onChange }: TabBarProps) {
         <button
           key={t.id}
           onClick={() => onChange(t.id)}
-          className={`flex-1 flex flex-col items-center justify-center py-2.5 gap-1 transition-colors ${
-            current === t.id ? 'text-zinc-100' : 'text-zinc-500'
+          className={`flex-1 flex flex-col items-center justify-center py-2.5 gap-1 transition-colors relative ${
+            current === t.id ? 'text-amber-400' : 'text-zinc-500'
           }`}
         >
+          {current === t.id && (
+            <span className="absolute top-0 left-1/2 -translate-x-1/2 w-4 h-px bg-amber-400 rounded-full" />
+          )}
           {t.icon}
           <span className="text-[10px] leading-none">{t.label}</span>
         </button>

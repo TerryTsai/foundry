@@ -88,13 +88,13 @@ export function MultiSelect({ label, options, selected, onChange }: MultiSelectP
         onClick={handleOpen}
         className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs transition-colors shrink-0 ${
           active
-            ? 'border-zinc-500 bg-zinc-800 text-zinc-100'
+            ? 'border-sky-500/60 bg-sky-500/10 text-sky-300'
             : 'border-zinc-800 text-zinc-500 active:border-zinc-600'
         }`}
       >
         <span>{label}</span>
         {active && (
-          <span className="bg-zinc-600 text-zinc-200 text-[10px] font-medium rounded-full w-4 h-4 flex items-center justify-center leading-none">
+          <span className="bg-sky-500/30 text-sky-200 text-[10px] font-medium rounded-full w-4 h-4 flex items-center justify-center leading-none">
             {count}
           </span>
         )}

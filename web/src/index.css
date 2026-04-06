@@ -146,6 +146,7 @@
 }
 
 @layer base {
+
   body {
     @apply bg-zinc-950 text-zinc-200;
     -webkit-font-smoothing: antialiased;

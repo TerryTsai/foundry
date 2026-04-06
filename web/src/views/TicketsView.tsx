@@ -86,12 +86,12 @@ function TicketForm({
           <TextInput value={title} onChange={e => setTitle(e.target.value)} required />
         </Field>
         <Field label="description">
-          <TextArea value={body} onChange={e => setBody(e.target.value)} required rows={5} />
+          <TextArea label="description" value={body} onChange={e => setBody(e.target.value)} required rows={5} />
         </Field>
       </div>
       <div className="shrink-0 pt-3 flex gap-2">
-        <ActionButton label="create" type="submit" disabled={!agent} className="flex-1" />
         <ActionButton label="cancel" variant="secondary" onClick={onCancel} className="flex-1" />
+        <ActionButton label="create" type="submit" disabled={!agent} className="flex-1" />
       </div>
     </form>
   )
@@ -151,10 +151,10 @@ function TicketDetail({
         {editing ? (
           <div className="space-y-4">
             <Field label="body">
-              <TextArea value={body} onChange={e => setBody(e.target.value)} rows={6} />
+              <TextArea label="body" value={body} onChange={e => setBody(e.target.value)} rows={6} />
             </Field>
             <Field label="notes">
-              <TextArea value={notes} onChange={e => setNotes(e.target.value)} rows={3} placeholder="optional notes" />
+              <TextArea label="notes" value={notes} onChange={e => setNotes(e.target.value)} rows={3} placeholder="optional notes" />
             </Field>
           </div>
         ) : (
@@ -189,8 +189,8 @@ function TicketDetail({
 
       {editing && (
         <div className="shrink-0 pt-3 flex gap-2">
-          <ActionButton label="save" onClick={handleSave} className="flex-1" />
           <ActionButton label="cancel" variant="secondary" onClick={() => setEditing(false)} className="flex-1" />
+          <ActionButton label="save" onClick={handleSave} className="flex-1" />
         </div>
       )}
       {!editing && ticket.status === 'failed' && (

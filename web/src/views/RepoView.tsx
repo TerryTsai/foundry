@@ -281,30 +281,15 @@ export function RepoView({ projectSlug }: { projectSlug: string }) {
         </div>
       </div>
 
-      <div className="flex flex-row flex-1 overflow-hidden">
-
-        {/* Sidebar */}
-        {sidebarOpen && (
-          <div className="shrink-0 w-56 border-r border-zinc-800/60 overflow-y-auto py-2">
-            {loadingFiles ? (
-              <EmptyState message="loading…" />
-            ) : tree.length === 0 ? (
-              <EmptyState message="no files" />
-            ) : tree.map((node, i) => (
-              <div key={i} className="relative">
-                <TreeNodeRow node={node} depth={0} selectedFile={selectedFile} onFileClick={handleFileClick} />
-              </div>
-            ))}
-          </div>
-        )}
+      <div className="relative flex-1 overflow-hidden">
 
         {/* Content */}
-        <div className="relative flex-1 overflow-auto min-h-0 bg-zinc-950">
+        <div className="absolute inset-0 overflow-auto bg-zinc-950">
           {/* Loading bar */}
           {loadingContent && (
             <div className="absolute top-0 left-0 right-0 h-px bg-zinc-800 overflow-hidden z-10">
               <div
-                className="h-full bg-zinc-400 w-1/2"
+                className="h-full bg-sky-400 w-1/2"
                 style={{ animation: 'loadbar 1.1s ease-in-out infinite' }}
               />
             </div>
@@ -317,7 +302,7 @@ export function RepoView({ projectSlug }: { projectSlug: string }) {
                 dangerouslySetInnerHTML={{ __html: rendered.html }}
               />
             ) : (
-              <pre className="font-mono text-xs leading-relaxed p-5 hljs-zinc overflow-auto">
+              <pre className="font-mono text-xs leading-relaxed p-5 hljs-zinc min-h-full">
                 <code dangerouslySetInnerHTML={{ __html: rendered.html }} />
               </pre>
             )
@@ -326,6 +311,29 @@ export function RepoView({ projectSlug }: { projectSlug: string }) {
             <EmptyState message="select a file" />
           )}
         </div>
+
+        {/* Sidebar overlay */}
+        {sidebarOpen && (
+          <>
+            {/* Backdrop */}
+            <div
+              className="absolute inset-0 z-10"
+              onClick={() => setSidebarOpen(false)}
+            />
+            {/* Drawer */}
+            <div className="absolute top-0 left-0 bottom-0 z-20 w-56 bg-zinc-950 border-r border-zinc-800/60 overflow-y-auto py-2 shadow-xl">
+              {loadingFiles ? (
+                <EmptyState message="loading…" />
+              ) : tree.length === 0 ? (
+                <EmptyState message="no files" />
+              ) : tree.map((node, i) => (
+                <div key={i} className="relative">
+                  <TreeNodeRow node={node} depth={0} selectedFile={selectedFile} onFileClick={handleFileClick} />
+                </div>
+              ))}
+            </div>
+          </>
+        )}
       </div>
     </div>
   )

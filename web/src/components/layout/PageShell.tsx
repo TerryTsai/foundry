@@ -41,7 +41,7 @@ export function PageShell({ action, onRefresh, children }: PageShellProps) {
       {action && (
         <button
           onClick={action.onPress}
-          className="absolute bottom-4 right-4 z-10 flex items-center gap-1.5 px-4 py-2 bg-zinc-800/90 backdrop-blur-sm text-zinc-200 text-sm font-medium rounded-full shadow-lg active:opacity-75 transition-opacity"
+          className="absolute bottom-4 right-4 z-10 flex items-center gap-1.5 px-4 py-2 bg-sky-500/15 border border-sky-500/25 backdrop-blur-sm text-sky-300 text-sm font-medium rounded-full shadow-lg active:opacity-75 transition-opacity"
         >
           <span className="text-zinc-400">+</span> {action.label}
         </button>
