@@ -8,15 +8,11 @@ import {
   scheduleProject,
   clearProjectSchedule,
 } from './scheduler.js'
+import { config } from './config.js'
 
-const port = parseInt(process.env.PROJECT_PORT ?? '3001', 10)
-const dbPath = process.env.DB_PATH ?? './project.db'
+const deps = { ticketUrl: config.ticketUrl, agentUrl: config.agentUrl }
 
-const ticketUrl = process.env.TICKET_URL ?? 'http://localhost:3002'
-const agentUrl = process.env.AGENT_URL ?? 'http://localhost:3005'
-const deps = { ticketUrl, agentUrl }
-
-const { db } = createDb(dbPath)
+const { db } = createDb(config.dbPath)
 
 const app = express()
 app.use(express.json())
@@ -38,8 +34,8 @@ app.use('/project', projectRouter(db, {
 
 app.get('/health', (_req, res) => res.json({ ok: true }))
 
-app.listen(port, async () => {
-  console.log(`project service listening on port ${port}`)
+app.listen(config.port, async () => {
+  console.log(`project service listening on port ${config.port}`)
   // Recover stalled tickets from a previous crash
   await recoverStalledTickets(db, deps).catch(console.error)
   // Start per-project schedulers
