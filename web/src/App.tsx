@@ -10,48 +10,7 @@ import { AgentsView } from './views/AgentsView.js'
 import { RepoView } from './views/RepoView.js'
 import { LogsView } from './views/LogsView.js'
 
-function usePreventSafariBounce() {
-  useEffect(() => {
-    let startY = 0
-
-    function onTouchStart(e: TouchEvent) {
-      startY = e.touches[0].clientY
-    }
-
-    function onTouchMove(e: TouchEvent) {
-      const dy = e.touches[0].clientY - startY
-
-      // Walk up from the target to find a scrollable ancestor
-      let el = e.target as HTMLElement | null
-      while (el && el !== document.documentElement) {
-        const { overflowY } = window.getComputedStyle(el)
-        const scrollable = (overflowY === 'auto' || overflowY === 'scroll') && el.scrollHeight > el.clientHeight
-        if (scrollable) {
-          const atTop    = el.scrollTop === 0
-          const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 1
-          // Pulling down at top — let it through so pull-to-refresh touchEnd fires
-          if (dy > 0 && atTop) return
-          // Scrolling within bounds — allow
-          if ((dy < 0 && !atBottom) || (dy > 0 && !atTop)) return
-          break
-        }
-        el = el.parentElement
-      }
-
-      e.preventDefault()
-    }
-
-    document.addEventListener('touchstart', onTouchStart, { passive: true })
-    document.addEventListener('touchmove', onTouchMove, { passive: false })
-    return () => {
-      document.removeEventListener('touchstart', onTouchStart)
-      document.removeEventListener('touchmove', onTouchMove)
-    }
-  }, [])
-}
-
 export function App() {
-  usePreventSafariBounce()
   const [projects, setProjects] = useState<Project[]>([])
   const [project, setProject] = useState<Project | null>(null)
   const [tab, setTab] = useState<Tab>('tickets')
