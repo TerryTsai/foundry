@@ -70,7 +70,7 @@ function buildSystemPrompt(
 export async function runAgentSession(
   db: Db,
   sessionId: string,
-  agentDef: { id: string; project_id: string; name: string; prompt: string; image: string; env: string },
+  agentDef: { id: string; project_id: string; name: string; prompt: string },
   ticket: TicketData,
   deps: SessionDeps,
 ): Promise<void> {
@@ -91,20 +91,10 @@ export async function runAgentSession(
 
   const systemPrompt = buildSystemPrompt(agentDef.prompt, agentMd, chain, ticket)
 
-  // Resolve env vars: names stored in agentDef.env, values from process.env
-  const envNames: string[] = JSON.parse(agentDef.env) as string[]
-  const env: Record<string, string> = {}
-  for (const name of envNames) {
-    const val = process.env[name]
-    if (val !== undefined) env[name] = val
-  }
-
   const tools: Tool[] = [
     makeRunCommandTool({
       sandboxUrl: deps.sandboxUrl,
-      image: agentDef.image,
       workspace: `/tmp/foundry-work-${sessionId}`,
-      env,
       sessionId,
     }),
     makeCreateTicketTool({

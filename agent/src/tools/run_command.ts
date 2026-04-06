@@ -2,9 +2,7 @@ import { z } from 'zod'
 
 export interface RunCommandDeps {
   sandboxUrl: string
-  image: string
   workspace: string
-  env: Record<string, string>
   sessionId: string
 }
 
@@ -74,10 +72,8 @@ export function makeRunCommandTool(deps: RunCommandDeps) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          image: deps.image,
           command,
           workspace: deps.workspace,
-          env: deps.env,
           session_id: deps.sessionId,
           network: args.network ?? false,
         }),

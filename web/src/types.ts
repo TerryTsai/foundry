@@ -28,8 +28,6 @@ export interface AgentDef {
   project_id: string
   name: string
   prompt: string
-  image: string
-  env: string   // JSON string: string[]
   created_at: string
 }
 

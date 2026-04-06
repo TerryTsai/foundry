@@ -22,8 +22,6 @@ function AgentSheet({
   onUpdate: () => void
 }) {
   const [name, setName] = useState('')
-  const [image, setImage] = useState('node:20')
-  const [env, setEnv] = useState('')
   const [prompt, setPrompt] = useState('')
   const [error, setError] = useState('')
   const isNew = agent === null
@@ -31,11 +29,9 @@ function AgentSheet({
   useEffect(() => {
     if (agent) {
       setName(agent.name)
-      setImage(agent.image)
-      setEnv(JSON.parse(agent.env).join(', '))
       setPrompt(agent.prompt)
     } else {
-      setName(''); setImage('node:20'); setEnv(''); setPrompt('')
+      setName(''); setPrompt('')
     }
     setError('')
   }, [agent])
@@ -43,12 +39,11 @@ function AgentSheet({
   async function handleSave(e: React.FormEvent) {
     e.preventDefault()
     setError('')
-    const envList = env.trim() ? env.split(',').map(s => s.trim()).filter(Boolean) : []
     try {
       if (isNew) {
-        await agentApi.create({ project_id: projectId, name, image, prompt, env: envList })
+        await agentApi.create({ project_id: projectId, name, prompt })
       } else {
-        await agentApi.update(agent.id, { image, prompt, env: envList })
+        await agentApi.update(agent.id, { prompt })
       }
       onUpdate(); onClose()
     } catch (err) { setError(err instanceof Error ? err.message : 'failed') }
@@ -69,12 +64,6 @@ function AgentSheet({
       <Field label="name">
         <TextInput value={name} onChange={e => setName(e.target.value)} required disabled={!isNew}
           className="disabled:opacity-40" />
-      </Field>
-      <Field label="image">
-        <TextInput value={image} onChange={e => setImage(e.target.value)} required />
-      </Field>
-      <Field label="env vars (comma-separated)">
-        <TextInput value={env} onChange={e => setEnv(e.target.value)} placeholder="API_KEY,DB_URL" />
       </Field>
       <Field label="prompt">
         <TextArea value={prompt} onChange={e => setPrompt(e.target.value)} required rows={8} />
@@ -117,7 +106,6 @@ export function AgentsView({ projectId }: { projectId: string }) {
             <ListRow
               key={a.id}
               title={a.name}
-              subtitle={a.image}
               onPress={() => openAgent(a)}
             />
           ))

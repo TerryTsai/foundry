@@ -5,6 +5,7 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 3006,
+    host: true,
     proxy: {
       '/project': 'http://localhost:3001',
       '/ticket': 'http://localhost:3002',

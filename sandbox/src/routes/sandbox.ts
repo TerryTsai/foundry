@@ -5,7 +5,7 @@ import { z } from 'zod'
 import { EventEmitter } from 'events'
 import type { Db } from '../db/client.js'
 import { sandboxRuns } from '../db/schema.js'
-import type { RunOptions } from '../runner.js'
+import { SANDBOX_IMAGE, type RunOptions } from '../runner.js'
 
 // In-memory map of running containers: run_id → { emitter, kill }
 const activeRuns = new Map<string, { emitter: EventEmitter; kill: () => void }>()
@@ -28,7 +28,6 @@ export function sandboxRouter(db: Db, spawn: Spawn, timeoutMs = 5 * 60 * 1000) {
   // POST /sandbox
   router.post('/', (req: Request, res: Response) => {
     const body = z.object({
-      image: z.string().min(1),
       command: z.string().min(1),
       workspace: z.string().min(1),
       session_id: z.string().optional(),
@@ -41,7 +40,7 @@ export function sandboxRouter(db: Db, spawn: Spawn, timeoutMs = 5 * 60 * 1000) {
       return
     }
 
-    const { image, command, workspace, session_id, env = {}, network = false } = body.data
+    const { command, workspace, session_id, env = {}, network = false } = body.data
 
     const id = nanoid()
     const now = new Date().toISOString()
@@ -49,13 +48,13 @@ export function sandboxRouter(db: Db, spawn: Spawn, timeoutMs = 5 * 60 * 1000) {
     db.insert(sandboxRuns).values({
       id,
       session_id: session_id ?? null,
-      image,
+      image: SANDBOX_IMAGE,
       command,
       status: 'running',
       started_at: now,
     }).run()
 
-    const handle = spawn({ image, command, workspace, env, network, timeoutMs })
+    const handle = spawn({ command, workspace, env, network, timeoutMs })
     activeRuns.set(id, handle)
 
     handle.emitter.on('exit', (code: number) => {

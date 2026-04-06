@@ -64,9 +64,9 @@ export const ticketApi = {
 export const agentApi = {
   list: (projectId?: string) => get<AgentDef[]>(`/agent${projectId ? `?projectId=${projectId}` : ''}`),
   get: (id: string) => get<AgentDef>(`/agent/${id}`),
-  create: (data: { project_id: string; name: string; prompt: string; image: string; env?: string[] }) =>
+  create: (data: { project_id: string; name: string; prompt: string }) =>
     post<AgentDef>('/agent', data),
-  update: (id: string, data: { prompt?: string; image?: string; env?: string[] }) =>
+  update: (id: string, data: { prompt?: string }) =>
     put<AgentDef>(`/agent/${id}`, data),
   delete: (id: string) => del<{ ok: boolean }>(`/agent/${id}`),
 }

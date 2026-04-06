@@ -58,7 +58,7 @@ function ProjectForm({
       let saved: Project
       if (isNew) {
         saved = await projectApi.create({ name, workspace, schedule_interval: +interval, concurrency_limit: +concurrency })
-        await agentApi.create({ project_id: saved.id, name: 'coder', image: 'node:20', prompt: DEFAULT_AGENT_PROMPT, env: [] })
+        await agentApi.create({ project_id: saved.id, name: 'coder', prompt: DEFAULT_AGENT_PROMPT })
       } else {
         saved = await projectApi.update(project.id, { name, workspace, schedule_interval: +interval, concurrency_limit: +concurrency })
       }

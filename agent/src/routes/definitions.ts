@@ -23,8 +23,6 @@ export function definitionsRouter(db: Db) {
       project_id: z.string(),
       name: z.string().min(1),
       prompt: z.string().min(1),
-      image: z.string().min(1),
-      env: z.array(z.string()).optional(),
     }).safeParse(req.body)
 
     if (!body.success) {
@@ -32,7 +30,7 @@ export function definitionsRouter(db: Db) {
       return
     }
 
-    const { project_id, name, prompt, image, env = [] } = body.data
+    const { project_id, name, prompt } = body.data
 
     // Enforce unique(project_id, name)
     const existing = db.select()
@@ -50,8 +48,8 @@ export function definitionsRouter(db: Db) {
       project_id,
       name,
       prompt,
-      image,
-      env: JSON.stringify(env),
+      image: 'node:20-alpine',
+      env: '[]',
       created_at: new Date().toISOString(),
     }).run()
 
@@ -73,8 +71,6 @@ export function definitionsRouter(db: Db) {
   router.put('/:id', (req, res) => {
     const body = z.object({
       prompt: z.string().min(1).optional(),
-      image: z.string().min(1).optional(),
-      env: z.array(z.string()).optional(),
     }).safeParse(req.body)
 
     if (!body.success) {
@@ -90,8 +86,6 @@ export function definitionsRouter(db: Db) {
 
     const updates: Partial<typeof agentDefinitions.$inferInsert> = {}
     if (body.data.prompt !== undefined) updates.prompt = body.data.prompt
-    if (body.data.image !== undefined) updates.image = body.data.image
-    if (body.data.env !== undefined) updates.env = JSON.stringify(body.data.env)
 
     if (Object.keys(updates).length > 0) {
       db.update(agentDefinitions).set(updates).where(eq(agentDefinitions.id, req.params.id)).run()

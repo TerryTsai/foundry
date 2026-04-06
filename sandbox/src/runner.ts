@@ -1,8 +1,9 @@
 import { spawn } from 'child_process'
 import { EventEmitter } from 'events'
 
+export const SANDBOX_IMAGE = process.env.SANDBOX_IMAGE ?? 'node:20-alpine'
+
 export interface RunOptions {
-  image: string
   command: string
   workspace: string
   env: Record<string, string>
@@ -16,7 +17,7 @@ export interface RunHandle {
 }
 
 export function spawnRun(opts: RunOptions): RunHandle {
-  const { image, command, workspace, env, network, timeoutMs } = opts
+  const { command, workspace, env, network, timeoutMs } = opts
 
   const args = [
     'run', '--rm',
@@ -29,7 +30,7 @@ export function spawnRun(opts: RunOptions): RunHandle {
     args.push('-e', `${key}=${val}`)
   }
 
-  args.push(image, 'sh', '-c', command)
+  args.push(SANDBOX_IMAGE, 'sh', '-c', command)
 
   const child = spawn('podman', args)
   const emitter = new EventEmitter()
