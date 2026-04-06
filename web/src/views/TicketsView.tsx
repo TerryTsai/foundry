@@ -4,7 +4,7 @@ import type { Ticket, AgentDef } from '../types.js'
 import { StatusBadge } from '../components/StatusBadge.js'
 import { Sheet } from '../components/Sheet.js'
 import { PageShell } from '../components/layout/PageShell.js'
-import { FilterChip } from '../components/primitives/FilterChip.js'
+import { MultiSelect } from '../components/primitives/MultiSelect.js'
 import { ListRow } from '../components/list/ListRow.js'
 import { EmptyState } from '../components/list/EmptyState.js'
 import { InfoGroup } from '../components/detail/InfoGroup.js'
@@ -14,14 +14,30 @@ import { TextArea } from '../components/form/TextArea.js'
 import { Select } from '../components/form/Select.js'
 import { ActionButton } from '../components/form/ActionButton.js'
 
-const STATUS_FILTERS = [
-  { value: '', label: 'All' },
-  { value: 'open', label: 'Open' },
-  { value: 'claimed', label: 'Claimed' },
-  { value: 'done', label: 'Done' },
-  { value: 'failed', label: 'Failed' },
-  { value: 'blocked', label: 'Blocked' },
-]
+const STATUSES = ['open', 'claimed', 'done', 'failed', 'blocked']
+
+const DATE_OPTIONS = ['today', 'yesterday', 'this week', 'this month']
+
+function matchesDateFilter(iso: string, selected: Set<string>): boolean {
+  const d = new Date(iso)
+  const now = new Date()
+  const startOf = (unit: 'day' | 'week' | 'month') => {
+    const s = new Date(now)
+    if (unit === 'day')   { s.setHours(0, 0, 0, 0) }
+    if (unit === 'week')  { s.setHours(0, 0, 0, 0); s.setDate(now.getDate() - now.getDay()) }
+    if (unit === 'month') { s.setHours(0, 0, 0, 0); s.setDate(1) }
+    return s
+  }
+  const yesterday = new Date(startOf('day')); yesterday.setDate(yesterday.getDate() - 1)
+  const endOfYesterday = new Date(startOf('day'))
+
+  return (
+    (selected.has('today')      && d >= startOf('day')) ||
+    (selected.has('yesterday')  && d >= yesterday && d < endOfYesterday) ||
+    (selected.has('this week')  && d >= startOf('week')) ||
+    (selected.has('this month') && d >= startOf('month'))
+  )
+}
 
 function TicketForm({
   projectId,
@@ -190,58 +206,92 @@ export function TicketsView({ projectId }: { projectId: string }) {
   const [tickets, setTickets] = useState<Ticket[]>([])
   const [selected, setSelected] = useState<Ticket | null>(null)
   const [showCreate, setShowCreate] = useState(false)
-  const [filter, setFilter] = useState('')
+  const [statuses, setStatuses] = useState<Set<string>>(new Set())
+  const [agentFilter, setAgentFilter] = useState<Set<string>>(new Set())
+  const [createdFilter, setCreatedFilter] = useState<Set<string>>(new Set())
+  const [claimedFilter, setClaimedFilter] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
 
   const load = useCallback(async () => {
-    const ts = await ticketApi.list({
-      projectId,
-      status: filter || undefined,
-    })
+    const ts = await ticketApi.list({ projectId })
     setTickets(ts)
     setLoading(false)
-  }, [projectId, filter])
+  }, [projectId])
 
   useEffect(() => { load().catch(console.error) }, [load])
 
-  const ts = (s: string) => new Date(s).toLocaleString(undefined, {
+  const fmt = (s: string) => new Date(s).toLocaleString(undefined, {
     month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+  })
+
+  const uniqueAgents = Array.from(new Set(tickets.map(t => t.agent))).sort()
+
+  const filtered = tickets.filter(t => {
+    if (statuses.size > 0 && !statuses.has(t.status)) return false
+    if (agentFilter.size > 0 && !agentFilter.has(t.agent)) return false
+    if (createdFilter.size > 0 && !matchesDateFilter(t.created_at, createdFilter)) return false
+    if (claimedFilter.size > 0) {
+      if (claimedFilter.has('unclaimed') && !t.claimed_at) return true
+      if (!t.claimed_at) return claimedFilter.has('unclaimed')
+      if (!matchesDateFilter(t.claimed_at, claimedFilter)) return false
+    }
+    return true
   })
 
   const noSheetOpen = !selected && !showCreate
 
   return (
     <>
-      <PageShell
-
-        action={noSheetOpen ? { label: 'Ticket', onPress: () => setShowCreate(true) } : undefined}
-        onRefresh={load}
-      >
-        <div className="flex gap-2 pb-4 overflow-x-auto no-scrollbar">
-          {STATUS_FILTERS.map(f => (
-            <FilterChip
-              key={f.value}
-              label={f.label}
-              active={filter === f.value}
-              onPress={() => setFilter(f.value)}
+      <div className="flex flex-col h-full">
+        {/* Filter bar — outside scroll container so dropdowns aren't clipped */}
+        <div className="shrink-0 flex gap-2 px-4 py-3 border-b border-zinc-800/60 overflow-x-auto no-scrollbar">
+          <MultiSelect
+            label="Status"
+            options={[...STATUSES]}
+            selected={statuses}
+            onChange={setStatuses}
+          />
+          {uniqueAgents.length > 0 && (
+            <MultiSelect
+              label="Agent"
+              options={uniqueAgents}
+              selected={agentFilter}
+              onChange={setAgentFilter}
             />
-          ))}
+          )}
+          <MultiSelect
+            label="Created"
+            options={DATE_OPTIONS}
+            selected={createdFilter}
+            onChange={setCreatedFilter}
+          />
+          <MultiSelect
+            label="Claimed"
+            options={['unclaimed', ...DATE_OPTIONS]}
+            selected={claimedFilter}
+            onChange={setClaimedFilter}
+          />
         </div>
 
+        <PageShell
+          action={noSheetOpen ? { label: 'Ticket', onPress: () => setShowCreate(true) } : undefined}
+          onRefresh={load}
+        >
         {loading ? (
           <EmptyState message="loading…" />
-        ) : tickets.length === 0 ? (
+        ) : filtered.length === 0 ? (
           <EmptyState message="no tickets" />
-        ) : tickets.map(t => (
+        ) : filtered.map(t => (
           <ListRow
             key={t.id}
             title={t.title}
-            subtitle={[t.agent, t.parent_id ? '↳ child' : '', ts(t.created_at)].filter(Boolean).join(' · ')}
+            subtitle={[t.agent, t.parent_id ? '↳ child' : '', fmt(t.created_at)].filter(Boolean).join(' · ')}
             status={t.status}
             onPress={() => setSelected(t)}
           />
         ))}
-      </PageShell>
+        </PageShell>
+      </div>
 
       <Sheet open={showCreate} onClose={() => setShowCreate(false)} title="New Ticket">
         <TicketForm
