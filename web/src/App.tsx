@@ -29,7 +29,9 @@ function usePreventSafariBounce() {
         if (scrollable) {
           const atTop    = el.scrollTop === 0
           const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 1
-          // Allow if there's room to scroll in the direction of the gesture
+          // Pulling down at top — let it through so pull-to-refresh touchEnd fires
+          if (dy > 0 && atTop) return
+          // Scrolling within bounds — allow
           if ((dy < 0 && !atBottom) || (dy > 0 && !atTop)) return
           break
         }
