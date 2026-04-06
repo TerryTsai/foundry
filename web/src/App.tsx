@@ -4,6 +4,7 @@ import type { Project } from './types.js'
 import { GlobalHeader } from './components/GlobalHeader.js'
 import { TabBar } from './components/TabBar.js'
 import type { Tab } from './components/TabBar.js'
+import { Sidebar } from './components/Sidebar.js'
 import { ProjectSwitcherSheet } from './components/ProjectSwitcherSheet.js'
 import { TicketsView } from './views/TicketsView.js'
 import { AgentsView } from './views/AgentsView.js'
@@ -27,7 +28,20 @@ export function App() {
   useEffect(() => { loadProjects().catch(console.error) }, [loadProjects])
 
   return (
-    <div className="flex flex-col h-dvh bg-white dark:bg-zinc-950">
+    <div className="flex flex-col lg:flex-row h-dvh bg-white dark:bg-zinc-950">
+      <Sidebar
+        tab={tab}
+        onTabChange={setTab}
+        project={project}
+        onSwitch={() => setSwitcherOpen(true)}
+        onToggle={async () => {
+          if (!project) return
+          await projectApi.update(project.id, { status: project.status === 'active' ? 'paused' : 'active' })
+          await loadProjects()
+        }}
+      />
+
+      <div className="flex flex-col flex-1 min-w-0">
       <GlobalHeader
         title={{ tickets: 'Tickets', agents: 'Agents', files: 'Files', logs: 'Logs' }[tab]}
         project={project}
@@ -53,6 +67,7 @@ export function App() {
       </main>
 
       <TabBar current={tab} onChange={setTab} />
+      </div>
 
       <ProjectSwitcherSheet
         open={switcherOpen}

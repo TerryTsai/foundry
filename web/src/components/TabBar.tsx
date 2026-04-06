@@ -16,7 +16,7 @@ interface TabBarProps {
 
 export function TabBar({ current, onChange }: TabBarProps) {
   return (
-    <nav className="flex border-t border-zinc-200 dark:border-zinc-800/60 bg-white dark:bg-zinc-950 shrink-0">
+    <nav className="flex lg:hidden border-t border-zinc-200 dark:border-zinc-800/60 bg-white dark:bg-zinc-950 shrink-0">
       {tabs.map(t => (
         <button
           key={t.id}

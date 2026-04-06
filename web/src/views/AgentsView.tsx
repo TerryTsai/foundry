@@ -96,32 +96,58 @@ export function AgentsView({ projectId }: { projectId: string }) {
 
   return (
     <>
-      <PageShell
+      <div className="flex flex-col h-full">
+        <div className="flex-1 min-h-0 lg:grid lg:grid-cols-[minmax(320px,1fr)_2fr]">
+          {/* List column */}
+          <div className="h-full lg:border-r lg:border-zinc-200 dark:lg:border-zinc-800/60 lg:overflow-y-auto">
+            <PageShell
+              action={!open ? { label: 'Agent', onPress: openNew } : undefined}
+              onRefresh={load}
+            >
+              {agents.length === 0
+                ? <EmptyState message="no agents" />
+                : agents.map(a => (
+                  <ListRow
+                    key={a.id}
+                    title={a.name}
+                    subtitle={a.prompt.split('\n').find(l => l.trim()) ?? ''}
+                    active={open && selected?.id === a.id}
+                    onPress={() => openAgent(a)}
+                  />
+                ))
+              }
+            </PageShell>
+          </div>
 
-        action={!open ? { label: 'Agent', onPress: openNew } : undefined}
-        onRefresh={load}
-      >
-        {agents.length === 0
-          ? <EmptyState message="no agents" />
-          : agents.map(a => (
-            <ListRow
-              key={a.id}
-              title={a.name}
-              subtitle={a.prompt.split('\n').find(l => l.trim()) ?? ''}
-              onPress={() => openAgent(a)}
-            />
-          ))
-        }
-      </PageShell>
+          {/* Detail column — desktop only */}
+          <div className="hidden lg:flex flex-col overflow-y-auto">
+            {open ? (
+              <div className="flex-1 px-6 py-5 max-w-3xl">
+                <AgentSheet
+                  agent={selected}
+                  projectId={projectId}
+                  onClose={() => setOpen(false)}
+                  onUpdate={() => load().catch(console.error)}
+                />
+              </div>
+            ) : (
+              <EmptyState message="select an agent" />
+            )}
+          </div>
+        </div>
+      </div>
 
-      <Sheet open={open} onClose={() => setOpen(false)} title="Agent">
-        <AgentSheet
-          agent={selected}
-          projectId={projectId}
-          onClose={() => setOpen(false)}
-          onUpdate={() => load().catch(console.error)}
-        />
-      </Sheet>
+      {/* Detail sheet — mobile only */}
+      <div className="lg:hidden">
+        <Sheet open={open} onClose={() => setOpen(false)} title="Agent">
+          <AgentSheet
+            agent={selected}
+            projectId={projectId}
+            onClose={() => setOpen(false)}
+            onUpdate={() => load().catch(console.error)}
+          />
+        </Sheet>
+      </div>
     </>
   )
 }

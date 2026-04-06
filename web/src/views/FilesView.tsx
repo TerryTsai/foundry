@@ -219,7 +219,8 @@ export function FilesView({ projectSlug }: { projectSlug: string }) {
     setSelectedFile(path)
     setRendered(null)
     setLoadingContent(true)
-    setSidebarOpen(false)
+    // Close sidebar on mobile only — on desktop it stays visible via CSS
+    if (window.innerWidth < 1024) setSidebarOpen(false)
     try {
       const raw = await fileApi.readFile(projectSlug, path)
       const ext = path.split('.').pop() ?? ''
@@ -250,7 +251,7 @@ export function FilesView({ projectSlug }: { projectSlug: string }) {
       <div className="shrink-0 border-b border-zinc-200 dark:border-zinc-800/60 h-11 flex items-center gap-2 min-w-0">
         <button
           onClick={() => setSidebarOpen(o => !o)}
-          className="shrink-0 h-full px-3 flex items-center text-zinc-400 dark:text-zinc-600 active:text-zinc-700 dark:active:text-zinc-300 transition-colors border-r border-zinc-200 dark:border-zinc-800/60"
+          className="shrink-0 h-full px-3 flex items-center text-zinc-400 dark:text-zinc-600 active:text-zinc-700 dark:active:text-zinc-300 transition-colors border-r border-zinc-200 dark:border-zinc-800/60 lg:hidden"
           title={sidebarOpen ? 'hide sidebar' : 'show sidebar'}
         >
           {sidebarOpen
@@ -281,10 +282,31 @@ export function FilesView({ projectSlug }: { projectSlug: string }) {
         </div>
       </div>
 
-      <div className="relative flex-1 overflow-hidden">
+      <div className="relative flex-1 overflow-hidden lg:flex lg:flex-row">
+
+        {/* Sidebar — desktop: always visible inline; mobile: overlay drawer */}
+        <div className={`absolute top-0 left-0 bottom-0 z-20 w-56 bg-white dark:bg-zinc-950 border-r border-zinc-200 dark:border-zinc-800/60 overflow-y-auto py-2 shadow-xl lg:relative lg:z-0 lg:shadow-none lg:w-64 lg:shrink-0 lg:block ${sidebarOpen ? '' : 'hidden lg:block'}`}>
+          {loadingFiles ? (
+            <EmptyState message="loading…" />
+          ) : tree.length === 0 ? (
+            <EmptyState message="no files" />
+          ) : tree.map((node, i) => (
+            <div key={i} className="relative">
+              <TreeNodeRow node={node} depth={0} selectedFile={selectedFile} onFileClick={handleFileClick} />
+            </div>
+          ))}
+        </div>
+
+        {/* Backdrop — mobile only */}
+        {sidebarOpen && (
+          <div
+            className="absolute inset-0 z-10 lg:hidden"
+            onClick={() => setSidebarOpen(false)}
+          />
+        )}
 
         {/* Content */}
-        <div className="absolute inset-0 overflow-auto bg-zinc-50 dark:bg-zinc-950">
+        <div className="absolute inset-0 overflow-auto bg-zinc-50 dark:bg-zinc-950 lg:relative lg:flex-1">
           {/* Loading bar */}
           {loadingContent && (
             <div className="absolute top-0 left-0 right-0 h-px bg-zinc-200 dark:bg-zinc-800 overflow-hidden z-10">
@@ -311,29 +333,6 @@ export function FilesView({ projectSlug }: { projectSlug: string }) {
             <EmptyState message="select a file" />
           )}
         </div>
-
-        {/* Sidebar overlay */}
-        {sidebarOpen && (
-          <>
-            {/* Backdrop */}
-            <div
-              className="absolute inset-0 z-10"
-              onClick={() => setSidebarOpen(false)}
-            />
-            {/* Drawer */}
-            <div className="absolute top-0 left-0 bottom-0 z-20 w-56 bg-white dark:bg-zinc-950 border-r border-zinc-200 dark:border-zinc-800/60 overflow-y-auto py-2 shadow-xl">
-              {loadingFiles ? (
-                <EmptyState message="loading…" />
-              ) : tree.length === 0 ? (
-                <EmptyState message="no files" />
-              ) : tree.map((node, i) => (
-                <div key={i} className="relative">
-                  <TreeNodeRow node={node} depth={0} selectedFile={selectedFile} onFileClick={handleFileClick} />
-                </div>
-              ))}
-            </div>
-          </>
-        )}
       </div>
     </div>
   )

@@ -273,24 +273,48 @@ export function TicketsView({ projectId }: { projectId: string }) {
           />
         </div>
 
-        <PageShell
-          action={noSheetOpen ? { label: 'Ticket', onPress: () => setShowCreate(true) } : undefined}
-          onRefresh={load}
-        >
-        {loading ? (
-          <EmptyState message="loading…" />
-        ) : filtered.length === 0 ? (
-          <EmptyState message="no tickets" />
-        ) : filtered.map(t => (
-          <ListRow
-            key={t.id}
-            title={t.title}
-            subtitle={[t.agent, t.parent_id ? '↳ child' : '', fmt(t.created_at)].filter(Boolean).join(' · ')}
-            status={t.status}
-            onPress={() => setSelected(t)}
-          />
-        ))}
-        </PageShell>
+        <div className="flex-1 min-h-0 lg:grid lg:grid-cols-[minmax(320px,1fr)_2fr]">
+          {/* List column */}
+          <div className="h-full lg:border-r lg:border-zinc-200 dark:lg:border-zinc-800/60 lg:overflow-y-auto">
+            <PageShell
+              action={noSheetOpen ? { label: 'Ticket', onPress: () => setShowCreate(true) } : undefined}
+              onRefresh={load}
+            >
+            {loading ? (
+              <EmptyState message="loading…" />
+            ) : filtered.length === 0 ? (
+              <EmptyState message="no tickets" />
+            ) : filtered.map(t => (
+              <ListRow
+                key={t.id}
+                title={t.title}
+                subtitle={[t.agent, t.parent_id ? '↳ child' : '', fmt(t.created_at)].filter(Boolean).join(' · ')}
+                status={t.status}
+                active={selected?.id === t.id}
+                onPress={() => setSelected(t)}
+              />
+            ))}
+            </PageShell>
+          </div>
+
+          {/* Detail column — desktop only */}
+          <div className="hidden lg:flex flex-col overflow-y-auto">
+            {selected ? (
+              <div className="flex-1 px-6 py-5 max-w-3xl">
+                <div className="mb-3">
+                  <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{selected.title}</h2>
+                </div>
+                <TicketDetail
+                  ticket={selected}
+                  onClose={() => setSelected(null)}
+                  onUpdate={() => { load().catch(console.error); setSelected(null) }}
+                />
+              </div>
+            ) : (
+              <EmptyState message="select a ticket" />
+            )}
+          </div>
+        </div>
       </div>
 
       <Sheet open={showCreate} onClose={() => setShowCreate(false)} title="New Ticket">
@@ -301,15 +325,18 @@ export function TicketsView({ projectId }: { projectId: string }) {
         />
       </Sheet>
 
-      <Sheet open={selected !== null} onClose={() => setSelected(null)} title="Ticket">
-        {selected && (
-          <TicketDetail
-            ticket={selected}
-            onClose={() => setSelected(null)}
-            onUpdate={() => { load().catch(console.error); setSelected(null) }}
-          />
-        )}
-      </Sheet>
+      {/* Detail sheet — mobile only */}
+      <div className="lg:hidden">
+        <Sheet open={selected !== null} onClose={() => setSelected(null)} title="Ticket">
+          {selected && (
+            <TicketDetail
+              ticket={selected}
+              onClose={() => setSelected(null)}
+              onUpdate={() => { load().catch(console.error); setSelected(null) }}
+            />
+          )}
+        </Sheet>
+      </div>
     </>
   )
 }

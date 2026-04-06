@@ -101,57 +101,83 @@ export function LogsView() {
         ))}
       </div>
 
-      <div className="overflow-y-auto flex-1">
-        {loading && <EmptyState message="loading…" />}
+      <div className="flex-1 min-h-0 lg:grid lg:grid-cols-[minmax(320px,1fr)_2fr]">
+        {/* List column */}
+        <div className="overflow-y-auto h-full lg:border-r lg:border-zinc-200 dark:lg:border-zinc-800/60">
+          {loading && <EmptyState message="loading…" />}
 
-        {!loading && tab === 'sessions' && (
-          sessions.length === 0
-            ? <EmptyState message="no sessions" />
-            : sessions.map(s => (
-              <ListRow
-                key={s.id}
-                title={s.agent_name ?? s.agent_def_id}
-                subtitle={`${s.ticket_id} · ${ts(s.started_at)}`}
-                status={s.status}
-                onPress={() => setSelectedSession(s)}
-              />
-            ))
-        )}
+          {!loading && tab === 'sessions' && (
+            sessions.length === 0
+              ? <EmptyState message="no sessions" />
+              : sessions.map(s => (
+                <ListRow
+                  key={s.id}
+                  title={s.agent_name ?? s.agent_def_id}
+                  subtitle={`${s.ticket_id} · ${ts(s.started_at)}`}
+                  status={s.status}
+                  active={selectedSession?.id === s.id}
+                  onPress={() => setSelectedSession(s)}
+                />
+              ))
+          )}
 
-        {!loading && tab === 'runs' && (
-          runs.length === 0
-            ? <EmptyState message="no runs" />
-            : runs.map(r => (
-              <ListRow
-                key={r.id}
-                title={r.command}
-                subtitle={`${r.image} · ${ts(r.started_at)}`}
-                status={r.status}
-                onPress={() => setSelectedRun(r)}
-              />
-            ))
-        )}
+          {!loading && tab === 'runs' && (
+            runs.length === 0
+              ? <EmptyState message="no runs" />
+              : runs.map(r => (
+                <ListRow
+                  key={r.id}
+                  title={r.command}
+                  subtitle={`${r.image} · ${ts(r.started_at)}`}
+                  status={r.status}
+                  active={selectedRun?.id === r.id}
+                  onPress={() => setSelectedRun(r)}
+                />
+              ))
+          )}
 
-        {!loading && tab === 'nginx' && (
-          nginxLines.length === 0
-            ? <EmptyState message="no log entries" />
-            : (
-              <div className="p-4">
-                <pre className="font-mono text-[10px] text-zinc-400 dark:text-zinc-500 leading-relaxed whitespace-pre-wrap break-all">
-                  {nginxLines.slice().reverse().join('\n')}
-                </pre>
+          {!loading && tab === 'nginx' && (
+            <div className={`p-4 ${nginxLines.length === 0 ? '' : 'lg:col-span-2'}`}>
+              {nginxLines.length === 0
+                ? <EmptyState message="no log entries" />
+                : (
+                  <pre className="font-mono text-[10px] text-zinc-400 dark:text-zinc-500 leading-relaxed whitespace-pre-wrap break-all">
+                    {nginxLines.slice().reverse().join('\n')}
+                  </pre>
+                )
+              }
+            </div>
+          )}
+        </div>
+
+        {/* Detail column — desktop only, sessions/runs tabs */}
+        {tab !== 'nginx' && (
+          <div className="hidden lg:flex flex-col overflow-y-auto">
+            {tab === 'sessions' && selectedSession ? (
+              <div className="flex-1 px-6 py-5 max-w-3xl">
+                <SessionDetail session={selectedSession} />
               </div>
-            )
+            ) : tab === 'runs' && selectedRun ? (
+              <div className="flex-1 px-6 py-5 max-w-3xl">
+                <RunDetail run={selectedRun} />
+              </div>
+            ) : (
+              <EmptyState message={`select a ${tab === 'sessions' ? 'session' : 'run'}`} />
+            )}
+          </div>
         )}
       </div>
 
-      <Sheet open={selectedSession !== null} onClose={() => setSelectedSession(null)} title="Session">
-        {selectedSession && <SessionDetail session={selectedSession} />}
-      </Sheet>
+      {/* Detail sheets — mobile only */}
+      <div className="lg:hidden">
+        <Sheet open={selectedSession !== null} onClose={() => setSelectedSession(null)} title="Session">
+          {selectedSession && <SessionDetail session={selectedSession} />}
+        </Sheet>
 
-      <Sheet open={selectedRun !== null} onClose={() => setSelectedRun(null)} title="Run">
-        {selectedRun && <RunDetail run={selectedRun} />}
-      </Sheet>
+        <Sheet open={selectedRun !== null} onClose={() => setSelectedRun(null)} title="Run">
+          {selectedRun && <RunDetail run={selectedRun} />}
+        </Sheet>
+      </div>
     </div>
   )
 }

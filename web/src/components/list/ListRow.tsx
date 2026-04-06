@@ -5,14 +5,17 @@ interface ListRowProps {
   title: string
   subtitle?: string
   status?: string
+  active?: boolean
   onPress: () => void
 }
 
-export function ListRow({ title, subtitle, status, onPress }: ListRowProps) {
+export function ListRow({ title, subtitle, status, active, onPress }: ListRowProps) {
   return (
     <button
       onClick={onPress}
-      className="w-full text-left border-b border-zinc-100 dark:border-zinc-800/50 active:bg-zinc-100 dark:active:bg-zinc-900/70 px-4 py-3 flex items-center gap-3"
+      className={`w-full text-left border-b border-zinc-100 dark:border-zinc-800/50 active:bg-zinc-100 dark:active:bg-zinc-900/70 px-4 py-3 flex items-center gap-3 ${
+        active ? 'bg-zinc-50 dark:bg-zinc-900/50' : ''
+      }`}
     >
       <div className="flex-1 min-w-0">
         <div className="text-zinc-900 dark:text-zinc-100 text-sm leading-snug truncate">{title}</div>
