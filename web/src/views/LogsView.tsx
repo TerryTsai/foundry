@@ -16,11 +16,8 @@ function SessionDetail({ session }: { session: AgentSession }) {
     : null
 
   return (
-    <div className="space-y-3">
-      <div className="flex items-start justify-between gap-3">
-        <h2 className="font-display text-base font-bold text-zinc-100">Session</h2>
-        <StatusBadge status={session.status} />
-      </div>
+    <div className="h-full overflow-y-auto space-y-3">
+      <StatusBadge status={session.status} />
       <InfoGroup rows={[
         { label: 'id',       value: session.id },
         { label: 'agent',    value: session.agent_name ?? session.agent_def_id },
@@ -40,11 +37,8 @@ function RunDetail({ run }: { run: SandboxRun }) {
     : null
 
   return (
-    <div className="space-y-3">
-      <div className="flex items-start justify-between gap-3">
-        <h2 className="font-display text-base font-bold text-zinc-100">Sandbox Run</h2>
-        <StatusBadge status={run.status} />
-      </div>
+    <div className="h-full overflow-y-auto space-y-3">
+      <StatusBadge status={run.status} />
       <InfoGroup rows={[
         { label: 'id',        value: run.id },
         { label: 'image',     value: run.image },
@@ -95,19 +89,15 @@ export function LogsView() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="px-5 pt-4 pb-2 shrink-0">
-        <h1 className="font-display text-2xl font-bold text-zinc-100 tracking-tight">Logs</h1>
-      </div>
-
-      <div className="border-b border-zinc-800 shrink-0 flex items-center">
+      <div className="border-b border-zinc-800/60 shrink-0 flex items-center px-4">
         {(['sessions', 'runs', 'nginx'] as Tab[]).map(t => (
           <button key={t} onClick={() => setTab(t)}
-            className={`font-mono text-[10px] uppercase tracking-wider px-4 py-2.5 border-b-2 -mb-px transition-colors ${
+            className={`text-sm px-4 py-3 border-b-2 -mb-px transition-colors capitalize ${
               tab === t
-                ? 'border-zinc-100 text-zinc-100'
-                : 'border-transparent text-zinc-600 active:text-zinc-300'
+                ? 'border-zinc-300 text-zinc-100'
+                : 'border-transparent text-zinc-500 active:text-zinc-300'
             }`}>
-            {t}{counts[t] > 0 && <span className="ml-1.5 text-zinc-700">{counts[t]}</span>}
+            {t}{counts[t] > 0 && <span className="ml-1.5 text-zinc-600">{counts[t]}</span>}
           </button>
         ))}
       </div>
@@ -156,11 +146,11 @@ export function LogsView() {
         )}
       </div>
 
-      <Sheet open={selectedSession !== null} onClose={() => setSelectedSession(null)}>
+      <Sheet open={selectedSession !== null} onClose={() => setSelectedSession(null)} title="Session">
         {selectedSession && <SessionDetail session={selectedSession} />}
       </Sheet>
 
-      <Sheet open={selectedRun !== null} onClose={() => setSelectedRun(null)}>
+      <Sheet open={selectedRun !== null} onClose={() => setSelectedRun(null)} title="Run">
         {selectedRun && <RunDetail run={selectedRun} />}
       </Sheet>
     </div>

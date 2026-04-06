@@ -1,13 +1,12 @@
 import { useRef, useState } from 'react'
 
 interface PageShellProps {
-  title: string
   action?: { label: string; onPress: () => void }
   onRefresh?: () => Promise<void>
   children: React.ReactNode
 }
 
-export function PageShell({ title, action, onRefresh, children }: PageShellProps) {
+export function PageShell({ action, onRefresh, children }: PageShellProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const startY = useRef(0)
   const [refreshing, setRefreshing] = useState(false)
@@ -26,36 +25,26 @@ export function PageShell({ title, action, onRefresh, children }: PageShellProps
   }
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="px-5 pt-4 pb-2 shrink-0">
-        <h1 className="font-display text-2xl font-bold text-zinc-100 tracking-tight">{title}</h1>
-      </div>
-
+    <div className="relative flex flex-col h-full">
       <div
         ref={scrollRef}
-        className="flex-1 overflow-y-auto px-4"
-        style={{ paddingBottom: 'calc(56px + env(safe-area-inset-bottom) + 88px)' }}
+        className="flex-1 overflow-y-auto px-4 pt-4 pb-4"
         onTouchStart={onRefresh ? handleTouchStart : undefined}
         onTouchEnd={onRefresh ? handleTouchEnd : undefined}
       >
         {refreshing && (
-          <div className="text-center py-1 font-mono text-[10px] text-zinc-700">↻</div>
+          <div className="text-center py-2 text-xs text-zinc-600">↻</div>
         )}
         {children}
       </div>
 
       {action && (
-        <div
-          className="fixed right-5 z-30"
-          style={{ bottom: 'calc(56px + env(safe-area-inset-bottom) + 16px)' }}
+        <button
+          onClick={action.onPress}
+          className="absolute bottom-4 right-4 z-10 flex items-center gap-1.5 px-4 py-2 bg-zinc-800/90 backdrop-blur-sm text-zinc-200 text-sm font-medium rounded-full shadow-lg active:opacity-75 transition-opacity"
         >
-          <button
-            onClick={action.onPress}
-            className="flex items-center gap-2 px-4 h-10 bg-zinc-100 text-zinc-900 font-mono text-xs uppercase tracking-wider active:opacity-75 transition-opacity shadow-lg"
-          >
-            + {action.label}
-          </button>
-        </div>
+          <span className="text-zinc-400">+</span> {action.label}
+        </button>
       )}
     </div>
   )

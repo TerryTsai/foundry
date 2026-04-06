@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { RotateCw } from 'lucide-react'
 import { projectApi, agentApi } from '../api.js'
 import type { Project } from '../types.js'
 import { StatusBadge } from '../components/StatusBadge.js'
@@ -68,41 +69,40 @@ function ProjectSheet({ project, onClose, onUpdate }: { project: Project | null;
   }
 
   return (
-    <form onSubmit={handleSave} className="space-y-3">
-      <div className="flex items-start justify-between gap-3">
-        <h2 className="font-display text-base font-bold text-zinc-100">
-          {isNew ? 'New Project' : project.name}
-        </h2>
+    <form onSubmit={handleSave} className="h-full flex flex-col">
+      <div className="flex-1 overflow-y-auto space-y-4">
         {project && <StatusBadge status={project.status} />}
-      </div>
-      {error && <div className="font-mono text-xs text-red-400">{error}</div>}
-      <Field label="name">
-        <TextInput value={name} onChange={e => setName(e.target.value)} required />
-      </Field>
-      <Field label="workspace path">
-        <TextInput value={workspace} onChange={e => setWorkspace(e.target.value)} required
-          placeholder="/repos/myproject.git" />
-      </Field>
-      <div className="grid grid-cols-2 gap-3">
-        <Field label="interval (s)">
-          <TextInput type="number" value={interval} onChange={e => setInterval(e.target.value)} required min="10" />
+        {error && <div className="text-sm text-red-400">{error}</div>}
+        <Field label="name">
+          <TextInput value={name} onChange={e => setName(e.target.value)} required />
         </Field>
-        <Field label="concurrency">
-          <TextInput type="number" value={concurrency} onChange={e => setConcurrency(e.target.value)} required min="1" />
+        <Field label="workspace path">
+          <TextInput value={workspace} onChange={e => setWorkspace(e.target.value)} required
+            placeholder="/repos/myproject.git" />
         </Field>
-      </div>
-      <div className="flex gap-2 pt-1">
-        <ActionButton label={isNew ? 'create' : 'save'} type="submit" className="flex-1" />
-        <ActionButton label="cancel" variant="secondary" onClick={onClose} className="flex-1" />
-      </div>
-      {project && (
-        <div className="flex gap-2">
-          <ActionButton label="run now" variant="secondary" onClick={handleRun}
-            disabled={project.status !== 'active'} className="flex-1" />
-          <ActionButton label={project.status === 'active' ? 'pause' : 'resume'}
-            variant="secondary" onClick={handleToggle} className="flex-1" />
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="interval (s)">
+            <TextInput type="number" value={interval} onChange={e => setInterval(e.target.value)} required min="10" />
+          </Field>
+          <Field label="concurrency">
+            <TextInput type="number" value={concurrency} onChange={e => setConcurrency(e.target.value)} required min="1" />
+          </Field>
         </div>
-      )}
+      </div>
+      <div className="shrink-0 pt-3 space-y-2">
+        <div className="flex gap-2">
+          <ActionButton label={isNew ? 'create' : 'save'} type="submit" className="flex-1" />
+          <ActionButton label="cancel" variant="secondary" onClick={onClose} className="flex-1" />
+        </div>
+        {project && (
+          <div className="flex gap-2">
+            <ActionButton label="run now" variant="secondary" onClick={handleRun}
+              disabled={project.status !== 'active'} className="flex-1" />
+            <ActionButton label={project.status === 'active' ? 'pause' : 'resume'}
+              variant="secondary" onClick={handleToggle} className="flex-1" />
+          </div>
+        )}
+      </div>
     </form>
   )
 }
@@ -122,17 +122,14 @@ export function ProjectsView() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="px-4 py-2 border-b border-zinc-800 shrink-0 flex items-center gap-3">
-        <span className="font-mono text-[10px] uppercase tracking-widest text-zinc-600">
-          {projects.length}
-        </span>
+      <div className="px-4 py-3 border-b border-zinc-800/60 shrink-0 flex items-center gap-3">
+        <span className="text-xs text-zinc-500">{projects.length}</span>
         <button onClick={openNew}
-          className="font-mono text-[10px] uppercase tracking-wider border border-zinc-700 text-zinc-400 active:bg-zinc-800 px-3 py-1.5">
+          className="text-xs text-zinc-400 border border-zinc-700/60 rounded px-3 py-1.5 active:bg-zinc-800">
           + new
         </button>
-        <button onClick={load}
-          className="font-mono text-xs text-zinc-600 active:text-zinc-100 ml-auto px-1">
-          ↻
+        <button onClick={load} className="text-zinc-500 active:text-zinc-100 ml-auto p-1">
+          <RotateCw size={14} strokeWidth={2} />
         </button>
       </div>
 
@@ -151,7 +148,7 @@ export function ProjectsView() {
         }
       </div>
 
-      <Sheet open={open} onClose={() => setOpen(false)}>
+      <Sheet open={open} onClose={() => setOpen(false)} title="Project">
         <ProjectSheet
           project={selected}
           onClose={() => setOpen(false)}

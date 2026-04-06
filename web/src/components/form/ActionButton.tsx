@@ -1,9 +1,9 @@
 type Variant = 'primary' | 'secondary' | 'destructive'
 
 const variants: Record<Variant, string> = {
-  primary:     'bg-zinc-100 text-zinc-900',
-  secondary:   'bg-zinc-800 text-zinc-400',
-  destructive: 'border border-zinc-800 text-zinc-600 active:text-red-400 active:border-red-800',
+  primary:     'bg-zinc-100 text-zinc-900 hover:bg-white',
+  secondary:   'bg-zinc-800 text-zinc-300 hover:bg-zinc-700',
+  destructive: 'border border-zinc-800 text-zinc-500 active:text-red-400 active:border-red-800',
 }
 
 interface ActionButtonProps {
@@ -28,7 +28,7 @@ export function ActionButton({
       type={type}
       onClick={onClick}
       disabled={disabled}
-      className={`font-mono text-xs uppercase tracking-wider py-2.5 active:opacity-75 transition-opacity disabled:opacity-30 ${variants[variant]} ${className}`}
+      className={`text-sm font-medium py-2.5 px-4 rounded active:opacity-75 transition-opacity disabled:opacity-30 ${variants[variant]} ${className}`}
     >
       {label}
     </button>

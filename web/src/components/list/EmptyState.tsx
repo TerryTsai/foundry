@@ -1,5 +1,10 @@
+import { Inbox } from 'lucide-react'
+
 export function EmptyState({ message }: { message: string }) {
   return (
-    <div className="px-4 py-3 font-mono text-xs text-zinc-600">{message}</div>
+    <div className="flex flex-col items-center justify-center py-16 px-8 text-center gap-3">
+      <Inbox size={28} className="text-zinc-700" strokeWidth={1.25} />
+      <p className="text-sm text-zinc-500">{message}</p>
+    </div>
   )
 }

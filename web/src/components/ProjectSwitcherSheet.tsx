@@ -78,47 +78,93 @@ function ProjectForm({
   }
 
   return (
-    <form onSubmit={handleSave} className="space-y-3">
-      <h2 className="font-display text-base font-bold text-zinc-100">
-        {isNew ? 'New Project' : project.name}
-      </h2>
-      {error && <div className="font-mono text-xs text-red-400">{error}</div>}
-      <Field label="name">
-        <TextInput value={name} onChange={e => setName(e.target.value)} required />
-      </Field>
-      <Field label="workspace path">
-        <TextInput value={workspace} onChange={e => setWorkspace(e.target.value)} required placeholder="/repos/myproject.git" />
-      </Field>
-      <div className="grid grid-cols-2 gap-3">
-        <Field label="interval (s)">
-          <TextInput type="number" value={interval} onChange={e => setInterval(e.target.value)} required min="10" />
+    <form onSubmit={handleSave} className="h-full flex flex-col">
+      <div className="flex-1 overflow-y-auto space-y-4">
+        {error && <div className="text-sm text-red-400">{error}</div>}
+        <Field label="name">
+          <TextInput value={name} onChange={e => setName(e.target.value)} required />
         </Field>
-        <Field label="concurrency">
-          <TextInput type="number" value={concurrency} onChange={e => setConcurrency(e.target.value)} required min="1" />
+        <Field label="workspace path">
+          <TextInput value={workspace} onChange={e => setWorkspace(e.target.value)} required placeholder="/repos/myproject.git" />
         </Field>
-      </div>
-      <div className="flex gap-2 pt-1">
-        <ActionButton label={isNew ? 'create' : 'save'} type="submit" className="flex-1" />
-        <ActionButton label="cancel" variant="secondary" onClick={onCancel} className="flex-1" />
-      </div>
-      {project && (
-        <div className="flex gap-2">
-          <ActionButton
-            label="run now"
-            variant="secondary"
-            onClick={handleRun}
-            disabled={project.status !== 'active'}
-            className="flex-1"
-          />
-          <ActionButton
-            label={project.status === 'active' ? 'pause' : 'resume'}
-            variant="secondary"
-            onClick={handleToggle}
-            className="flex-1"
-          />
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="interval (s)">
+            <TextInput type="number" value={interval} onChange={e => setInterval(e.target.value)} required min="10" />
+          </Field>
+          <Field label="concurrency">
+            <TextInput type="number" value={concurrency} onChange={e => setConcurrency(e.target.value)} required min="1" />
+          </Field>
         </div>
-      )}
+      </div>
+      <div className="shrink-0 pt-3 space-y-2">
+        <div className="flex gap-2">
+          <ActionButton label={isNew ? 'create' : 'save'} type="submit" className="flex-1" />
+          <ActionButton label="cancel" variant="secondary" onClick={onCancel} className="flex-1" />
+        </div>
+        {project && (
+          <div className="flex gap-2">
+            <ActionButton label="run now" variant="secondary" onClick={handleRun}
+              disabled={project.status !== 'active'} className="flex-1" />
+            <ActionButton label={project.status === 'active' ? 'pause' : 'resume'}
+              variant="secondary" onClick={handleToggle} className="flex-1" />
+          </div>
+        )}
+      </div>
     </form>
+  )
+}
+
+function ProjectList({
+  projects,
+  current,
+  onSelect,
+  onEdit,
+  onNew,
+}: {
+  projects: Project[]
+  current: Project | null
+  onSelect: (p: Project) => void
+  onEdit: (p: Project) => void
+  onNew: () => void
+}) {
+  return (
+    <div className="h-full flex flex-col">
+      <div className="flex-1 overflow-y-auto">
+        {projects.length === 0
+          ? <EmptyState message="no projects" />
+          : projects.map(p => (
+            <div key={p.id} className="flex items-center border-b border-zinc-800/50">
+              <button
+                onClick={() => onSelect(p)}
+                className="flex-1 text-left py-2.5 min-w-0 active:opacity-75 transition-opacity"
+              >
+                <div className="flex items-center gap-2">
+                  <span className="text-zinc-200 text-sm truncate">{p.name}</span>
+                  {p.id === current?.id && (
+                    <span className="font-mono text-[10px] text-zinc-600 shrink-0">✓</span>
+                  )}
+                </div>
+                <div className="font-mono text-[10px] text-zinc-600 truncate">
+                  {p.workspace} · {p.schedule_interval}s
+                </div>
+              </button>
+              <div className="flex items-center gap-3 pl-3 shrink-0">
+                <StatusBadge status={p.status} />
+                <button
+                  onClick={() => onEdit(p)}
+                  className="font-mono text-[10px] text-zinc-600 active:text-zinc-100 py-2.5"
+                >
+                  edit
+                </button>
+              </div>
+            </div>
+          ))
+        }
+      </div>
+      <div className="shrink-0 pt-3">
+        <ActionButton label="new project" variant="secondary" onClick={onNew} className="w-full" />
+      </div>
+    </div>
   )
 }
 
@@ -156,49 +202,15 @@ export function ProjectSwitcherSheet({
   }
 
   return (
-    <Sheet open={open} onClose={handleSheetClose}>
+    <Sheet open={open} onClose={handleSheetClose} title="Projects">
       {mode === 'list' ? (
-        <>
-          <h2 className="font-display text-base font-bold text-zinc-100 mb-3">Projects</h2>
-          {projects.length === 0
-            ? <EmptyState message="no projects" />
-            : projects.map(p => (
-              <div key={p.id} className="flex items-center border-b border-zinc-800/50">
-                <button
-                  onClick={() => { onSelect(p); onClose() }}
-                  className="flex-1 text-left py-2.5 min-w-0 active:opacity-75 transition-opacity"
-                >
-                  <div className="flex items-center gap-2">
-                    <span className="text-zinc-200 text-sm truncate">{p.name}</span>
-                    {p.id === current?.id && (
-                      <span className="font-mono text-[10px] text-zinc-600 shrink-0">✓</span>
-                    )}
-                  </div>
-                  <div className="font-mono text-[10px] text-zinc-600 truncate">
-                    {p.workspace} · {p.schedule_interval}s
-                  </div>
-                </button>
-                <div className="flex items-center gap-3 pl-3 shrink-0">
-                  <StatusBadge status={p.status} />
-                  <button
-                    onClick={() => { setEditTarget(p); setMode('edit') }}
-                    className="font-mono text-[10px] text-zinc-600 active:text-zinc-100 py-2.5"
-                  >
-                    edit
-                  </button>
-                </div>
-              </div>
-            ))
-          }
-          <div className="pt-3">
-            <ActionButton
-              label="new project"
-              variant="secondary"
-              onClick={() => { setEditTarget(null); setMode('create') }}
-              className="w-full"
-            />
-          </div>
-        </>
+        <ProjectList
+          projects={projects}
+          current={current}
+          onSelect={p => { onSelect(p); onClose() }}
+          onEdit={p => { setEditTarget(p); setMode('edit') }}
+          onNew={() => { setEditTarget(null); setMode('create') }}
+        />
       ) : (
         <ProjectForm
           project={editTarget}

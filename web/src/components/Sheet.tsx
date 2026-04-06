@@ -1,12 +1,14 @@
 import { useEffect } from 'react'
+import { X } from 'lucide-react'
 
 interface SheetProps {
   open: boolean
   onClose: () => void
+  title: string
   children: React.ReactNode
 }
 
-export function Sheet({ open, onClose, children }: SheetProps) {
+export function Sheet({ open, onClose, title, children }: SheetProps) {
   useEffect(() => {
     if (!open) return
     const prev = document.body.style.overflow
@@ -25,18 +27,16 @@ export function Sheet({ open, onClose, children }: SheetProps) {
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col justify-end">
-      <div className="absolute inset-0 bg-black/60" onClick={onClose} />
-      <div className="relative bg-zinc-950 border-t border-zinc-800 max-h-[92dvh] flex flex-col">
-        <div className="flex items-center justify-between px-4 py-2 border-b border-zinc-800 shrink-0">
-          <span className="font-mono text-[10px] uppercase tracking-widest text-zinc-600">
-            detail
-          </span>
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative bg-zinc-950 border-t border-zinc-800/60 rounded-t-2xl h-[70dvh] flex flex-col">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-800/60 shrink-0">
+          <span className="text-sm font-semibold text-zinc-100">{title}</span>
           <button onClick={onClose}
-            className="font-mono text-xs text-zinc-600 active:text-zinc-100 px-1 py-1">
-            ✕
+            className="text-zinc-500 active:text-zinc-100 p-1 -mr-1">
+            <X size={16} strokeWidth={2} />
           </button>
         </div>
-        <div className="overflow-y-auto px-4 pb-10 pt-4">
+        <div className="flex-1 min-h-0 px-4 pt-4 pb-4">
           {children}
         </div>
       </div>

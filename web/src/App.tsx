@@ -28,17 +28,21 @@ export function App() {
 
   return (
     <div className="flex flex-col h-dvh bg-zinc-950">
-      <GlobalHeader project={project} onSwitch={() => setSwitcherOpen(true)} />
+      <GlobalHeader
+        title={{ tickets: 'Tickets', agents: 'Agents', repo: 'Repo', logs: 'Logs' }[tab]}
+        project={project}
+        onSwitch={() => setSwitcherOpen(true)}
+      />
 
       <main className="flex-1 min-h-0 overflow-hidden">
         {!project ? (
           <div className="px-4 py-3 font-mono text-xs text-zinc-600">loading…</div>
         ) : (
           <>
-            {tab === 'tickets' && <TicketsView key={project.id} projectId={project.id} />}
-            {tab === 'agents'  && <AgentsView  key={project.id} projectId={project.id} />}
-            {tab === 'repo'    && <RepoView    key={project.id} projectSlug={project.slug} />}
-            {tab === 'logs'    && <LogsView    key={project.id} />}
+            <div className={tab !== 'tickets' ? 'hidden' : 'h-full'}><TicketsView key={project.id} projectId={project.id} /></div>
+            <div className={tab !== 'agents'  ? 'hidden' : 'h-full'}><AgentsView  key={project.id} projectId={project.id} /></div>
+            <div className={tab !== 'repo'    ? 'hidden' : 'h-full'}><RepoView    key={project.id} projectSlug={project.slug} /></div>
+            <div className={tab !== 'logs'    ? 'hidden' : 'h-full'}><LogsView    key={project.id} /></div>
           </>
         )}
       </main>

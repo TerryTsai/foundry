@@ -1,7 +1,7 @@
 export function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="space-y-1">
-      <label className="font-mono text-[10px] uppercase tracking-widest text-zinc-600">{label}</label>
+    <div className="space-y-1.5">
+      <label className="text-xs font-medium text-zinc-500">{label}</label>
       {children}
     </div>
   )
