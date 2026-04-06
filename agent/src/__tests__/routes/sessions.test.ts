@@ -6,7 +6,7 @@ import { definitionsRouter } from '../../routes/definitions.js'
 import { sessionsRouter } from '../../routes/sessions.js'
 import type { Db } from '../../db/client.js'
 
-const deps = { ticketUrl: 'http://ticket', sandboxUrl: 'http://sandbox', repoUrl: 'http://repo' }
+const deps = { ticketUrl: 'http://ticket', sandboxUrl: 'http://sandbox', filesUrl: 'http://file' }
 
 const baseDef = {
   project_id: 'proj1',

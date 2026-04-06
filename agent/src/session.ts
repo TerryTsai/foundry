@@ -18,7 +18,7 @@ interface Tool {
 interface SessionDeps {
   ticketUrl: string
   sandboxUrl: string
-  repoUrl: string
+  filesUrl: string
 }
 
 interface TicketChainEntry {
@@ -83,7 +83,7 @@ export async function runAgentSession(
   // Fetch AGENT.md — best effort
   let agentMd = ''
   try {
-    const mdRes = await fetch(`${deps.repoUrl}/repo/${agentDef.project_id}/file/AGENT.md`)
+    const mdRes = await fetch(`${deps.filesUrl}/file/${agentDef.project_id}/AGENT.md`)
     if (mdRes.ok) agentMd = await mdRes.text()
   } catch {
     // not fatal

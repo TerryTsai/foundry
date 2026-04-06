@@ -2,25 +2,25 @@ import { Router } from 'express'
 import { join } from 'path'
 import { listFiles, readFile, writeFile } from '../git.js'
 
-export function fileRouter(repoBase: string) {
+export function fileRouter(basePath: string) {
   const router = Router({ mergeParams: true })
 
-  function repoPath(slug: string): string {
-    return join(repoBase, `${slug}.git`)
+  function bareDir(slug: string): string {
+    return join(basePath, `${slug}.git`)
   }
 
-  // GET /repo/:slug/file — list all files
+  // GET /file/:slug — list all files
   router.get('/', async (req, res) => {
     const { slug } = req.params as { slug: string }
     try {
-      const files = await listFiles(repoPath(slug))
+      const files = await listFiles(bareDir(slug))
       res.json(files)
     } catch {
-      res.status(404).json({ error: 'repo not found or has no commits' })
+      res.status(404).json({ error: 'project not found or has no commits' })
     }
   })
 
-  // GET /repo/:slug/file/* — read a file
+  // GET /file/:slug/* — read a file
   router.get('/*', async (req, res) => {
     const { slug } = req.params as { slug: string }
     const filePath = (req.params as Record<string, string>)['0']
@@ -29,14 +29,14 @@ export function fileRouter(repoBase: string) {
       return
     }
     try {
-      const content = await readFile(repoPath(slug), filePath)
+      const content = await readFile(bareDir(slug), filePath)
       res.type('text/plain').send(content)
     } catch {
       res.status(404).json({ error: 'file not found' })
     }
   })
 
-  // POST /repo/:slug/file/* — write a file + commit
+  // POST /file/:slug/* — write a file + commit
   router.post('/*', async (req, res) => {
     const { slug } = req.params as { slug: string }
     const filePath = (req.params as Record<string, string>)['0']
@@ -53,7 +53,7 @@ export function fileRouter(repoBase: string) {
 
     const commitMessage = message ?? `update ${filePath}`
     try {
-      await writeFile(repoPath(slug), filePath, content, commitMessage)
+      await writeFile(bareDir(slug), filePath, content, commitMessage)
       res.status(201).json({ ok: true })
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)

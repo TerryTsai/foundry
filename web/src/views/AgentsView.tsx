@@ -107,6 +107,7 @@ export function AgentsView({ projectId }: { projectId: string }) {
             <ListRow
               key={a.id}
               title={a.name}
+              subtitle={a.prompt.split('\n').find(l => l.trim()) ?? ''}
               onPress={() => openAgent(a)}
             />
           ))

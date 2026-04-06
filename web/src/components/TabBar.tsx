@@ -1,11 +1,11 @@
-import { Ticket, Bot, GitBranch, Activity } from 'lucide-react'
+import { Ticket, Bot, FolderOpen, Activity } from 'lucide-react'
 
-export type Tab = 'tickets' | 'agents' | 'repo' | 'logs'
+export type Tab = 'tickets' | 'agents' | 'files' | 'logs'
 
 const tabs: Array<{ id: Tab; label: string; icon: React.ReactNode }> = [
   { id: 'tickets', label: 'Tickets', icon: <Ticket size={18} strokeWidth={1.5} /> },
   { id: 'agents',  label: 'Agents',  icon: <Bot size={18} strokeWidth={1.5} /> },
-  { id: 'repo',    label: 'Repo',    icon: <GitBranch size={18} strokeWidth={1.5} /> },
+  { id: 'files',   label: 'Files',   icon: <FolderOpen size={18} strokeWidth={1.5} /> },
   { id: 'logs',    label: 'Logs',    icon: <Activity size={18} strokeWidth={1.5} /> },
 ]
 
@@ -16,13 +16,13 @@ interface TabBarProps {
 
 export function TabBar({ current, onChange }: TabBarProps) {
   return (
-    <nav className="flex border-t border-zinc-800/60 bg-zinc-950 shrink-0">
+    <nav className="flex border-t border-zinc-200 dark:border-zinc-800/60 bg-white dark:bg-zinc-950 shrink-0">
       {tabs.map(t => (
         <button
           key={t.id}
           onClick={() => onChange(t.id)}
           className={`flex-1 flex flex-col items-center justify-center py-2.5 gap-1 transition-colors relative ${
-            current === t.id ? 'text-amber-400' : 'text-zinc-500'
+            current === t.id ? 'text-amber-400' : 'text-zinc-400 dark:text-zinc-500'
           }`}
         >
           {current === t.id && (

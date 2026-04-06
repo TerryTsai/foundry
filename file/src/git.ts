@@ -8,16 +8,16 @@ export async function gitExec(args: string[], cwd: string): Promise<string> {
   return stdout
 }
 
-export async function listFiles(repoPath: string): Promise<string[]> {
-  const out = await gitExec(['ls-tree', '-r', 'HEAD', '--name-only'], repoPath)
+export async function listFiles(bareDir: string): Promise<string[]> {
+  const out = await gitExec(['ls-tree', '-r', 'HEAD', '--name-only'], bareDir)
   return out.trim() ? out.trim().split('\n') : []
 }
 
-export async function readFile(repoPath: string, filePath: string): Promise<string> {
-  return gitExec(['show', `HEAD:${filePath}`], repoPath)
+export async function readFile(bareDir: string, filePath: string): Promise<string> {
+  return gitExec(['show', `HEAD:${filePath}`], bareDir)
 }
 
-export async function writeFile(repoPath: string, filePath: string, content: string, message: string): Promise<void> {
+export async function writeFile(bareDir: string, filePath: string, content: string, message: string): Promise<void> {
   // Clone into a temp work tree, write the file, commit, push back
   const { execFile: ef } = await import('child_process')
   const exec = promisify(ef)
@@ -26,9 +26,9 @@ export async function writeFile(repoPath: string, filePath: string, content: str
   const { join, dirname } = await import('path')
   const { tmpdir } = await import('os')
 
-  const workDir = await mkdtemp(join(tmpdir(), 'foundry-repo-'))
+  const workDir = await mkdtemp(join(tmpdir(), 'foundry-work-'))
   try {
-    await exec('git', ['clone', repoPath, workDir])
+    await exec('git', ['clone', bareDir, workDir])
     await exec('git', ['-C', workDir, 'config', 'user.email', 'foundry@localhost'])
     await exec('git', ['-C', workDir, 'config', 'user.name', 'Foundry'])
     const target = join(workDir, filePath)

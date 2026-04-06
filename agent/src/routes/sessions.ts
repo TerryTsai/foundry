@@ -25,7 +25,7 @@ interface TicketData {
 interface SessionDeps {
   ticketUrl: string
   sandboxUrl: string
-  repoUrl: string
+  filesUrl: string
 }
 
 export function sessionsRouter(db: Db, deps: SessionDeps, runSession: SessionRunner) {

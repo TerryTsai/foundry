@@ -49,8 +49,8 @@ function RunDetail({ run }: { run: SandboxRun }) {
         { label: 'duration',  value: duration !== null ? `${duration}s` : null },
       ]} />
       <div className="space-y-1">
-        <div className="font-mono text-[10px] uppercase tracking-widest text-zinc-600">command</div>
-        <pre className="bg-zinc-900 p-3 font-mono text-xs text-zinc-300 whitespace-pre-wrap leading-relaxed">{run.command}</pre>
+        <div className="font-mono text-[10px] uppercase tracking-widest text-zinc-400 dark:text-zinc-600">command</div>
+        <pre className="bg-zinc-100 dark:bg-zinc-900 p-3 font-mono text-xs text-zinc-700 dark:text-zinc-300 whitespace-pre-wrap leading-relaxed">{run.command}</pre>
       </div>
     </div>
   )
@@ -89,15 +89,14 @@ export function LogsView() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="border-b border-zinc-800/60 shrink-0 flex items-center px-4">
+      <div className="border-b border-zinc-200 dark:border-zinc-800/60 shrink-0 flex items-center px-4 h-11">
         {(['sessions', 'runs', 'nginx'] as Tab[]).map(t => (
           <button key={t} onClick={() => setTab(t)}
-            className={`text-sm px-4 py-3 border-b-2 -mb-px transition-colors capitalize ${
-              tab === t
-                ? 'border-zinc-300 text-zinc-100'
-                : 'border-transparent text-zinc-500 active:text-zinc-300'
+            className={`relative text-sm px-4 h-full flex items-center transition-colors capitalize ${
+              tab === t ? 'text-zinc-900 dark:text-zinc-100' : 'text-zinc-500 active:text-zinc-700 dark:active:text-zinc-300'
             }`}>
-            {t}{counts[t] > 0 && <span className="ml-1.5 text-zinc-600">{counts[t]}</span>}
+            {tab === t && <span className="absolute bottom-0 left-0 right-0 h-px bg-zinc-700 dark:bg-zinc-300 rounded-full" />}
+            {t}{counts[t] > 0 && <span className="ml-1.5 text-zinc-400 dark:text-zinc-600">{counts[t]}</span>}
           </button>
         ))}
       </div>
@@ -138,7 +137,7 @@ export function LogsView() {
             ? <EmptyState message="no log entries" />
             : (
               <div className="p-4">
-                <pre className="font-mono text-[10px] text-zinc-500 leading-relaxed whitespace-pre-wrap break-all">
+                <pre className="font-mono text-[10px] text-zinc-400 dark:text-zinc-500 leading-relaxed whitespace-pre-wrap break-all">
                   {nginxLines.slice().reverse().join('\n')}
                 </pre>
               </div>

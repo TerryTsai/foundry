@@ -27,12 +27,11 @@ export function Sheet({ open, onClose, title, children }: SheetProps) {
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col justify-end">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative bg-zinc-950 border-t border-zinc-800/60 rounded-t-2xl h-[70dvh] flex flex-col">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-800/60 shrink-0">
-          <span className="text-sm font-semibold text-zinc-100">{title}</span>
-          <button onClick={onClose}
-            className="text-zinc-500 active:text-sky-400 p-1 -mr-1">
+      <div className="absolute inset-0 bg-black/40 dark:bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative bg-white dark:bg-zinc-950 border-t border-zinc-200 dark:border-zinc-800/60 rounded-t-2xl h-[70dvh] flex flex-col">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-100 dark:border-zinc-800/60 shrink-0">
+          <span className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{title}</span>
+          <button onClick={onClose} className="text-zinc-400 dark:text-zinc-500 active:text-sky-400 p-1 -mr-1">
             <X size={16} strokeWidth={2} />
           </button>
         </div>

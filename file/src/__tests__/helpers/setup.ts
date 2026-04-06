@@ -6,19 +6,16 @@ import { promisify } from 'util'
 
 const exec = promisify(execFile)
 
-export async function createTempRepo(): Promise<{ repoBase: string; slug: string; cleanup: () => Promise<void> }> {
-  // Create a temp base dir and a bare repo inside it
-  const repoBase = await mkdtemp(join(tmpdir(), 'foundry-test-'))
+export async function createTestProject(): Promise<{ basePath: string; slug: string; cleanup: () => Promise<void> }> {
+  const basePath = await mkdtemp(join(tmpdir(), 'foundry-test-'))
   const slug = 'test-project'
-  const bareRepo = join(repoBase, `${slug}.git`)
+  const bareDir = join(basePath, `${slug}.git`)
 
-  // Init bare repo
-  await exec('git', ['init', '--bare', bareRepo])
+  await exec('git', ['init', '--bare', bareDir])
 
-  // Create a working clone, add an initial commit, push back
   const workDir = await mkdtemp(join(tmpdir(), 'foundry-work-'))
   try {
-    await exec('git', ['clone', bareRepo, workDir])
+    await exec('git', ['clone', bareDir, workDir])
     await exec('git', ['-C', workDir, 'config', 'user.email', 'test@test.com'])
     await exec('git', ['-C', workDir, 'config', 'user.name', 'Test'])
 
@@ -29,19 +26,17 @@ export async function createTempRepo(): Promise<{ repoBase: string; slug: string
 
     await exec('git', ['-C', workDir, 'add', '.'])
     await exec('git', ['-C', workDir, 'commit', '-m', 'initial commit'])
-    // Determine the local branch name, then push and update bare repo HEAD
     const { stdout: branchOut } = await exec('git', ['-C', workDir, 'rev-parse', '--abbrev-ref', 'HEAD'])
     const branch = branchOut.trim()
     await exec('git', ['-C', workDir, 'push', 'origin', `HEAD:${branch}`])
-    // Ensure bare repo HEAD resolves correctly
-    await exec('git', ['-C', bareRepo, 'symbolic-ref', 'HEAD', `refs/heads/${branch}`])
+    await exec('git', ['-C', bareDir, 'symbolic-ref', 'HEAD', `refs/heads/${branch}`])
   } finally {
     await rm(workDir, { recursive: true, force: true })
   }
 
   return {
-    repoBase,
+    basePath,
     slug,
-    cleanup: () => rm(repoBase, { recursive: true, force: true }),
+    cleanup: () => rm(basePath, { recursive: true, force: true }),
   }
 }

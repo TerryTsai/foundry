@@ -4,8 +4,12 @@ import './index.css'
 import { App } from './App.js'
 
 const root = document.getElementById('root')!
+import { ThemeProvider } from './theme.js'
+
 createRoot(root).render(
   <StrictMode>
-    <App />
+    <ThemeProvider>
+      <App />
+    </ThemeProvider>
   </StrictMode>
 )

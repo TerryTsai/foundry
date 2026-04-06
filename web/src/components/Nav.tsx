@@ -4,7 +4,7 @@ const links = [
   { to: '/tickets', label: 'Tickets', icon: '□' },
   { to: '/projects', label: 'Projects', icon: '◈' },
   { to: '/agents', label: 'Agents', icon: '◎' },
-  { to: '/repo', label: 'Repo', icon: '⊞' },
+  { to: '/files', label: 'Files', icon: '⊞' },
   { to: '/logs', label: 'Logs', icon: '≡' },
 ]
 

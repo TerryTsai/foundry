@@ -8,7 +8,7 @@ import { runAgentSession } from './session.js'
 import { config } from './config.js'
 
 const { db } = createDb(config.dbPath)
-const deps = { ticketUrl: config.ticketUrl, sandboxUrl: config.sandboxUrl, repoUrl: config.repoUrl }
+const deps = { ticketUrl: config.ticketUrl, sandboxUrl: config.sandboxUrl, filesUrl: config.filesUrl }
 
 const app = express()
 app.use(express.json())

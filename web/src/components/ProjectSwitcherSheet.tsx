@@ -114,26 +114,26 @@ function ProjectList({
         {projects.length === 0
           ? <EmptyState message="no projects" />
           : projects.map(p => (
-            <div key={p.id} className="flex items-center border-b border-zinc-800/50">
+            <div key={p.id} className="flex items-center border-b border-zinc-100 dark:border-zinc-800/50">
               <button
                 onClick={() => onSelect(p)}
                 className="flex-1 text-left py-2.5 min-w-0 active:opacity-75 transition-opacity"
               >
                 <div className="flex items-center gap-2">
-                  <span className="text-zinc-200 text-sm truncate">{p.name}</span>
+                  <span className="text-zinc-900 dark:text-zinc-200 text-sm truncate">{p.name}</span>
                   {p.id === current?.id && (
-                    <span className="font-mono text-[10px] text-zinc-600 shrink-0">✓</span>
+                    <span className="font-mono text-[10px] text-zinc-400 dark:text-zinc-600 shrink-0">✓</span>
                   )}
                 </div>
-                <div className="font-mono text-[10px] text-zinc-600 truncate">
-                  {p.workspace} · {p.schedule_interval}s
+                <div className="font-mono text-[10px] text-zinc-400 dark:text-zinc-600 truncate">
+                  {p.schedule_interval}s interval · {p.concurrency_limit} {p.concurrency_limit === 1 ? 'agent' : 'agents'}
                 </div>
               </button>
               <div className="flex items-center gap-3 pl-3 shrink-0">
                 <StatusBadge status={p.status} />
                 <button
                   onClick={() => onEdit(p)}
-                  className="font-mono text-[10px] text-zinc-600 active:text-zinc-100 py-2.5"
+                  className="font-mono text-[10px] text-zinc-400 dark:text-zinc-600 active:text-zinc-900 dark:active:text-zinc-100 py-2.5"
                 >
                   edit
                 </button>

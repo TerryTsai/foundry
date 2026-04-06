@@ -102,13 +102,13 @@ export function ProjectsView() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="px-4 py-3 border-b border-zinc-800/60 shrink-0 flex items-center gap-3">
+      <div className="px-4 py-3 border-b border-zinc-200 dark:border-zinc-800/60 shrink-0 flex items-center gap-3">
         <span className="text-xs text-zinc-500">{projects.length}</span>
         <button onClick={openNew}
-          className="text-xs text-zinc-400 border border-zinc-700/60 rounded px-3 py-1.5 active:bg-zinc-800">
+          className="text-xs text-zinc-500 dark:text-zinc-400 border border-zinc-300 dark:border-zinc-700/60 rounded px-3 py-1.5 active:bg-zinc-100 dark:active:bg-zinc-800">
           + new
         </button>
-        <button onClick={load} className="text-zinc-500 active:text-zinc-100 ml-auto p-1">
+        <button onClick={load} className="text-zinc-400 dark:text-zinc-500 active:text-zinc-900 dark:active:text-zinc-100 ml-auto p-1">
           <RotateCw size={14} strokeWidth={2} />
         </button>
       </div>
@@ -120,7 +120,7 @@ export function ProjectsView() {
             <ListRow
               key={p.id}
               title={p.name}
-              subtitle={`${p.workspace} · ${p.schedule_interval}s · ${ts(p.created_at)}`}
+              subtitle={`${p.schedule_interval}s interval · ${p.concurrency_limit} ${p.concurrency_limit === 1 ? 'agent' : 'agents'} · ${ts(p.created_at)}`}
               status={p.status}
               onPress={() => openProject(p)}
             />

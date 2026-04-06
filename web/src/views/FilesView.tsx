@@ -8,7 +8,7 @@ import {
 } from 'lucide-react'
 import hljs from 'highlight.js/lib/core'
 import { marked } from 'marked'
-import { repoApi } from '../api.js'
+import { fileApi } from '../api.js'
 import { EmptyState } from '../components/list/EmptyState.js'
 
 // ── Syntax highlighting ──────────────────────────────────────────────────────
@@ -160,12 +160,12 @@ function TreeNodeRow({
       <button
         onClick={() => onFileClick(node.path)}
         className={`w-full text-left flex items-center gap-1.5 py-1 pr-3 transition-colors ${
-          active ? 'text-zinc-100' : 'text-zinc-500 active:text-zinc-300'
+          active ? 'text-zinc-900 dark:text-zinc-100' : 'text-zinc-400 dark:text-zinc-500 active:text-zinc-700 dark:active:text-zinc-300'
         }`}
         style={{ paddingLeft: `${12 + indent}px` }}
       >
-        {active && <span className="absolute left-0 w-0.5 h-4 bg-zinc-400 rounded-full" />}
-        <Icon size={12} strokeWidth={1.5} className={`shrink-0 ${active ? color : 'text-zinc-600'}`} />
+        {active && <span className="absolute left-0 w-0.5 h-4 bg-zinc-400 dark:bg-zinc-400 rounded-full" />}
+        <Icon size={12} strokeWidth={1.5} className={`shrink-0 ${active ? color : 'text-zinc-300 dark:text-zinc-600'}`} />
         <span className="font-mono text-xs truncate">{node.name}</span>
       </button>
     )
@@ -175,18 +175,18 @@ function TreeNodeRow({
     <div>
       <button
         onClick={() => setOpen(o => !o)}
-        className="w-full text-left flex items-center gap-1.5 py-1 pr-3 text-zinc-400 active:text-zinc-200 transition-colors"
+        className="w-full text-left flex items-center gap-1.5 py-1 pr-3 text-zinc-500 dark:text-zinc-400 active:text-zinc-700 dark:active:text-zinc-200 transition-colors"
         style={{ paddingLeft: `${indent}px` }}
       >
         <ChevronRight
           size={11} strokeWidth={2}
-          className={`shrink-0 text-zinc-600 transition-transform duration-150 ${open ? 'rotate-90' : ''}`}
+          className={`shrink-0 text-zinc-300 dark:text-zinc-600 transition-transform duration-150 ${open ? 'rotate-90' : ''}`}
         />
         {open
-          ? <FolderOpen size={12} strokeWidth={1.5} className="text-zinc-500 shrink-0" />
-          : <Folder     size={12} strokeWidth={1.5} className="text-zinc-600 shrink-0" />
+          ? <FolderOpen size={12} strokeWidth={1.5} className="text-zinc-400 dark:text-zinc-500 shrink-0" />
+          : <Folder     size={12} strokeWidth={1.5} className="text-zinc-300 dark:text-zinc-600 shrink-0" />
         }
-        <span className="font-mono text-xs text-zinc-400">{node.name}</span>
+        <span className="font-mono text-xs text-zinc-500 dark:text-zinc-400">{node.name}</span>
       </button>
       {open && node.children.map((child, i) => (
         <div key={i} className="relative">
@@ -199,7 +199,7 @@ function TreeNodeRow({
 
 // ── View ─────────────────────────────────────────────────────────────────────
 
-export function RepoView({ projectSlug }: { projectSlug: string }) {
+export function FilesView({ projectSlug }: { projectSlug: string }) {
   const [tree, setTree] = useState<TreeNode[]>([])
   const [selectedFile, setSelectedFile] = useState('')
   const [rendered, setRendered] = useState<{ html: string; mode: 'code' | 'markdown' } | null>(null)
@@ -209,7 +209,7 @@ export function RepoView({ projectSlug }: { projectSlug: string }) {
 
   useEffect(() => {
     setLoadingFiles(true)
-    repoApi.listFiles(projectSlug)
+    fileApi.listFiles(projectSlug)
       .then(f => { setTree(buildTree(f)); setRendered(null); setSelectedFile('') })
       .catch(() => setTree([]))
       .finally(() => setLoadingFiles(false))
@@ -221,7 +221,7 @@ export function RepoView({ projectSlug }: { projectSlug: string }) {
     setLoadingContent(true)
     setSidebarOpen(false)
     try {
-      const raw = await repoApi.readFile(projectSlug, path)
+      const raw = await fileApi.readFile(projectSlug, path)
       const ext = path.split('.').pop() ?? ''
       if (ext === 'md' || ext === 'mdx') {
         const html = await marked(raw, { async: true })
@@ -247,10 +247,10 @@ export function RepoView({ projectSlug }: { projectSlug: string }) {
     <div className="flex flex-col h-full">
 
       {/* Header */}
-      <div className="shrink-0 border-b border-zinc-800/60 h-11 flex items-center gap-2 min-w-0">
+      <div className="shrink-0 border-b border-zinc-200 dark:border-zinc-800/60 h-11 flex items-center gap-2 min-w-0">
         <button
           onClick={() => setSidebarOpen(o => !o)}
-          className="shrink-0 h-full px-3 flex items-center text-zinc-600 active:text-zinc-300 transition-colors border-r border-zinc-800/60"
+          className="shrink-0 h-full px-3 flex items-center text-zinc-400 dark:text-zinc-600 active:text-zinc-700 dark:active:text-zinc-300 transition-colors border-r border-zinc-200 dark:border-zinc-800/60"
           title={sidebarOpen ? 'hide sidebar' : 'show sidebar'}
         >
           {sidebarOpen
@@ -264,19 +264,19 @@ export function RepoView({ projectSlug }: { projectSlug: string }) {
             <>
               {fileDir && (
                 <>
-                  <span className="font-mono text-xs text-zinc-600 truncate hidden sm:block">{fileDir}</span>
-                  <ChevronRight size={10} className="text-zinc-700 shrink-0 hidden sm:block" />
+                  <span className="font-mono text-xs text-zinc-400 dark:text-zinc-600 truncate hidden sm:block">{fileDir}</span>
+                  <ChevronRight size={10} className="text-zinc-400 dark:text-zinc-700 shrink-0 hidden sm:block" />
                 </>
               )}
-              <span className="font-mono text-xs text-zinc-300 truncate">{fileName}</span>
+              <span className="font-mono text-xs text-zinc-700 dark:text-zinc-300 truncate">{fileName}</span>
               {lang && (
-                <span className="ml-auto shrink-0 font-mono text-[10px] text-zinc-600 bg-zinc-900 border border-zinc-800 px-1.5 py-0.5 rounded">
+                <span className="ml-auto shrink-0 font-mono text-[10px] text-zinc-500 dark:text-zinc-600 bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 px-1.5 py-0.5 rounded">
                   {lang}
                 </span>
               )}
             </>
           ) : (
-            <span className="text-xs text-zinc-600">repo</span>
+            <span className="text-xs text-zinc-400 dark:text-zinc-600">files</span>
           )}
         </div>
       </div>
@@ -284,10 +284,10 @@ export function RepoView({ projectSlug }: { projectSlug: string }) {
       <div className="relative flex-1 overflow-hidden">
 
         {/* Content */}
-        <div className="absolute inset-0 overflow-auto bg-zinc-950">
+        <div className="absolute inset-0 overflow-auto bg-zinc-50 dark:bg-zinc-950">
           {/* Loading bar */}
           {loadingContent && (
-            <div className="absolute top-0 left-0 right-0 h-px bg-zinc-800 overflow-hidden z-10">
+            <div className="absolute top-0 left-0 right-0 h-px bg-zinc-200 dark:bg-zinc-800 overflow-hidden z-10">
               <div
                 className="h-full bg-sky-400 w-1/2"
                 style={{ animation: 'loadbar 1.1s ease-in-out infinite' }}
@@ -298,11 +298,11 @@ export function RepoView({ projectSlug }: { projectSlug: string }) {
           {!loadingContent && rendered && (
             rendered.mode === 'markdown' ? (
               <div
-                className="prose-zinc p-6 max-w-3xl"
+                className="prose-zinc p-6 max-w-3xl select-text"
                 dangerouslySetInnerHTML={{ __html: rendered.html }}
               />
             ) : (
-              <pre className="font-mono text-xs leading-relaxed p-5 hljs-zinc min-h-full">
+              <pre className="font-mono text-xs leading-relaxed p-5 hljs-zinc min-h-full select-text cursor-text">
                 <code dangerouslySetInnerHTML={{ __html: rendered.html }} />
               </pre>
             )
@@ -321,7 +321,7 @@ export function RepoView({ projectSlug }: { projectSlug: string }) {
               onClick={() => setSidebarOpen(false)}
             />
             {/* Drawer */}
-            <div className="absolute top-0 left-0 bottom-0 z-20 w-56 bg-zinc-950 border-r border-zinc-800/60 overflow-y-auto py-2 shadow-xl">
+            <div className="absolute top-0 left-0 bottom-0 z-20 w-56 bg-white dark:bg-zinc-950 border-r border-zinc-200 dark:border-zinc-800/60 overflow-y-auto py-2 shadow-xl">
               {loadingFiles ? (
                 <EmptyState message="loading…" />
               ) : tree.length === 0 ? (

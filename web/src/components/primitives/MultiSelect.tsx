@@ -50,20 +50,20 @@ export function MultiSelect({ label, options, selected, onChange }: MultiSelectP
     <div
       id="multiselect-portal"
       style={{ position: 'fixed', top: pos.top, left: pos.left, minWidth: Math.max(pos.width, 140), zIndex: 9999 }}
-      className="bg-zinc-900 border border-zinc-700/60 rounded-lg shadow-xl overflow-hidden"
+      className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700/60 rounded-lg shadow-xl overflow-hidden"
     >
       {options.map(opt => (
         <button
           key={opt}
           onClick={() => toggle(opt)}
-          className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-left hover:bg-zinc-800/50 active:bg-zinc-800/80 transition-colors"
+          className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-left hover:bg-zinc-50 dark:hover:bg-zinc-800/50 active:bg-zinc-100 dark:active:bg-zinc-800/80 transition-colors"
         >
           <span className={`w-3.5 h-3.5 rounded border flex items-center justify-center shrink-0 transition-colors ${
             selected.has(opt) ? 'bg-zinc-300 border-zinc-300' : 'border-zinc-600'
           }`}>
-            {selected.has(opt) && <Check size={9} strokeWidth={3} className="text-zinc-900" />}
+            {selected.has(opt) && <Check size={9} strokeWidth={3} className="text-white dark:text-zinc-900" />}
           </span>
-          <span className={selected.has(opt) ? 'text-zinc-200' : 'text-zinc-400'}>{opt}</span>
+          <span className={selected.has(opt) ? 'text-zinc-900 dark:text-zinc-200' : 'text-zinc-500 dark:text-zinc-400'}>{opt}</span>
         </button>
       ))}
       {active && (

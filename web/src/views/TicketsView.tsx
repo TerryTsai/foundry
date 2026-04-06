@@ -135,7 +135,7 @@ function TicketDetail({
           <StatusBadge status={ticket.status} />
           {!editing && (
             <button onClick={() => setEditing(true)}
-              className="text-xs text-zinc-500 active:text-zinc-100">
+              className="text-xs text-zinc-400 dark:text-zinc-500 active:text-zinc-900 dark:active:text-zinc-100">
               edit
             </button>
           )}
@@ -159,13 +159,13 @@ function TicketDetail({
           </div>
         ) : (
           <>
-            <div className="bg-zinc-900 p-3 text-sm text-zinc-300 whitespace-pre-wrap leading-relaxed font-sans">
+            <div className="bg-zinc-100 dark:bg-zinc-900 p-3 text-sm text-zinc-700 dark:text-zinc-300 whitespace-pre-wrap leading-relaxed font-sans">
               {ticket.body}
             </div>
             {ticket.notes && (
               <div className="space-y-1">
-                <div className="font-mono text-[10px] uppercase tracking-widest text-zinc-600">notes</div>
-                <div className="bg-zinc-900 p-3 text-sm text-zinc-400 whitespace-pre-wrap leading-relaxed font-sans">
+                <div className="font-mono text-[10px] uppercase tracking-widest text-zinc-400 dark:text-zinc-600">notes</div>
+                <div className="bg-zinc-100 dark:bg-zinc-900 p-3 text-sm text-zinc-500 dark:text-zinc-400 whitespace-pre-wrap leading-relaxed font-sans">
                   {ticket.notes}
                 </div>
               </div>
@@ -175,11 +175,11 @@ function TicketDetail({
 
         {chain.length > 1 && (
           <div className="space-y-1.5 pt-1">
-            <div className="font-mono text-[10px] uppercase tracking-widest text-zinc-600">chain ({chain.length})</div>
+            <div className="font-mono text-[10px] uppercase tracking-widest text-zinc-400 dark:text-zinc-600">chain ({chain.length})</div>
             {chain.map((t, i) => (
-              <div key={t.id} className="flex items-center gap-2 font-mono text-xs py-1 border-b border-zinc-800/50">
-                <span className="text-zinc-700 shrink-0">{i === chain.length - 1 ? '→' : '·'}</span>
-                <span className="text-zinc-400 truncate">{t.title}</span>
+              <div key={t.id} className="flex items-center gap-2 font-mono text-xs py-1 border-b border-zinc-100 dark:border-zinc-800/50">
+                <span className="text-zinc-400 dark:text-zinc-700 shrink-0">{i === chain.length - 1 ? '→' : '·'}</span>
+                <span className="text-zinc-500 dark:text-zinc-400 truncate">{t.title}</span>
                 <div className="shrink-0 ml-auto"><StatusBadge status={t.status} /></div>
               </div>
             ))}
@@ -244,7 +244,7 @@ export function TicketsView({ projectId }: { projectId: string }) {
     <>
       <div className="flex flex-col h-full">
         {/* Filter bar — outside scroll container so dropdowns aren't clipped */}
-        <div className="shrink-0 flex gap-2 px-4 py-3 border-b border-zinc-800/60 overflow-x-auto no-scrollbar">
+        <div className="shrink-0 flex items-center gap-2 px-4 h-11 border-b border-zinc-200 dark:border-zinc-800/60 overflow-x-auto no-scrollbar">
           <MultiSelect
             label="Status"
             options={[...STATUSES]}

@@ -23,9 +23,9 @@ export function TextArea({ label, onChange, value, ...props }: TextAreaProps) {
   }, [expanded])
 
   const overlay = expanded && createPortal(
-    <div className="fixed inset-0 z-[100] flex flex-col bg-zinc-950">
-      <div className="shrink-0 flex items-center justify-between px-4 h-12 border-b border-zinc-800/60">
-        <span className="text-sm text-zinc-400">{label ?? 'Edit'}</span>
+    <div className="fixed inset-0 z-[100] flex flex-col bg-white dark:bg-zinc-950">
+      <div className="shrink-0 flex items-center justify-between px-4 h-12 border-b border-zinc-200 dark:border-zinc-800/60">
+        <span className="text-sm text-zinc-500 dark:text-zinc-400">{label ?? 'Edit'}</span>
         <button
           type="button"
           onClick={() => setExpanded(false)}
@@ -38,7 +38,7 @@ export function TextArea({ label, onChange, value, ...props }: TextAreaProps) {
         ref={overlayRef}
         value={value}
         onChange={onChange}
-        className="flex-1 bg-transparent text-zinc-200 text-[16px] px-4 py-3 resize-none focus:outline-none leading-relaxed"
+        className="flex-1 bg-transparent text-zinc-900 dark:text-zinc-200 text-[16px] px-4 py-3 resize-none focus:outline-none leading-relaxed"
         {...props}
         rows={undefined}
       />

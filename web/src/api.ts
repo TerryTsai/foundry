@@ -83,11 +83,11 @@ export const logsApi = {
   },
 }
 
-// Repo
-export const repoApi = {
-  listFiles: (slug: string) => get<string[]>(`/repo/${slug}/file`),
+// Files
+export const fileApi = {
+  listFiles: (slug: string) => get<string[]>(`/file/${slug}`),
   readFile: async (slug: string, path: string): Promise<string> => {
-    const res = await fetch(`/repo/${slug}/file/${path}`)
+    const res = await fetch(`/file/${slug}/${path}`)
     if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
     return res.text()
   },

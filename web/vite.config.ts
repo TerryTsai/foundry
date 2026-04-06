@@ -9,7 +9,8 @@ export default defineConfig({
     proxy: {
       '/project': 'http://localhost:3001',
       '/ticket': 'http://localhost:3002',
-      '/repo': 'http://localhost:3003',
+      '/file': 'http://localhost:3003',
+      '/git': 'http://localhost:3003',
       '/sandbox': 'http://localhost:3004',
       '/agent': 'http://localhost:3005',
     },

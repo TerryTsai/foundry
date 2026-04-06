@@ -8,15 +8,15 @@ app.use(express.json())
 app.use(express.text({ type: '*/*' }))
 
 // JSON file browser
-app.use('/repo/:slug/file', fileRouter(config.repoBase))
+app.use('/file/:slug', fileRouter(config.basePath))
 
-// Git wire protocol — must come after file browser to avoid :slug.git matching /file
-app.use('/repo', gitRouter(config.repoBase))
+// Git wire protocol
+app.use('/git', gitRouter(config.basePath))
 
 app.get('/health', (_req, res) => res.json({ ok: true }))
 
 app.listen(config.port, () => {
-  console.log(`repo service listening on port ${config.port}`)
+  console.log(`file service listening on port ${config.port}`)
 })
 
 export { app }

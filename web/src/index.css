@@ -145,10 +145,44 @@
   border: 1px solid #27272a;
 }
 
+/* Light mode overrides */
+:root:not(.dark) .hljs-zinc                        { color: #3f3f46; }
+:root:not(.dark) .hljs-zinc .hljs-comment          { color: #a1a1aa; }
+:root:not(.dark) .hljs-zinc .hljs-keyword,
+:root:not(.dark) .hljs-zinc .hljs-built_in         { color: #4f46e5; }
+:root:not(.dark) .hljs-zinc .hljs-string,
+:root:not(.dark) .hljs-zinc .hljs-attr             { color: #16a34a; }
+:root:not(.dark) .hljs-zinc .hljs-number,
+:root:not(.dark) .hljs-zinc .hljs-literal          { color: #ea580c; }
+:root:not(.dark) .hljs-zinc .hljs-title,
+:root:not(.dark) .hljs-zinc .hljs-title.class_,
+:root:not(.dark) .hljs-zinc .hljs-title.function_  { color: #0891b2; }
+:root:not(.dark) .hljs-zinc .hljs-type,
+:root:not(.dark) .hljs-zinc .hljs-class            { color: #b45309; }
+:root:not(.dark) .hljs-zinc .hljs-tag              { color: #dc2626; }
+:root:not(.dark) .hljs-zinc .hljs-variable,
+:root:not(.dark) .hljs-zinc .hljs-params           { color: #18181b; }
+
+:root:not(.dark) .prose-zinc                       { color: #52525b; }
+:root:not(.dark) .prose-zinc h1,
+:root:not(.dark) .prose-zinc h2,
+:root:not(.dark) .prose-zinc h3                    { color: #18181b; }
+:root:not(.dark) .prose-zinc h2                    { border-color: #e4e4e7; }
+:root:not(.dark) .prose-zinc strong                { color: #18181b; }
+:root:not(.dark) .prose-zinc em                    { color: #3f3f46; }
+:root:not(.dark) .prose-zinc code                  { color: #0891b2; background: #f4f4f5; border-color: #e4e4e7; }
+:root:not(.dark) .prose-zinc pre                   { background: #f4f4f5; border-color: #e4e4e7; }
+:root:not(.dark) .prose-zinc pre code              { color: #52525b; }
+:root:not(.dark) .prose-zinc blockquote            { border-color: #d4d4d8; color: #71717a; }
+:root:not(.dark) .prose-zinc th                    { color: #3f3f46; border-color: #d4d4d8; }
+:root:not(.dark) .prose-zinc td                    { border-color: #e4e4e7; }
+:root:not(.dark) .prose-zinc hr                    { border-color: #e4e4e7; }
+:root:not(.dark) .prose-zinc img                   { border-color: #e4e4e7; }
+
 @layer base {
 
   body {
-    @apply bg-zinc-950 text-zinc-200;
+    @apply bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-200;
     -webkit-font-smoothing: antialiased;
   }
 
