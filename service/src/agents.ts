@@ -3,7 +3,7 @@ import { zodToJsonSchema } from 'zod-to-json-schema'
 import type { Db } from './db.js'
 import type { Config } from './config.js'
 import type { Ticket, AgentDefinition } from './schema.js'
-import { getTicketChain, gitReadFile, completeTicket, failTicket, type TicketChainEntry } from './helpers.js'
+import { ticket, file, type TicketChainEntry } from './handlers.js'
 import { makeRunCommandTool, makeCreateTicketTool, type Tool } from './tools.js'
 
 // ── System Prompt ──
@@ -12,7 +12,7 @@ export const buildSystemPrompt = (
   agentPrompt: string,
   agentMd: string,
   chain: TicketChainEntry[],
-  ticket: Ticket,
+  ticketData: Ticket,
 ): string => {
   const chainText = chain.slice(0, -1)
     .map(t => `### ${t.title} (${t.status})\n${t.body}${t.notes ? `\n\nNotes: ${t.notes}` : ''}`)
@@ -30,29 +30,29 @@ export const buildSystemPrompt = (
     '',
     '---',
     '',
-    `## Current Ticket: ${ticket.title}`,
+    `## Current Ticket: ${ticketData.title}`,
     '',
-    ticket.body,
+    ticketData.body,
   ].filter(s => s !== undefined).join('\n')
 }
 
 // ── Session Runner ──
 
 export const runAgentSession = (db: Db, config: Config) =>
-  async (sessionId: string, agentDef: AgentDefinition, ticket: Ticket): Promise<void> => {
+  async (sessionId: string, agentDef: AgentDefinition, ticketData: Ticket): Promise<void> => {
     const client = new Anthropic({ apiKey: config.anthropicKey })
 
     let chain: TicketChainEntry[] = []
-    try { chain = getTicketChain(db)(ticket.id) } catch { /* empty chain */ }
+    try { chain = ticket.chain(db)(ticketData.id) } catch { /* empty chain */ }
 
     let agentMd = ''
-    try { agentMd = await gitReadFile(config.repoBase)(agentDef.project_id, 'AGENT.md') } catch { /* no AGENT.md */ }
+    try { agentMd = await file.read(config.repoBase)(agentDef.project_id, 'AGENT.md') } catch { /* no AGENT.md */ }
 
-    const systemPrompt = buildSystemPrompt(agentDef.prompt, agentMd, chain, ticket)
+    const systemPrompt = buildSystemPrompt(agentDef.prompt, agentMd, chain, ticketData)
 
     const tools: Tool[] = [
       makeRunCommandTool(db, config, sessionId),
-      makeCreateTicketTool(db, agentDef.project_id, ticket.id, agentDef.name),
+      makeCreateTicketTool(db, agentDef.project_id, ticketData.id, agentDef.name),
     ]
 
     const sdkTools: Anthropic.Messages.Tool[] = tools.map(t => ({
@@ -62,13 +62,13 @@ export const runAgentSession = (db: Db, config: Config) =>
     }))
 
     const messages: Anthropic.Messages.MessageParam[] = [
-      { role: 'user', content: ticket.body },
+      { role: 'user', content: ticketData.body },
     ]
 
     const saveMessage = (role: string, content: string) =>
       db.messages.insert({ session_id: sessionId, role, content, created_at: new Date().toISOString() })
 
-    saveMessage('user', ticket.body)
+    saveMessage('user', ticketData.body)
 
     let notes = ''
 
@@ -116,11 +116,11 @@ export const runAgentSession = (db: Db, config: Config) =>
         messages.push({ role: 'user', content: toolResults })
       }
 
-      completeTicket(db)(ticket.id, notes)
+      ticket.complete(db)(ticketData.id, notes)
       db.sessions.update(sessionId, { status: 'done', ended_at: new Date().toISOString() })
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
-      try { failTicket(db)(ticket.id, msg) } catch { /* ticket may already be done */ }
+      try { ticket.fail(db)(ticketData.id, msg) } catch { /* ticket may already be done */ }
       db.sessions.update(sessionId, { status: 'failed', ended_at: new Date().toISOString() })
     }
   }

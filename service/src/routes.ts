@@ -1,260 +1,100 @@
-import type { Request, Response } from 'express'
+import { Router, type Request, type Response } from 'express'
 // @ts-ignore — no types for node-git-server
 import { Git as Server } from 'node-git-server'
 import type { Db } from './db.js'
 import type { Config } from './config.js'
-import * as h from './helpers.js'
-import {
-  createTicketBody, updateTicketBody, doneTicketBody, failTicketBody, listTicketsQuery,
-  createProjectBody, updateProjectBody, listProjectsQuery,
-  createAgentDefBody, updateAgentDefBody, listAgentDefsQuery,
-  startSessionBody, sendMessageBody,
-  createSandboxBody, writeFileBody,
-} from './validation.js'
-import { parse, send, sendText, fail } from './middleware.js'
+import * as h from './handlers.js'
+import * as v from './validate.js'
+import { body, query, handle, send, sendText } from './middleware.js'
 
 // ── Tickets ──
 
-export const listTickets = (db: Db) => (req: Request, res: Response) =>
-  Promise.resolve(req.query)
-    .then(parse(listTicketsQuery))
-    .then(h.listTickets(db))
-    .then(send(res))
-    .catch(fail(res))
-
-export const createTicket = (db: Db) => (req: Request, res: Response) =>
-  Promise.resolve(req.body)
-    .then(parse(createTicketBody))
-    .then(h.createTicket(db))
-    .then(send(res, 201))
-    .catch(fail(res))
-
-export const getTicket = (db: Db) => (req: Request, res: Response) =>
-  Promise.resolve(req.params.id)
-    .then(h.getTicket(db))
-    .then(send(res))
-    .catch(fail(res))
-
-export const updateTicket = (db: Db) => (req: Request, res: Response) =>
-  Promise.resolve(req.body)
-    .then(parse(updateTicketBody))
-    .then(data => h.updateTicket(db)(req.params.id, data))
-    .then(send(res))
-    .catch(fail(res))
-
-export const claimTicket = (db: Db) => (req: Request, res: Response) =>
-  Promise.resolve(req.params.id)
-    .then(h.claimTicket(db))
-    .then(send(res))
-    .catch(fail(res))
-
-export const completeTicket = (db: Db) => (req: Request, res: Response) =>
-  Promise.resolve(req.body)
-    .then(parse(doneTicketBody))
-    .then(data => h.completeTicket(db)(req.params.id, data.notes))
-    .then(send(res))
-    .catch(fail(res))
-
-export const failTicket = (db: Db) => (req: Request, res: Response) =>
-  Promise.resolve(req.body)
-    .then(parse(failTicketBody))
-    .then(data => h.failTicket(db)(req.params.id, data.notes))
-    .then(send(res))
-    .catch(fail(res))
-
-export const reopenTicket = (db: Db) => (req: Request, res: Response) =>
-  Promise.resolve(req.params.id)
-    .then(h.reopenTicket(db))
-    .then(send(res))
-    .catch(fail(res))
-
-export const getTicketChain = (db: Db) => (req: Request, res: Response) =>
-  Promise.resolve(req.params.id)
-    .then(h.getTicketChain(db))
-    .then(send(res))
-    .catch(fail(res))
+export const ticket = (db: Db) => {
+  const r = Router()
+  r.get   ('/',            query(v.ticket.list), handle(req => h.ticket.list(db)(req.data)),                       send())
+  r.post  ('/',            body(v.ticket.create), handle(req => h.ticket.create(db)(req.data)),                    send(201))
+  r.get   ('/:id',         handle(req => h.ticket.get(db)(req.params.id)),                                        send())
+  r.put   ('/:id',         body(v.ticket.update), handle(req => h.ticket.update(db)(req.params.id, req.data)),     send())
+  r.post  ('/:id/claim',   handle(req => h.ticket.claim(db)(req.params.id)),                                      send())
+  r.post  ('/:id/done',    body(v.ticket.done), handle(req => h.ticket.complete(db)(req.params.id, req.data.notes)), send())
+  r.post  ('/:id/fail',    body(v.ticket.fail), handle(req => h.ticket.fail(db)(req.params.id, req.data.notes)),   send())
+  r.post  ('/:id/reopen',  handle(req => h.ticket.reopen(db)(req.params.id)),                                     send())
+  r.get   ('/:id/chain',   handle(req => h.ticket.chain(db)(req.params.id)),                                      send())
+  return r
+}
 
 // ── Projects ──
 
-export const listProjects = (db: Db) => (req: Request, res: Response) =>
-  Promise.resolve(req.query)
-    .then(parse(listProjectsQuery))
-    .then(h.listProjects(db))
-    .then(send(res))
-    .catch(fail(res))
+export const project = (db: Db) => {
+  const r = Router()
+  r.get   ('/',         query(v.project.list), handle(req => h.project.list(db)(req.data)),                       send())
+  r.post  ('/',         body(v.project.create), handle(req => h.project.create(db)(req.data)),                    send(201))
+  r.get   ('/:id',      handle(req => h.project.get(db)(req.params.id)),                                         send())
+  r.put   ('/:id',      body(v.project.update), handle(req => h.project.update(db)(req.params.id, req.data)),     send())
+  r.post  ('/:id/run',  handle(req => h.project.run(db)(req.params.id)),                                         send(202))
+  return r
+}
 
-export const createProject = (db: Db) => (req: Request, res: Response) =>
-  Promise.resolve(req.body)
-    .then(parse(createProjectBody))
-    .then(h.createProject(db))
-    .then(send(res, 201))
-    .catch(fail(res))
+// ── Agent Definitions + Sessions ──
 
-export const getProject = (db: Db) => (req: Request, res: Response) =>
-  Promise.resolve(req.params.id)
-    .then(h.getProject(db))
-    .then(send(res))
-    .catch(fail(res))
+export const agent = (db: Db, config: Config) => {
+  const r = Router()
+  r.get   ('/',                       query(v.agent.list), handle(req => h.agent.list(db)(req.data)),                       send())
+  r.post  ('/',                       body(v.agent.create), handle(req => h.agent.create(db)(req.data)),                    send(201))
+  r.get   ('/:id',                    handle(req => h.agent.get(db)(req.params.id)),                                        send())
+  r.put   ('/:id',                    body(v.agent.update), handle(req => h.agent.update(db)(req.params.id, req.data)),     send())
+  r.delete('/:id',                    handle(req => h.agent.remove(db)(req.params.id)),                                     send())
+  r.post  ('/:id/session',            body(v.session.start), handle(req => h.session.start(db, config)(req.params.id, req.data.ticket_id)), send(201))
+  r.get   ('/:id/session/:sid',       handle(req => h.session.get(db)(req.params.sid)),                                     send())
+  r.get   ('/:id/session/:sid/status', handle(req => h.session.status(db)(req.params.sid)),                                 send())
+  r.delete('/:id/session/:sid',       handle(req => h.session.kill(db)(req.params.sid)),                                    send())
+  r.post  ('/:id/session/:sid/message', body(v.session.message), handle(req => h.session.message(db)(req.params.sid, 'founder', req.data.content)), send(201))
+  r.get   ('/:id/session/:sid/message', handle(req => h.session.messages(db)(req.params.sid)),                              send())
+  return r
+}
 
-export const updateProject = (db: Db) => (req: Request, res: Response) =>
-  Promise.resolve(req.body)
-    .then(parse(updateProjectBody))
-    .then(data => h.updateProject(db)(req.params.id, data))
-    .then(send(res))
-    .catch(fail(res))
+// ── Sessions (top-level) ──
 
-export const runProject = (db: Db) => (req: Request, res: Response) =>
-  Promise.resolve(req.params.id)
-    .then(h.runProject(db))
-    .then(send(res, 202))
-    .catch(fail(res))
-
-// ── Agent Definitions ──
-
-export const listAgentDefs = (db: Db) => (req: Request, res: Response) =>
-  Promise.resolve(req.query)
-    .then(parse(listAgentDefsQuery))
-    .then(h.listAgentDefs(db))
-    .then(send(res))
-    .catch(fail(res))
-
-export const createAgentDef = (db: Db) => (req: Request, res: Response) =>
-  Promise.resolve(req.body)
-    .then(parse(createAgentDefBody))
-    .then(h.createAgentDef(db))
-    .then(send(res, 201))
-    .catch(fail(res))
-
-export const getAgentDef = (db: Db) => (req: Request, res: Response) =>
-  Promise.resolve(req.params.id)
-    .then(h.getAgentDef(db))
-    .then(send(res))
-    .catch(fail(res))
-
-export const updateAgentDef = (db: Db) => (req: Request, res: Response) =>
-  Promise.resolve(req.body)
-    .then(parse(updateAgentDefBody))
-    .then(data => h.updateAgentDef(db)(req.params.id, data))
-    .then(send(res))
-    .catch(fail(res))
-
-export const deleteAgentDef = (db: Db) => (req: Request, res: Response) =>
-  Promise.resolve(req.params.id)
-    .then(h.deleteAgentDef(db))
-    .then(send(res))
-    .catch(fail(res))
-
-// ── Sessions ──
-
-export const startSession = (db: Db, config: Config) => (req: Request, res: Response) =>
-  Promise.resolve(req.body)
-    .then(parse(startSessionBody))
-    .then(data => h.startAgentSession(db, config)(req.params.id, data.ticket_id))
-    .then(send(res, 201))
-    .catch(fail(res))
-
-export const getSession = (db: Db) => (req: Request, res: Response) =>
-  Promise.resolve(req.params.sid)
-    .then(h.getSession(db))
-    .then(send(res))
-    .catch(fail(res))
-
-export const getSessionStatus = (db: Db) => (req: Request, res: Response) =>
-  Promise.resolve(req.params.sid)
-    .then(h.getSessionStatus(db))
-    .then(send(res))
-    .catch(fail(res))
-
-export const killSession = (db: Db) => (req: Request, res: Response) =>
-  Promise.resolve(req.params.sid)
-    .then(h.killSession(db))
-    .then(send(res))
-    .catch(fail(res))
-
-export const sendMessage = (db: Db) => (req: Request, res: Response) =>
-  Promise.resolve(req.body)
-    .then(parse(sendMessageBody))
-    .then(data => h.insertMessage(db)(req.params.sid, 'founder', data.content))
-    .then(send(res, 201))
-    .catch(fail(res))
-
-export const getMessages = (db: Db) => (req: Request, res: Response) =>
-  Promise.resolve(req.params.sid)
-    .then(h.getMessages(db))
-    .then(send(res))
-    .catch(fail(res))
-
-export const listAllSessions = (db: Db) => (_req: Request, res: Response) =>
-  Promise.resolve()
-    .then(h.listAllSessions(db))
-    .then(send(res))
-    .catch(fail(res))
+export const session = (db: Db) => {
+  const r = Router()
+  r.get('/', handle(() => h.session.listAll(db)()), send())
+  return r
+}
 
 // ── Files ──
 
-export const listFiles = (config: Config) => (req: Request, res: Response) =>
-  Promise.resolve(req.params.slug)
-    .then(h.gitListFiles(config.repoBase))
-    .then(send(res))
-    .catch(fail(res))
+export const file = (config: Config) => {
+  const r = Router({ mergeParams: true })
+  r.get ('/:slug',   handle(req => h.file.list(config.repoBase)(req.params.slug)),                                                               send())
+  r.get ('/:slug/*', handle(req => h.file.read(config.repoBase)(req.params.slug, req.params[0])),                                                sendText)
+  r.post('/:slug/*', body(v.file.write), handle(req => h.file.write(config.repoBase)(req.params.slug, req.params[0], req.data.content, req.data.message ?? `update ${req.params[0]}`)), send(201))
+  return r
+}
 
-export const readFile = (config: Config) => (req: Request, res: Response) =>
-  Promise.resolve(req.params.slug)
-    .then(slug => h.gitReadFile(config.repoBase)(slug, req.params[0]))
-    .then(sendText(res))
-    .catch(fail(res))
+// ── Git Wire Protocol ──
 
-export const writeFile = (config: Config) => (req: Request, res: Response) =>
-  Promise.resolve(req.body)
-    .then(parse(writeFileBody))
-    .then(data => h.gitWriteFile(config.repoBase)(req.params.slug, req.params[0], data.content, data.message ?? `update ${req.params[0]}`))
-    .then(send(res, 201))
-    .catch(fail(res))
-
-export const gitWireProtocol = (config: Config) => {
+export const git = (config: Config) => {
   const repos = new Server(config.repoBase, { autoCreate: false })
   repos.on('push', (push: { accept: () => void }) => push.accept())
   repos.on('fetch', (fetch: { accept: () => void }) => fetch.accept())
   repos.on('info', (info: { accept: () => void }) => info.accept())
 
-  return (req: Request, res: Response) => {
+  const r = Router()
+  r.all('/:slug\\.git*', (req: Request, res: Response) => {
     req.url = req.url.replace(/^\/git/, '')
     repos.handle(req, res)
-  }
+  })
+  return r
 }
 
 // ── Sandbox ──
 
-export const listSandboxRuns = (db: Db) => (_req: Request, res: Response) =>
-  Promise.resolve()
-    .then(h.listSandboxRuns(db))
-    .then(send(res))
-    .catch(fail(res))
-
-export const createSandboxRun = (db: Db, config: Config) => (req: Request, res: Response) =>
-  Promise.resolve(req.body)
-    .then(parse(createSandboxBody))
-    .then(data => h.createSandboxRun(db, config)(data))
-    .then(({ id }) => ({ id }))
-    .then(send(res, 201))
-    .catch(fail(res))
-
-export const getSandboxRun = (db: Db) => (req: Request, res: Response) =>
-  Promise.resolve(req.params.id)
-    .then(h.getSandboxRun(db))
-    .then(send(res))
-    .catch(fail(res))
-
-export const killSandboxRun = (db: Db) => (req: Request, res: Response) =>
-  Promise.resolve(req.params.id)
-    .then(h.killSandboxRun(db))
-    .then(send(res))
-    .catch(fail(res))
-
-export const streamSandboxOutput = (db: Db) => (req: Request, res: Response) => {
-  try {
-    h.streamSandboxOutput(db)(req.params.id, res)
-  } catch (err) {
-    fail(res)(err)
-  }
+export const sandbox = (db: Db, config: Config) => {
+  const r = Router()
+  r.get   ('/',           handle(() => h.sandbox.list(db)()),                                                     send())
+  r.post  ('/',           body(v.sandbox.create), handle(req => { const { id } = h.sandbox.create(db, config)(req.data); return { id } }), send(201))
+  r.get   ('/:id',        handle(req => h.sandbox.get(db)(req.params.id)),                                        send())
+  r.delete('/:id',        handle(req => h.sandbox.kill(db)(req.params.id)),                                       send())
+  r.get   ('/:id/output', (req, res, next) => { try { h.sandbox.stream(db)(req.params.id, res) } catch (e) { next(e) } })
+  return r
 }
