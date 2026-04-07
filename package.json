@@ -2,15 +2,11 @@
   "name": "foundry",
   "private": true,
   "workspaces": [
-    "ticket",
-    "project",
-    "file",
-    "sandbox",
-    "agent",
+    "service",
     "web"
   ],
   "scripts": {
-    "dev": "concurrently -n ticket,project,file,sandbox,agent,web -c cyan,green,yellow,magenta,blue,white \"npm run dev -w ticket\" \"npm run dev -w project\" \"npm run dev -w file\" \"npm run dev -w sandbox\" \"npm run dev -w agent\" \"npm run dev -w web\""
+    "dev": "concurrently -n service,web -c cyan,white \"npm run dev -w service\" \"npm run dev -w web\""
   },
   "devDependencies": {
     "concurrently": "^9.2.1"

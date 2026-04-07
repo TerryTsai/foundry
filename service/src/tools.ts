@@ -1,0 +1,70 @@
+import type { Db } from './db.js'
+import type { Config } from './config.js'
+import { runCommandParams, createTicketParams } from './validation.js'
+import { createTicket, createSandboxRun } from './helpers.js'
+import type { z } from 'zod'
+
+export interface Tool {
+  name:        string
+  description: string
+  params:      z.ZodTypeAny
+  execute:     (args: unknown) => Promise<string>
+}
+
+export const makeRunCommandTool = (db: Db, config: Config, sessionId: string): Tool => ({
+  name: 'run_command',
+  description: 'Run a shell command in a sandboxed Podman container. Returns stdout, stderr, and exit code.',
+  params: runCommandParams,
+  execute: async (rawArgs: unknown): Promise<string> => {
+    const args = runCommandParams.parse(rawArgs)
+    const command = args.cwd ? `cd ${args.cwd} && ${args.command}` : args.command
+
+    const result = createSandboxRun(db, config)({
+      command,
+      workspace: `/tmp/foundry-work-${sessionId}`,
+      session_id: sessionId,
+      network: args.network ?? false,
+    })
+
+    if (!result.ok) return JSON.stringify({ error: result.error })
+
+    const { emitter } = result.data
+    const stdout: string[] = []
+    const stderr: string[] = []
+
+    return new Promise<string>(resolve => {
+      emitter.on('stdout', (line: string) => stdout.push(line))
+      emitter.on('stderr', (line: string) => stderr.push(line))
+      emitter.once('exit', (code: number) => {
+        resolve(JSON.stringify({
+          stdout: stdout.join('\n'),
+          stderr: stderr.join('\n'),
+          exitCode: code,
+        }))
+      })
+    })
+  },
+})
+
+export const makeCreateTicketTool = (db: Db, projectId: string, currentTicketId: string, agentName: string): Tool => ({
+  name: 'create_ticket',
+  description: 'Create a child ticket. If block=true, the current ticket is suspended until the child resolves.',
+  params: createTicketParams,
+  execute: async (rawArgs: unknown): Promise<string> => {
+    const args = createTicketParams.parse(rawArgs)
+
+    const result = createTicket(db)({
+      project_id:  projectId,
+      title:       args.title,
+      body:        args.body,
+      agent:       args.agent,
+      parent_id:   currentTicketId,
+      created_by:  agentName,
+      block:       args.block,
+    })
+
+    return result.ok
+      ? JSON.stringify({ ticket_id: result.data.id })
+      : JSON.stringify({ error: result.error })
+  },
+})
