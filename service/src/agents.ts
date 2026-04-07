@@ -1,9 +1,10 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { zodToJsonSchema } from 'zod-to-json-schema'
-import type { Db } from './db.js'
+import type { Database } from './database.js'
 import type { Config } from './config.js'
 import type { Ticket, AgentDefinition } from './schema.js'
-import { ticket, file, type TicketChainEntry } from './handlers.js'
+import { ticket, file, type TicketChainEntry } from './domain.js'
+import { now } from './fn.js'
 import { makeRunCommandTool, makeCreateTicketTool, type Tool } from './tools.js'
 
 // ── System Prompt ──
@@ -38,7 +39,7 @@ export const buildSystemPrompt = (
 
 // ── Session Runner ──
 
-export const runAgentSession = (db: Db, config: Config) =>
+export const runAgentSession = (db: Database, config: Config) =>
   async (sessionId: string, agentDef: AgentDefinition, ticketData: Ticket): Promise<void> => {
     const client = new Anthropic({ apiKey: config.anthropicKey })
 
@@ -66,7 +67,7 @@ export const runAgentSession = (db: Db, config: Config) =>
     ]
 
     const saveMessage = (role: string, content: string) =>
-      db.messages.insert({ session_id: sessionId, role, content, created_at: new Date().toISOString() })
+      db.message.insert({ session_id: sessionId, role, content, created_at: now() })
 
     saveMessage('user', ticketData.body)
 
@@ -117,10 +118,10 @@ export const runAgentSession = (db: Db, config: Config) =>
       }
 
       ticket.complete(db)(ticketData.id, notes)
-      db.sessions.update(sessionId, { status: 'done', ended_at: new Date().toISOString() })
+      db.session.update(sessionId, { status: 'done', ended_at: now() })
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       try { ticket.fail(db)(ticketData.id, msg) } catch { /* ticket may already be done */ }
-      db.sessions.update(sessionId, { status: 'failed', ended_at: new Date().toISOString() })
+      db.session.update(sessionId, { status: 'failed', ended_at: now() })
     }
   }

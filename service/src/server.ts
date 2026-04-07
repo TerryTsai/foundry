@@ -1,11 +1,11 @@
 import express from 'express'
 import { config } from './config.js'
-import { createDb } from './db.js'
+import { createDatabase } from './database.js'
 import * as routes from './routes.js'
 import { errors } from './middleware.js'
-import { scheduler } from './handlers.js'
+import { scheduler } from './domain.js'
 
-const db  = createDb(config.dbPath)
+const db  = createDatabase(config.dbPath)
 const app = express()
 
 app.use(express.json())

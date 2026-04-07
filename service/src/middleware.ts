@@ -1,6 +1,6 @@
 import type { Request, Response, NextFunction, RequestHandler, ErrorRequestHandler } from 'express'
 import type { ZodType } from 'zod'
-import { AppError, badRequest } from './errors.js'
+import { AppError, badRequest } from './fn.js'
 
 declare global {
   namespace Express {
@@ -10,25 +10,19 @@ declare global {
   }
 }
 
-// ── Validation Middleware ──
+// ── Validation ──
 
-export const body = <T>(schema: ZodType<T>): RequestHandler => (req: Request, _res: Response, next: NextFunction) => {
-  const result = schema.safeParse(req.body)
-  if (!result.success) throw badRequest(JSON.stringify(result.error.flatten()))
-  ;(req as any).data = result.data
-  next()
-}
-
-export const query = <T>(schema: ZodType<T>): RequestHandler => (req: Request, _res: Response, next: NextFunction) => {
-  const result = schema.safeParse(req.query)
-  if (!result.success) throw badRequest(JSON.stringify(result.error.flatten()))
-  ;(req as any).data = result.data
-  next()
-}
+export const parse = <T>(schema: ZodType<T>, from: 'body' | 'query' = 'body'): RequestHandler =>
+  (req: Request, _res: Response, next: NextFunction) => {
+    const result = schema.safeParse(req[from])
+    if (!result.success) throw badRequest(JSON.stringify(result.error.flatten()))
+    req.data = result.data
+    next()
+  }
 
 // ── Handler Wrapper ──
 
-export const handle = (fn: (req: Request) => unknown): RequestHandler =>
+export const run = (fn: (req: Request) => unknown): RequestHandler =>
   (req: Request, res: Response, next: NextFunction) => {
     try {
       const result = fn(req)
@@ -43,7 +37,7 @@ export const handle = (fn: (req: Request) => unknown): RequestHandler =>
     }
   }
 
-// ── Response Middleware ──
+// ── Response ──
 
 export const send = (status = 200): RequestHandler =>
   (_req: Request, res: Response) => {

@@ -1,11 +1,23 @@
-export const config = {
-  port:            parseInt(process.env.PORT ?? '3000', 10),
-  dbPath:          process.env.DB_PATH ?? './foundry.db',
-  repoBase:        process.env.REPO_BASE ?? '/home/terry/repos',
-  anthropicKey:    process.env.ANTHROPIC_API_KEY ?? '',
-  agentModel:      process.env.AGENT_MODEL ?? 'claude-sonnet-4-20250514',
-  sandboxImage:    process.env.SANDBOX_IMAGE ?? 'node:20-alpine',
-  sandboxTimeout:  parseInt(process.env.SANDBOX_TIMEOUT ?? '300000', 10),
-}
+import { z } from 'zod'
+
+const schema = z.object({
+  port:            z.coerce.number().int().default(3000),
+  dbPath:          z.string().default('./foundry.db'),
+  repoBase:        z.string().default('/home/terry/repos'),
+  anthropicKey:    z.string().default(''),
+  agentModel:      z.string().default('claude-sonnet-4-20250514'),
+  sandboxImage:    z.string().default('node:20-alpine'),
+  sandboxTimeout:  z.coerce.number().int().default(300000),
+})
+
+export const config = schema.parse({
+  port:           process.env.PORT,
+  dbPath:         process.env.DB_PATH,
+  repoBase:       process.env.REPO_BASE,
+  anthropicKey:   process.env.ANTHROPIC_API_KEY,
+  agentModel:     process.env.AGENT_MODEL,
+  sandboxImage:   process.env.SANDBOX_IMAGE,
+  sandboxTimeout: process.env.SANDBOX_TIMEOUT,
+})
 
 export type Config = typeof config

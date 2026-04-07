@@ -1,7 +1,7 @@
-import type { Db } from './db.js'
+import type { Database } from './database.js'
 import type { Config } from './config.js'
 import * as v from './validate.js'
-import { ticket, sandbox } from './handlers.js'
+import { ticket, sandbox } from './domain.js'
 import type { z } from 'zod'
 
 export interface Tool {
@@ -11,7 +11,7 @@ export interface Tool {
   execute:     (args: unknown) => Promise<string>
 }
 
-export const makeRunCommandTool = (db: Db, config: Config, sessionId: string): Tool => ({
+export const makeRunCommandTool = (db: Database, config: Config, sessionId: string): Tool => ({
   name: 'run_command',
   description: 'Run a shell command in a sandboxed Podman container. Returns stdout, stderr, and exit code.',
   params: v.tool.runCommand,
@@ -43,7 +43,7 @@ export const makeRunCommandTool = (db: Db, config: Config, sessionId: string): T
   },
 })
 
-export const makeCreateTicketTool = (db: Db, projectId: string, currentTicketId: string, agentName: string): Tool => ({
+export const makeCreateTicketTool = (db: Database, projectId: string, currentTicketId: string, agentName: string): Tool => ({
   name: 'create_ticket',
   description: 'Create a child ticket. If block=true, the current ticket is suspended until the child resolves.',
   params: v.tool.createTicket,
