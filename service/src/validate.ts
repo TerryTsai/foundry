@@ -57,7 +57,21 @@ export const project = {
   }),
 }
 
+// ── Providers ──
+
+export const provider = {
+  create: z.object({
+    name:    z.string().min(1),
+    api_key: z.string().min(1),
+  }),
+  update: z.object({
+    api_key: z.string().min(1),
+  }),
+}
+
 // ── Agents ──
+
+const modelString = z.string().min(1).refine(s => s.includes(':'), { message: 'model must be provider:model format' })
 
 export const agent = {
   list: z.object({
@@ -66,14 +80,14 @@ export const agent = {
   create: z.object({
     project_id:  z.string(),
     name:        z.string().min(1),
-    model:       z.string().min(1),
+    model:       modelString,
     prompt:      z.string().min(1),
     max_tokens:  z.number().int().positive().optional(),
     max_steps:   z.number().int().positive().optional(),
     temperature: z.number().min(0).max(2).optional(),
   }),
   update: z.object({
-    model:       z.string().min(1).optional(),
+    model:       modelString.optional(),
     prompt:      z.string().min(1).optional(),
     max_tokens:  z.number().int().positive().optional(),
     max_steps:   z.number().int().positive().optional(),

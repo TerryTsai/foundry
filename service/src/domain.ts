@@ -3,11 +3,13 @@ import { promisify } from 'util'
 import { join, dirname } from 'path'
 import { tmpdir } from 'os'
 import { mkdtemp, rm, writeFile as fsWrite, mkdir } from 'fs/promises'
+import { mkdirSync } from 'fs'
 import type { Response } from 'express'
 import type { Db } from './database.js'
 import type { Config } from './config.js'
-import type { Ticket, Comment, Project, Agent, Session, Message, Execution } from './schema.js'
-import { require, assertStatus, slugify, pick, now, AppError, conflict } from './functional.js'
+import type { Ticket, Comment, Project, Provider, Agent, Session, Message, Execution } from './schema.js'
+import { require, assertStatus, slugify, pick, now, AppError, conflict, badRequest } from './functional.js'
+import { supported } from './provider.js'
 import { spawnRun, type RunHandle } from './runner.js'
 import type { z } from 'zod'
 import type * as v from './validate.js'
@@ -169,6 +171,37 @@ export const project = {
   },
 }
 
+// ── Providers ──
+
+const maskKey = (key: string): string => {
+  if (key.length <= 8) return '****'
+  return key.slice(0, 4) + '...' + key.slice(-4)
+}
+
+export const provider = {
+  list: (db: Db) => (): (Omit<Provider, 'api_key'> & { api_key_preview: string })[] =>
+    db.provider.all().map(({ api_key, ...rest }) => ({ ...rest, api_key_preview: maskKey(api_key) })),
+
+  create: (db: Db) => (input: z.infer<typeof v.provider.create>): Omit<Provider, 'api_key'> & { api_key_preview: string } => {
+    if (!supported.includes(input.name)) throw badRequest(`unsupported provider '${input.name}' — supported: ${supported.join(', ')}`)
+    if (db.provider.getByName(input.name)) throw conflict(`provider '${input.name}' already configured`)
+    const { api_key, ...rest } = db.provider.insert({ name: input.name, api_key: input.api_key, ...ts() })
+    return { ...rest, api_key_preview: maskKey(api_key) }
+  },
+
+  update: (db: Db) => (id: string, input: z.infer<typeof v.provider.update>): Omit<Provider, 'api_key'> & { api_key_preview: string } => {
+    require(db.provider.get(id))
+    const { api_key, ...rest } = db.provider.update(id, { api_key: input.api_key, updated_at: now() })
+    return { ...rest, api_key_preview: maskKey(api_key) }
+  },
+
+  remove: (db: Db) => (id: string): { ok: true } => {
+    require(db.provider.get(id))
+    db.provider.remove(id)
+    return { ok: true }
+  },
+}
+
 // ── Agents ──
 
 export const agent = {
@@ -230,6 +263,11 @@ export const session = {
   messages: (db: Db) => (sessionId: string): Message[] => {
     require(db.session.get(sessionId))
     return db.message.bySession(sessionId)
+  },
+
+  byTicket: (db: Db) => (ticketId: string) => {
+    require(db.ticket.get(ticketId))
+    return db.session.byTicket(ticketId)
   },
 
   listAll: (db: Db) => () =>
@@ -315,6 +353,11 @@ export const execution = {
   get: (db: Db) => (id: string): Execution =>
     require(db.execution.get(id)),
 
+  bySession: (db: Db) => (sessionId: string): Execution[] => {
+    require(db.session.get(sessionId))
+    return db.execution.bySession(sessionId)
+  },
+
   create: (db: Db, config: Config) =>
     (input: { command: string; session_id?: string | undefined; timeout_ms?: number | undefined; memory_mb?: number | undefined; network?: boolean | undefined }) => {
       const { command, session_id, timeout_ms = config.sandboxTimeout, memory_mb, network = false } = input
@@ -323,8 +366,10 @@ export const execution = {
         status: 'running', timeout_ms, memory_mb: memory_mb ?? null,
         started_at: now(),
       })
+      const workspace = `/tmp/foundry-exec-${row.id}`
+      mkdirSync(workspace, { recursive: true })
       const handle = spawnRun({
-        command, workspace: `/tmp/foundry-exec-${row.id}`,
+        command, workspace,
         image: config.sandboxImage, env: {},
         network, timeoutMs: timeout_ms,
       })
@@ -449,4 +494,4 @@ export const scheduler = {
 
 // ── Barrel Export ──
 
-export default { ticket, comment, project, agent, session, file, execution, scheduler }
+export default { ticket, comment, project, provider, agent, session, file, execution, scheduler }

@@ -4,8 +4,8 @@ import { eq, and, isNull, type SQL } from 'drizzle-orm'
 import { nanoid } from 'nanoid'
 import * as schema from './schema.js'
 import {
-  agent, comment, execution, message, project, session, ticket,
-  type Agent, type Comment, type Execution, type Message, type Project, type Session, type Ticket,
+  agent, comment, execution, message, project, provider, session, ticket,
+  type Agent, type Comment, type Execution, type Message, type Project, type Provider, type Session, type Ticket,
 } from './schema.js'
 
 type Drizzle = ReturnType<typeof drizzle<typeof schema>>
@@ -41,7 +41,9 @@ const removeRow = (d: Drizzle, table: any, idCol: any, id: string): void => {
 
 export interface SessionRow {
   id: string; ticket_id: string; agent_id: string
-  agent_name: string | null; status: string
+  agent_name: string | null; status: string; model: string
+  error: string | null; tokens_in: number | null; tokens_out: number | null
+  cost_usd: number | null; duration_ms: number | null
   started_at: string; ended_at: string | null
 }
 
@@ -66,6 +68,14 @@ export interface Db {
     update: (id: string, data: Record<string, unknown>) => Project
     remove: (id: string) => void
   }
+  provider: {
+    get:       (id: string) => Provider | undefined
+    all:       (conditions?: SQL[]) => Provider[]
+    insert:    (data: Record<string, unknown>) => Provider
+    update:    (id: string, data: Record<string, unknown>) => Provider
+    remove:    (id: string) => void
+    getByName: (name: string) => Provider | undefined
+  }
   agent: {
     get:    (id: string) => Agent | undefined
     all:    (conditions?: SQL[]) => Agent[]
@@ -79,6 +89,7 @@ export interface Db {
     insert:        (data: Record<string, unknown>) => Session
     update:        (id: string, data: Record<string, unknown>) => Session
     remove:        (id: string) => void
+    byTicket:      (ticketId: string) => SessionRow[]
     listWithAgent: () => SessionRow[]
   }
   message: {
@@ -88,11 +99,12 @@ export interface Db {
     bySession: (sessionId: string) => Message[]
   }
   execution: {
-    get:    (id: string) => Execution | undefined
-    all:    (conditions?: SQL[]) => Execution[]
-    insert: (data: Record<string, unknown>) => Execution
-    update: (id: string, data: Record<string, unknown>) => Execution
-    remove: (id: string) => void
+    get:       (id: string) => Execution | undefined
+    all:       (conditions?: SQL[]) => Execution[]
+    insert:    (data: Record<string, unknown>) => Execution
+    update:    (id: string, data: Record<string, unknown>) => Execution
+    remove:    (id: string) => void
+    bySession: (sessionId: string) => Execution[]
   }
   tx: <T>(fn: (db: Db) => T) => T
   eq:     typeof eq
@@ -102,6 +114,7 @@ export interface Db {
     ticket:    typeof ticket
     comment:   typeof comment
     project:   typeof project
+    provider:  typeof provider
     agent:     typeof agent
     session:   typeof session
     message:   typeof message
@@ -133,6 +146,14 @@ const wrap = (d: Drizzle): Db => ({
     update: (id, data) => updateRow<Project>(d, project, project.id, id, data),
     remove: (id) => removeRow(d, project, project.id, id),
   },
+  provider: {
+    get:       (id) => getById<Provider>(d, provider, provider.id, id),
+    all:       (c)  => getAll<Provider>(d, provider, c),
+    insert:    (data) => insertRow<Provider>(d, provider, provider.id, data),
+    update:    (id, data) => updateRow<Provider>(d, provider, provider.id, id, data),
+    remove:    (id) => removeRow(d, provider, provider.id, id),
+    getByName: (name) => d.select().from(provider).where(eq(provider.name, name)).get() as Provider | undefined,
+  },
   agent: {
     get:    (id) => getById<Agent>(d, agent, agent.id, id),
     all:    (c)  => getAll<Agent>(d, agent, c),
@@ -146,6 +167,27 @@ const wrap = (d: Drizzle): Db => ({
     insert: (data) => insertRow<Session>(d, session, session.id, data),
     update: (id, data) => updateRow<Session>(d, session, session.id, id, data),
     remove: (id) => removeRow(d, session, session.id, id),
+    byTicket: (ticketId: string) =>
+      d.select({
+        id:         session.id,
+        ticket_id:  session.ticket_id,
+        agent_id:   session.agent_id,
+        agent_name: agent.name,
+        status:     session.status,
+        model:      session.model,
+        error:      session.error,
+        tokens_in:  session.tokens_in,
+        tokens_out: session.tokens_out,
+        cost_usd:   session.cost_usd,
+        duration_ms: session.duration_ms,
+        started_at: session.started_at,
+        ended_at:   session.ended_at,
+      })
+      .from(session)
+      .leftJoin(agent, eq(session.agent_id, agent.id))
+      .where(eq(session.ticket_id, ticketId))
+      .orderBy(session.started_at)
+      .all() as SessionRow[],
     listWithAgent: () =>
       d.select({
         id:         session.id,
@@ -153,6 +195,12 @@ const wrap = (d: Drizzle): Db => ({
         agent_id:   session.agent_id,
         agent_name: agent.name,
         status:     session.status,
+        model:      session.model,
+        error:      session.error,
+        tokens_in:  session.tokens_in,
+        tokens_out: session.tokens_out,
+        cost_usd:   session.cost_usd,
+        duration_ms: session.duration_ms,
         started_at: session.started_at,
         ended_at:   session.ended_at,
       })
@@ -176,11 +224,13 @@ const wrap = (d: Drizzle): Db => ({
     insert: (data) => insertRow<Execution>(d, execution, execution.id, data),
     update: (id, data) => updateRow<Execution>(d, execution, execution.id, id, data),
     remove: (id) => removeRow(d, execution, execution.id, id),
+    bySession: (sessionId) =>
+      d.select().from(execution).where(eq(execution.session_id, sessionId)).all(),
   },
   tx: <T>(fn: (db: Db) => T): T => d.transaction(tx => fn(wrap(tx as any))) as T,
   eq, and, isNull,
   col: {
-    ticket, comment, project, agent, session, message, execution,
+    ticket, comment, project, provider, agent, session, message, execution,
   },
 })
 

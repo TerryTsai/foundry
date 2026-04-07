@@ -14,6 +14,7 @@ export default defineConfig({
       '/execution': 'http://localhost:3000',
       '/agent': 'http://localhost:3000',
       '/session': 'http://localhost:3000',
+      '/provider': 'http://localhost:3000',
       '/health': 'http://localhost:3000',
     },
   },

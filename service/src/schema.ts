@@ -1,5 +1,18 @@
 import { sqliteTable, text, integer, real } from 'drizzle-orm/sqlite-core'
 
+// ── Provider ──
+
+export const provider = sqliteTable('provider', {
+  id:         text('id').primaryKey(),
+  name:       text('name').notNull().unique(),
+  api_key:    text('api_key').notNull(),
+  created_at: text('created_at').notNull(),
+  updated_at: text('updated_at').notNull(),
+})
+
+export type Provider = typeof provider.$inferSelect
+export type NewProvider = typeof provider.$inferInsert
+
 // ── Agent ──
 
 export const agent = sqliteTable('agent', {

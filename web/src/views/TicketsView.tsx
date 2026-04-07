@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
-import { ticketApi, agentApi, commentApi } from '../api.js'
-import type { Ticket, Agent, Comment } from '../types.js'
+import { ticketApi, agentApi, commentApi, sessionApi } from '../api.js'
+import type { Ticket, Agent, Comment, Session, Execution } from '../types.js'
 import { StatusBadge } from '../components/StatusBadge.js'
 import { Sheet } from '../components/Sheet.js'
 import { PageShell } from '../components/layout/PageShell.js'
@@ -133,6 +133,93 @@ function CommentsSection({ ticketId }: { ticketId: string }) {
   )
 }
 
+function ExecutionRow({ execution }: { execution: Execution }) {
+  const duration = execution.duration_ms !== null ? `${(execution.duration_ms / 1000).toFixed(1)}s` : null
+  return (
+    <div className="bg-zinc-50 dark:bg-zinc-900/50 p-2.5 space-y-1.5">
+      <div className="flex items-center gap-2">
+        <StatusBadge status={execution.status} />
+        {duration && <span className="font-mono text-[10px] text-zinc-400 dark:text-zinc-600">{duration}</span>}
+        {execution.exit_code !== null && (
+          <span className="font-mono text-[10px] text-zinc-400 dark:text-zinc-600">exit {execution.exit_code}</span>
+        )}
+      </div>
+      <pre className="font-mono text-[11px] text-zinc-600 dark:text-zinc-400 whitespace-pre-wrap break-all leading-relaxed">{execution.command}</pre>
+    </div>
+  )
+}
+
+function SessionRow({ session }: { session: Session }) {
+  const [expanded, setExpanded] = useState(false)
+  const [executions, setExecutions] = useState<Execution[]>([])
+
+  useEffect(() => {
+    if (expanded) {
+      sessionApi.executions(session.id).then(setExecutions).catch(console.error)
+    }
+  }, [expanded, session.id])
+
+  const ts = (s: string) => new Date(s).toLocaleString(undefined, {
+    month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+  })
+  const duration = session.duration_ms !== null ? `${(session.duration_ms / 1000).toFixed(1)}s` : null
+
+  return (
+    <div className="border border-zinc-200 dark:border-zinc-800/60 rounded-lg overflow-hidden">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="w-full text-left px-3 py-2.5 flex items-center gap-2 active:bg-zinc-50 dark:active:bg-zinc-900 transition-colors"
+      >
+        <span className="font-mono text-[10px] text-zinc-400 dark:text-zinc-600 shrink-0">{expanded ? '▼' : '▶'}</span>
+        <StatusBadge status={session.status} />
+        <span className="text-sm text-zinc-700 dark:text-zinc-300 truncate">{session.agent_name ?? session.agent_id}</span>
+        <span className="font-mono text-[10px] text-zinc-400 dark:text-zinc-600 ml-auto shrink-0">{ts(session.started_at)}</span>
+      </button>
+      {expanded && (
+        <div className="border-t border-zinc-200 dark:border-zinc-800/60 px-3 py-2.5 space-y-2">
+          <InfoGroup rows={[
+            { label: 'model',      value: session.model },
+            { label: 'duration',   value: duration },
+            { label: 'tokens in',  value: session.tokens_in ?? null },
+            { label: 'tokens out', value: session.tokens_out ?? null },
+            { label: 'cost',       value: session.cost_usd !== null ? `$${session.cost_usd.toFixed(4)}` : null },
+          ]} />
+          {session.error && (
+            <pre className="bg-red-50 dark:bg-red-950/30 p-2.5 font-mono text-xs text-red-600 dark:text-red-400 whitespace-pre-wrap leading-relaxed">{session.error}</pre>
+          )}
+          {executions.length > 0 && (
+            <div className="space-y-1.5 pt-1">
+              <div className="font-mono text-[10px] uppercase tracking-widest text-zinc-400 dark:text-zinc-600">
+                executions ({executions.length})
+              </div>
+              {executions.map(e => <ExecutionRow key={e.id} execution={e} />)}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function SessionsSection({ ticketId }: { ticketId: string }) {
+  const [sessions, setSessions] = useState<Session[]>([])
+
+  useEffect(() => {
+    sessionApi.byTicket(ticketId).then(setSessions).catch(console.error)
+  }, [ticketId])
+
+  if (sessions.length === 0) return null
+
+  return (
+    <div className="space-y-2 pt-1">
+      <div className="font-mono text-[10px] uppercase tracking-widest text-zinc-400 dark:text-zinc-600">
+        sessions ({sessions.length})
+      </div>
+      {sessions.map(s => <SessionRow key={s.id} session={s} />)}
+    </div>
+  )
+}
+
 function TicketDetail({
   ticket,
   agents,
@@ -213,6 +300,7 @@ function TicketDetail({
           </div>
         )}
 
+        <SessionsSection ticketId={ticket.id} />
         <CommentsSection ticketId={ticket.id} />
       </div>
 

@@ -56,7 +56,7 @@ function ProjectForm({
       let saved: Project
       if (isNew) {
         saved = await projectApi.create({ name, schedule_interval: +interval, concurrency_limit: +maxAgents })
-        await agentApi.create({ project_id: saved.id, name: 'coder', model: 'claude-sonnet-4-20250514', prompt: DEFAULT_AGENT_PROMPT })
+        await agentApi.create({ project_id: saved.id, name: 'coder', model: 'anthropic:claude-sonnet-4-20250514', prompt: DEFAULT_AGENT_PROMPT })
       } else {
         saved = await projectApi.update(project.id, { schedule_interval: +interval, concurrency_limit: +maxAgents })
       }

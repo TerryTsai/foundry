@@ -1,5 +1,5 @@
 import { generateText, stepCountIs } from 'ai'
-import { anthropic } from '@ai-sdk/anthropic'
+import { resolveModel } from './provider.js'
 import type { Db } from './database.js'
 import type { Config } from './config.js'
 import type { Ticket, Agent as AgentDef } from './schema.js'
@@ -60,7 +60,7 @@ export const runAgentSession = (db: Db, config: Config) =>
 
     try {
       const result = await generateText({
-        model: anthropic(agentDef.model),
+        model: resolveModel(db)(agentDef.model),
         system,
         prompt: ticketData.body,
         tools,

@@ -23,6 +23,7 @@ export const ticket = (db: Db) => {
   r.get   ('/:id/chain',                                  run(req => domain.ticket.chain(db)(req.params.id)),                      send())
   r.get   ('/:id/comment',                                run(req => domain.comment.list(db)(req.params.id)),                      send())
   r.post  ('/:id/comment', parse(v.comment.create),       run(req => domain.comment.create(db)(req.params.id, req.data)),          send(201))
+  r.get   ('/:id/session',                                run(req => domain.session.byTicket(db)(req.params.id)),                   send())
   return r
 }
 
@@ -35,6 +36,17 @@ export const project = (db: Db) => {
   r.get   ('/:id',                                      run(req => domain.project.get(db)(req.params.id)),                     send())
   r.put   ('/:id',      parse(v.project.update),        run(req => domain.project.update(db)(req.params.id, req.data)),        send())
   r.post  ('/:id/run',                                  run(req => domain.project.run(db)(req.params.id)),                     send(202))
+  return r
+}
+
+// ── Providers ──
+
+export const provider = (db: Db) => {
+  const r = Router()
+  r.get   ('/',    run(() => domain.provider.list(db)()),                                          send())
+  r.post  ('/',    parse(v.provider.create), run(req => domain.provider.create(db)(req.data)),     send(201))
+  r.put   ('/:id', parse(v.provider.update), run(req => domain.provider.update(db)(req.params.id, req.data)), send())
+  r.delete('/:id',                           run(req => domain.provider.remove(db)(req.params.id)), send())
   return r
 }
 
@@ -60,7 +72,8 @@ export const agent = (db: Db, config: Config) => {
 
 export const session = (db: Db) => {
   const r = Router()
-  r.get('/', run(() => domain.session.listAll(db)()), send())
+  r.get('/',                run(() => domain.session.listAll(db)()),                          send())
+  r.get('/:id/execution',  run(req => domain.execution.bySession(db)(req.params.id)),        send())
   return r
 }
 

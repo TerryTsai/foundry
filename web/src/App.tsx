@@ -9,7 +9,7 @@ import { ProjectSwitcherSheet } from './components/ProjectSwitcherSheet.js'
 import { TicketsView } from './views/TicketsView.js'
 import { AgentsView } from './views/AgentsView.js'
 import { FilesView } from './views/FilesView.js'
-import { LogsView } from './views/LogsView.js'
+import { ProvidersView } from './views/ProvidersView.js'
 
 export function App() {
   const [projects, setProjects] = useState<Project[]>([])
@@ -41,9 +41,9 @@ export function App() {
         }}
       />
 
-      <div className="flex flex-col flex-1 min-w-0">
+      <div className="flex flex-col flex-1 min-w-0 min-h-0">
       <GlobalHeader
-        title={{ tickets: 'Tickets', agents: 'Agents', files: 'Files', logs: 'Logs' }[tab]}
+        title={{ tickets: 'Tickets', agents: 'Agents', files: 'Files', providers: 'Providers' }[tab]}
         project={project}
         onSwitch={() => setSwitcherOpen(true)}
         onToggle={async () => {
@@ -58,10 +58,10 @@ export function App() {
           <div className="px-4 py-3 font-mono text-xs text-zinc-600">loading…</div>
         ) : (
           <>
-            <div className={tab !== 'tickets' ? 'hidden' : 'h-full'}><TicketsView key={project.id} projectId={project.id} /></div>
-            <div className={tab !== 'agents'  ? 'hidden' : 'h-full'}><AgentsView  key={project.id} projectId={project.id} /></div>
-            <div className={tab !== 'files'   ? 'hidden' : 'h-full'}><FilesView   key={project.id} projectId={project.id} /></div>
-            <div className={tab !== 'logs'    ? 'hidden' : 'h-full'}><LogsView    key={project.id} /></div>
+            <div className={tab !== 'tickets'    ? 'hidden' : 'h-full'}><TicketsView    key={project.id} projectId={project.id} /></div>
+            <div className={tab !== 'agents'    ? 'hidden' : 'h-full'}><AgentsView    key={project.id} projectId={project.id} /></div>
+            <div className={tab !== 'files'     ? 'hidden' : 'h-full'}><FilesView     key={project.id} projectId={project.id} /></div>
+            <div className={tab !== 'providers'  ? 'hidden' : 'h-full'}><ProvidersView /></div>
           </>
         )}
       </main>

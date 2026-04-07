@@ -1,4 +1,4 @@
-import type { Project, Ticket, Comment, Agent, Session, Execution } from './types.js'
+import type { Provider, Project, Ticket, Comment, Agent, Session, Execution } from './types.js'
 
 async function get<T>(url: string): Promise<T> {
   const res = await fetch(url)
@@ -30,6 +30,14 @@ async function del<T>(url: string): Promise<T> {
   const res = await fetch(url, { method: 'DELETE' })
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
   return res.json() as Promise<T>
+}
+
+// Providers
+export const providerApi = {
+  list: () => get<Provider[]>('/provider'),
+  create: (data: { name: string; api_key: string }) => post<Provider>('/provider', data),
+  update: (id: string, data: { api_key: string }) => put<Provider>(`/provider/${id}`, data),
+  delete: (id: string) => del<{ ok: boolean }>(`/provider/${id}`),
 }
 
 // Projects
@@ -68,6 +76,12 @@ export const commentApi = {
     post<Comment>(`/ticket/${ticketId}/comment`, data),
 }
 
+// Sessions
+export const sessionApi = {
+  byTicket: (ticketId: string) => get<Session[]>(`/ticket/${ticketId}/session`),
+  executions: (sessionId: string) => get<Execution[]>(`/session/${sessionId}/execution`),
+}
+
 // Agents
 export const agentApi = {
   list: (projectId?: string) => get<Agent[]>(`/agent${projectId ? `?projectId=${projectId}` : ''}`),
@@ -83,12 +97,6 @@ export const agentApi = {
 export const logsApi = {
   sessions: () => get<Session[]>('/session'),
   executions: () => get<Execution[]>('/execution'),
-  nginx: async (): Promise<string[]> => {
-    const res = await fetch('/log/nginx')
-    if (!res.ok) return []
-    const text = await res.text()
-    return text.split('\n').filter(Boolean).slice(-500)
-  },
 }
 
 // Files

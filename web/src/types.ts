@@ -1,3 +1,11 @@
+export interface Provider {
+  id: string
+  name: string
+  api_key_preview: string
+  created_at: string
+  updated_at: string
+}
+
 export interface Project {
   id: string
   name: string

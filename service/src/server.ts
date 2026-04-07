@@ -12,6 +12,7 @@ app.use(express.json())
 
 app.use('/ticket',    router.ticket(db))
 app.use('/project',   router.project(db))
+app.use('/provider',  router.provider(db))
 app.use('/agent',     router.agent(db, config))
 app.use('/session',   router.session(db))
 app.use('/file',      router.file(config, db))

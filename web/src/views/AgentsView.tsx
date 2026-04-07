@@ -22,7 +22,7 @@ function AgentSheet({
   onUpdate: () => void
 }) {
   const [name, setName] = useState('')
-  const [model, setModel] = useState('claude-sonnet-4-20250514')
+  const [model, setModel] = useState('anthropic:claude-sonnet-4-20250514')
   const [prompt, setPrompt] = useState('')
   const [maxTokens, setMaxTokens] = useState('8192')
   const [maxSteps, setMaxSteps] = useState('20')
@@ -39,7 +39,7 @@ function AgentSheet({
       setMaxSteps(String(agent.max_steps))
       setTemperature(agent.temperature !== null ? String(agent.temperature) : '')
     } else {
-      setName(''); setModel('claude-sonnet-4-20250514'); setPrompt('')
+      setName(''); setModel('anthropic:claude-sonnet-4-20250514'); setPrompt('')
       setMaxTokens('8192'); setMaxSteps('20'); setTemperature('')
     }
     setError('')
