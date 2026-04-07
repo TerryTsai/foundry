@@ -37,6 +37,9 @@ export interface Agent {
   name: string
   model: string
   prompt: string
+  max_tokens: number
+  max_steps: number
+  temperature: number | null
   created_at: string
   updated_at: string
 }

@@ -72,9 +72,9 @@ export const commentApi = {
 export const agentApi = {
   list: (projectId?: string) => get<Agent[]>(`/agent${projectId ? `?projectId=${projectId}` : ''}`),
   get: (id: string) => get<Agent>(`/agent/${id}`),
-  create: (data: { project_id: string; name: string; model: string; prompt: string }) =>
+  create: (data: { project_id: string; name: string; model: string; prompt: string; max_tokens?: number; max_steps?: number; temperature?: number }) =>
     post<Agent>('/agent', data),
-  update: (id: string, data: { model?: string; prompt?: string }) =>
+  update: (id: string, data: { model?: string; prompt?: string; max_tokens?: number; max_steps?: number; temperature?: number }) =>
     put<Agent>(`/agent/${id}`, data),
   delete: (id: string) => del<{ ok: boolean }>(`/agent/${id}`),
 }

@@ -57,6 +57,7 @@ export const errors: ErrorRequestHandler =
       res.status(err.status).json({ error: err.message })
     } else {
       console.error(err)
-      res.status(500).json({ error: 'internal error' })
+      const msg = err instanceof Error ? err.message : 'internal error'
+      res.status(500).json({ error: msg })
     }
   }

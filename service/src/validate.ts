@@ -64,14 +64,20 @@ export const agent = {
     projectId: z.string().optional(),
   }),
   create: z.object({
-    project_id: z.string(),
-    name:       z.string().min(1),
-    model:      z.string().min(1),
-    prompt:     z.string().min(1),
+    project_id:  z.string(),
+    name:        z.string().min(1),
+    model:       z.string().min(1),
+    prompt:      z.string().min(1),
+    max_tokens:  z.number().int().positive().optional(),
+    max_steps:   z.number().int().positive().optional(),
+    temperature: z.number().min(0).max(2).optional(),
   }),
   update: z.object({
-    model:  z.string().min(1).optional(),
-    prompt: z.string().min(1).optional(),
+    model:       z.string().min(1).optional(),
+    prompt:      z.string().min(1).optional(),
+    max_tokens:  z.number().int().positive().optional(),
+    max_steps:   z.number().int().positive().optional(),
+    temperature: z.number().min(0).max(2).nullable().optional(),
   }),
 }
 

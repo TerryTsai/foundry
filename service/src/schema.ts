@@ -3,13 +3,16 @@ import { sqliteTable, text, integer, real } from 'drizzle-orm/sqlite-core'
 // ── Agent ──
 
 export const agent = sqliteTable('agent', {
-  id:         text('id').primaryKey(),
-  project_id: text('project_id').notNull(),
-  name:       text('name').notNull(),
-  model:      text('model').notNull(),
-  prompt:     text('prompt').notNull(),
-  created_at: text('created_at').notNull(),
-  updated_at: text('updated_at').notNull(),
+  id:          text('id').primaryKey(),
+  project_id:  text('project_id').notNull(),
+  name:        text('name').notNull(),
+  model:       text('model').notNull(),
+  prompt:      text('prompt').notNull(),
+  max_tokens:  integer('max_tokens').notNull().default(8192),
+  max_steps:   integer('max_steps').notNull().default(20),
+  temperature: real('temperature'),
+  created_at:  text('created_at').notNull(),
+  updated_at:  text('updated_at').notNull(),
 })
 
 export type Agent = typeof agent.$inferSelect

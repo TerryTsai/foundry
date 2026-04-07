@@ -24,6 +24,9 @@ function AgentSheet({
   const [name, setName] = useState('')
   const [model, setModel] = useState('claude-sonnet-4-20250514')
   const [prompt, setPrompt] = useState('')
+  const [maxTokens, setMaxTokens] = useState('8192')
+  const [maxSteps, setMaxSteps] = useState('20')
+  const [temperature, setTemperature] = useState('')
   const [error, setError] = useState('')
   const isNew = agent === null
 
@@ -32,8 +35,12 @@ function AgentSheet({
       setName(agent.name)
       setModel(agent.model)
       setPrompt(agent.prompt)
+      setMaxTokens(String(agent.max_tokens))
+      setMaxSteps(String(agent.max_steps))
+      setTemperature(agent.temperature !== null ? String(agent.temperature) : '')
     } else {
       setName(''); setModel('claude-sonnet-4-20250514'); setPrompt('')
+      setMaxTokens('8192'); setMaxSteps('20'); setTemperature('')
     }
     setError('')
   }, [agent])
@@ -42,10 +49,15 @@ function AgentSheet({
     e.preventDefault()
     setError('')
     try {
+      const shared = {
+        model, prompt,
+        max_tokens: +maxTokens, max_steps: +maxSteps,
+        temperature: temperature ? +temperature : undefined,
+      }
       if (isNew) {
-        await agentApi.create({ project_id: projectId, name, model, prompt })
+        await agentApi.create({ project_id: projectId, name, ...shared })
       } else {
-        await agentApi.update(agent.id, { model, prompt })
+        await agentApi.update(agent.id, shared)
       }
       onUpdate(); onClose()
     } catch (err) { setError(err instanceof Error ? err.message : 'failed') }
@@ -68,6 +80,17 @@ function AgentSheet({
         <Field label="model">
           <TextInput value={model} onChange={e => setModel(e.target.value)} required />
         </Field>
+        <div className="grid grid-cols-3 gap-3">
+          <Field label="max tokens">
+            <TextInput type="number" value={maxTokens} onChange={e => setMaxTokens(e.target.value)} required min="1" />
+          </Field>
+          <Field label="max steps">
+            <TextInput type="number" value={maxSteps} onChange={e => setMaxSteps(e.target.value)} required min="1" />
+          </Field>
+          <Field label="temperature">
+            <TextInput type="number" value={temperature} onChange={e => setTemperature(e.target.value)} min="0" max="2" step="0.1" placeholder="default" />
+          </Field>
+        </div>
         <Field label="prompt">
           <TextArea label="prompt" value={prompt} onChange={e => setPrompt(e.target.value)} required rows={8} />
         </Field>
