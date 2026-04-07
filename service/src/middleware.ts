@@ -1,6 +1,6 @@
 import type { Request, Response, NextFunction, RequestHandler, ErrorRequestHandler } from 'express'
 import type { ZodType } from 'zod'
-import { AppError, badRequest } from './fn.js'
+import { AppError, badRequest } from './functional.js'
 
 declare global {
   namespace Express {

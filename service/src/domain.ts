@@ -7,7 +7,7 @@ import type { Response } from 'express'
 import type { Database } from './database.js'
 import type { Config } from './config.js'
 import type { Ticket, Project, AgentDefinition, AgentSession, AgentMessage, SandboxRun } from './schema.js'
-import { require, assertStatus, slugify, pick, now, AppError, notFound, conflict } from './fn.js'
+import { require, assertStatus, slugify, pick, now, AppError, notFound, conflict } from './functional.js'
 import { spawnRun, type RunHandle } from './runner.js'
 import type { z } from 'zod'
 import type * as v from './validate.js'
@@ -223,7 +223,7 @@ export const session = {
     })
 
     const agentDef = db.agent.get(agentDefId)!
-    const { runAgentSession } = await import('./agents.js')
+    const { runAgentSession } = await import('./agent.js')
     runAgentSession(db, config)(row.id, agentDef, t).catch((err: unknown) =>
       console.error(`session ${row.id} crashed:`, err))
 
@@ -375,7 +375,7 @@ export const scheduler = {
         status: 'running', started_at: now(),
       })
 
-      const { runAgentSession } = await import('./agents.js')
+      const { runAgentSession } = await import('./agent.js')
       const { config } = await import('./config.js')
       runAgentSession(db, config)(row.id, def, t).catch((err: unknown) =>
         console.error('dispatch session error:', err))
@@ -418,3 +418,7 @@ export const scheduler = {
     intervals.clear()
   },
 }
+
+// ── Barrel Export ──
+
+export default { ticket, project, agent, session, file, sandbox, scheduler }

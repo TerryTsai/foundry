@@ -1,7 +1,7 @@
 import type { Database } from './database.js'
 import type { Config } from './config.js'
 import * as v from './validate.js'
-import { ticket, sandbox } from './domain.js'
+import domain from './domain.js'
 import type { z } from 'zod'
 
 export interface Tool {
@@ -20,7 +20,7 @@ export const makeRunCommandTool = (db: Database, config: Config, sessionId: stri
     const command = args.cwd ? `cd ${args.cwd} && ${args.command}` : args.command
 
     try {
-      const { emitter } = sandbox.create(db, config)({
+      const { emitter } = domain.sandbox.create(db, config)({
         command,
         workspace: `/tmp/foundry-work-${sessionId}`,
         session_id: sessionId,
@@ -51,7 +51,7 @@ export const makeCreateTicketTool = (db: Database, projectId: string, currentTic
     const args = v.tool.createTicket.parse(rawArgs)
 
     try {
-      const row = ticket.create(db)({
+      const row = domain.ticket.create(db)({
         project_id: projectId, title: args.title, body: args.body,
         agent: args.agent, parent_id: currentTicketId,
         created_by: agentName, block: args.block,

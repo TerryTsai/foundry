@@ -3,9 +3,9 @@ import { zodToJsonSchema } from 'zod-to-json-schema'
 import type { Database } from './database.js'
 import type { Config } from './config.js'
 import type { Ticket, AgentDefinition } from './schema.js'
-import { ticket, file, type TicketChainEntry } from './domain.js'
-import { now } from './fn.js'
-import { makeRunCommandTool, makeCreateTicketTool, type Tool } from './tools.js'
+import domain, { type TicketChainEntry } from './domain.js'
+import { now } from './functional.js'
+import { makeRunCommandTool, makeCreateTicketTool, type Tool } from './tool.js'
 
 // ── System Prompt ──
 
@@ -44,10 +44,10 @@ export const runAgentSession = (db: Database, config: Config) =>
     const client = new Anthropic({ apiKey: config.anthropicKey })
 
     let chain: TicketChainEntry[] = []
-    try { chain = ticket.chain(db)(ticketData.id) } catch { /* empty chain */ }
+    try { chain = domain.ticket.chain(db)(ticketData.id) } catch { /* empty chain */ }
 
     let agentMd = ''
-    try { agentMd = await file.read(config.repoBase)(agentDef.project_id, 'AGENT.md') } catch { /* no AGENT.md */ }
+    try { agentMd = await domain.file.read(config.repoBase)(agentDef.project_id, 'AGENT.md') } catch { /* no AGENT.md */ }
 
     const systemPrompt = buildSystemPrompt(agentDef.prompt, agentMd, chain, ticketData)
 
@@ -117,11 +117,11 @@ export const runAgentSession = (db: Database, config: Config) =>
         messages.push({ role: 'user', content: toolResults })
       }
 
-      ticket.complete(db)(ticketData.id, notes)
+      domain.ticket.complete(db)(ticketData.id, notes)
       db.session.update(sessionId, { status: 'done', ended_at: now() })
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
-      try { ticket.fail(db)(ticketData.id, msg) } catch { /* ticket may already be done */ }
+      try { domain.ticket.fail(db)(ticketData.id, msg) } catch { /* ticket may already be done */ }
       db.session.update(sessionId, { status: 'failed', ended_at: now() })
     }
   }
