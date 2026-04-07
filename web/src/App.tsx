@@ -9,7 +9,6 @@ import { ProjectSwitcherSheet } from './components/ProjectSwitcherSheet.js'
 import { TicketsView } from './views/TicketsView.js'
 import { AgentsView } from './views/AgentsView.js'
 import { FilesView } from './views/FilesView.js'
-import { ProvidersView } from './views/ProvidersView.js'
 
 export function App() {
   const [projects, setProjects] = useState<Project[]>([])
@@ -43,7 +42,7 @@ export function App() {
 
       <div className="flex flex-col flex-1 min-w-0 min-h-0">
       <GlobalHeader
-        title={{ tickets: 'Tickets', agents: 'Agents', files: 'Files', providers: 'Providers' }[tab]}
+        title={{ tickets: 'Tickets', agents: 'Agents', files: 'Files' }[tab]}
         project={project}
         onSwitch={() => setSwitcherOpen(true)}
         onToggle={async () => {
@@ -60,8 +59,7 @@ export function App() {
           <>
             <div className={tab !== 'tickets'    ? 'hidden' : 'h-full'}><TicketsView    key={project.id} projectId={project.id} /></div>
             <div className={tab !== 'agents'    ? 'hidden' : 'h-full'}><AgentsView    key={project.id} projectId={project.id} /></div>
-            <div className={tab !== 'files'     ? 'hidden' : 'h-full'}><FilesView     key={project.id} projectId={project.id} /></div>
-            <div className={tab !== 'providers'  ? 'hidden' : 'h-full'}><ProvidersView /></div>
+            <div className={tab !== 'files'   ? 'hidden' : 'h-full'}><FilesView   key={project.id} projectId={project.id} /></div>
           </>
         )}
       </main>

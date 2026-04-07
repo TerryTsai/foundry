@@ -1,12 +1,11 @@
-import { Ticket, Bot, FolderOpen, Key } from 'lucide-react'
+import { Ticket, Bot, FolderOpen } from 'lucide-react'
 
-export type Tab = 'tickets' | 'agents' | 'files' | 'providers'
+export type Tab = 'tickets' | 'agents' | 'files'
 
 const tabs: Array<{ id: Tab; label: string; icon: React.ReactNode }> = [
-  { id: 'tickets',   label: 'Tickets',   icon: <Ticket size={18} strokeWidth={1.5} /> },
-  { id: 'agents',    label: 'Agents',    icon: <Bot size={18} strokeWidth={1.5} /> },
-  { id: 'files',     label: 'Files',     icon: <FolderOpen size={18} strokeWidth={1.5} /> },
-  { id: 'providers', label: 'Providers', icon: <Key size={18} strokeWidth={1.5} /> },
+  { id: 'tickets', label: 'Tickets', icon: <Ticket size={18} strokeWidth={1.5} /> },
+  { id: 'agents',  label: 'Agents',  icon: <Bot size={18} strokeWidth={1.5} /> },
+  { id: 'files',   label: 'Files',   icon: <FolderOpen size={18} strokeWidth={1.5} /> },
 ]
 
 interface TabBarProps {

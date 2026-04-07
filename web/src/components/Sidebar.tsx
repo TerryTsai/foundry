@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Ticket, Bot, FolderOpen, Key, ChevronDown, Pause, Play, Sun, Moon, Monitor, type LucideIcon } from 'lucide-react'
+import { Ticket, Bot, FolderOpen, ChevronDown, Pause, Play, Sun, Moon, Monitor, type LucideIcon } from 'lucide-react'
 import type { Tab } from './TabBar.js'
 import type { Project } from '../types.js'
 import { useTheme, type ThemeMode } from '../theme.js'
@@ -14,10 +14,9 @@ function FoundryMark() {
 }
 
 const tabs: Array<{ id: Tab; label: string; Icon: LucideIcon }> = [
-  { id: 'tickets',   label: 'Tickets',   Icon: Ticket },
-  { id: 'agents',    label: 'Agents',    Icon: Bot },
-  { id: 'files',     label: 'Files',     Icon: FolderOpen },
-  { id: 'providers', label: 'Providers', Icon: Key },
+  { id: 'tickets', label: 'Tickets', Icon: Ticket },
+  { id: 'agents',  label: 'Agents',  Icon: Bot },
+  { id: 'files',   label: 'Files',   Icon: FolderOpen },
 ]
 
 const THEME_CYCLE: ThemeMode[] = ['system', 'light', 'dark']
