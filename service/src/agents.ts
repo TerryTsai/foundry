@@ -1,11 +1,8 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { zodToJsonSchema } from 'zod-to-json-schema'
-import { eq } from 'drizzle-orm'
-import { nanoid } from 'nanoid'
 import type { Db } from './db.js'
 import type { Config } from './config.js'
 import type { Ticket, AgentDefinition } from './schema.js'
-import { agentSessions, agentMessages } from './schema.js'
 import { getTicketChain, gitReadFile, completeTicket, failTicket, type TicketChainEntry } from './helpers.js'
 import { makeRunCommandTool, makeCreateTicketTool, type Tool } from './tools.js'
 
@@ -68,12 +65,8 @@ export const runAgentSession = (db: Db, config: Config) =>
       { role: 'user', content: ticket.body },
     ]
 
-    const saveMessage = (role: string, content: string) => {
-      db.insert(agentMessages).values({
-        id: nanoid(), session_id: sessionId,
-        role, content, created_at: new Date().toISOString(),
-      }).run()
-    }
+    const saveMessage = (role: string, content: string) =>
+      db.messages.insert({ session_id: sessionId, role, content, created_at: new Date().toISOString() })
 
     saveMessage('user', ticket.body)
 
@@ -124,14 +117,10 @@ export const runAgentSession = (db: Db, config: Config) =>
       }
 
       completeTicket(db)(ticket.id, notes)
-      db.update(agentSessions)
-        .set({ status: 'done', ended_at: new Date().toISOString() })
-        .where(eq(agentSessions.id, sessionId)).run()
+      db.sessions.update(sessionId, { status: 'done', ended_at: new Date().toISOString() })
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       try { failTicket(db)(ticket.id, msg) } catch { /* ticket may already be done */ }
-      db.update(agentSessions)
-        .set({ status: 'failed', ended_at: new Date().toISOString() })
-        .where(eq(agentSessions.id, sessionId)).run()
+      db.sessions.update(sessionId, { status: 'failed', ended_at: new Date().toISOString() })
     }
   }
