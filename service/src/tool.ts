@@ -5,9 +5,9 @@ import type { Config } from './config.js'
 import * as v from './validate.js'
 import domain from './domain.js'
 
-export const makeTools = (db: Db, config: Config, sessionId: string, projectId: string, ticketId: string, agentName: string) => ({
+export const makeTools = (db: Db, config: Config, sessionId: string, projectId: string, ticketId: string, agentName: string, workspace: string) => ({
   run_command: tool({
-    description: 'Run a shell command in a sandboxed Podman container. Returns stdout, stderr, and exit code.',
+    description: 'Run a shell command in a sandboxed Podman container with the project repo cloned at /work. Returns stdout, stderr, and exit code.',
     inputSchema: v.tool.runCommand,
     outputSchema: z.object({
       stdout: z.string(), stderr: z.string(), exitCode: z.number(),
@@ -17,7 +17,7 @@ export const makeTools = (db: Db, config: Config, sessionId: string, projectId: 
       const command = args.cwd ? `cd ${args.cwd} && ${args.command}` : args.command
       try {
         const { emitter } = domain.execution.create(db, config)({
-          command, session_id: sessionId, network: args.network ?? false,
+          command, session_id: sessionId, network: args.network ?? false, workspace,
         })
         const stdout: string[] = []
         const stderr: string[] = []

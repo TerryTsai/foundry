@@ -359,14 +359,14 @@ export const execution = {
   },
 
   create: (db: Db, config: Config) =>
-    (input: { command: string; session_id?: string | undefined; timeout_ms?: number | undefined; memory_mb?: number | undefined; network?: boolean | undefined }) => {
+    (input: { command: string; session_id?: string | undefined; timeout_ms?: number | undefined; memory_mb?: number | undefined; network?: boolean | undefined; workspace?: string | undefined }) => {
       const { command, session_id, timeout_ms = config.sandboxTimeout, memory_mb, network = false } = input
       const row = db.execution.insert({
         session_id: session_id ?? null, command,
         status: 'running', timeout_ms, memory_mb: memory_mb ?? null,
         started_at: now(),
       })
-      const workspace = `/tmp/foundry-exec-${row.id}`
+      const workspace = input.workspace ?? `/tmp/foundry-exec-${row.id}`
       mkdirSync(workspace, { recursive: true })
       const handle = spawnRun({
         command, workspace,
