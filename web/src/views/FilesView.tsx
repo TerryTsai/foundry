@@ -199,7 +199,7 @@ function TreeNodeRow({
 
 // ── View ─────────────────────────────────────────────────────────────────────
 
-export function FilesView({ projectSlug }: { projectSlug: string }) {
+export function FilesView({ projectId }: { projectId: string }) {
   const [tree, setTree] = useState<TreeNode[]>([])
   const [selectedFile, setSelectedFile] = useState('')
   const [rendered, setRendered] = useState<{ html: string; mode: 'code' | 'markdown' } | null>(null)
@@ -209,11 +209,11 @@ export function FilesView({ projectSlug }: { projectSlug: string }) {
 
   useEffect(() => {
     setLoadingFiles(true)
-    fileApi.listFiles(projectSlug)
+    fileApi.listFiles(projectId)
       .then(f => { setTree(buildTree(f)); setRendered(null); setSelectedFile('') })
       .catch(() => setTree([]))
       .finally(() => setLoadingFiles(false))
-  }, [projectSlug])
+  }, [projectId])
 
   async function handleFileClick(path: string) {
     setSelectedFile(path)
@@ -222,7 +222,7 @@ export function FilesView({ projectSlug }: { projectSlug: string }) {
     // Close sidebar on mobile only — on desktop it stays visible via CSS
     if (window.innerWidth < 1024) setSidebarOpen(false)
     try {
-      const raw = await fileApi.readFile(projectSlug, path)
+      const raw = await fileApi.readFile(projectId, path)
       const ext = path.split('.').pop() ?? ''
       if (ext === 'md' || ext === 'mdx') {
         const html = await marked(raw, { async: true })

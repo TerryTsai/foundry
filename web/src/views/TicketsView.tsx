@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
-import { ticketApi, agentApi } from '../api.js'
-import type { Ticket, AgentDef } from '../types.js'
+import { ticketApi, agentApi, commentApi } from '../api.js'
+import type { Ticket, Agent, Comment } from '../types.js'
 import { StatusBadge } from '../components/StatusBadge.js'
 import { Sheet } from '../components/Sheet.js'
 import { PageShell } from '../components/layout/PageShell.js'
@@ -41,31 +41,25 @@ function matchesDateFilter(iso: string, selected: Set<string>): boolean {
 
 function TicketForm({
   projectId,
+  agents,
   onSave,
   onCancel,
 }: {
   projectId: string
+  agents: Agent[]
   onSave: () => void
   onCancel: () => void
 }) {
-  const [agents, setAgents] = useState<AgentDef[]>([])
-  const [agent, setAgent] = useState('')
+  const [agentId, setAgentId] = useState(agents[0]?.id ?? '')
   const [title, setTitle] = useState('')
   const [body, setBody] = useState('')
   const [error, setError] = useState('')
-
-  useEffect(() => {
-    agentApi.list(projectId).then(as => {
-      setAgents(as)
-      setAgent(as[0]?.name ?? '')
-    }).catch(console.error)
-  }, [projectId])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError('')
     try {
-      await ticketApi.create({ project_id: projectId, title, body, agent, created_by: 'founder' })
+      await ticketApi.create({ project_id: projectId, title, body, agent_id: agentId || undefined, created_by: 'founder' })
       onSave()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'failed')
@@ -77,9 +71,9 @@ function TicketForm({
       <div className="flex-1 overflow-y-auto space-y-4">
         {error && <div className="text-sm text-red-400">{error}</div>}
         <Field label="agent">
-          <Select value={agent} onChange={e => setAgent(e.target.value)} required>
-            {agents.map(a => <option key={a.id} value={a.name}>{a.name}</option>)}
-            {agents.length === 0 && <option value="">no agents in project</option>}
+          <Select value={agentId} onChange={e => setAgentId(e.target.value)}>
+            <option value="">unassigned</option>
+            {agents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
           </Select>
         </Field>
         <Field label="title">
@@ -91,32 +85,77 @@ function TicketForm({
       </div>
       <div className="shrink-0 pt-3 flex gap-2">
         <ActionButton label="cancel" variant="secondary" onClick={onCancel} className="flex-1" />
-        <ActionButton label="create" type="submit" disabled={!agent} className="flex-1" />
+        <ActionButton label="create" type="submit" className="flex-1" />
       </div>
     </form>
   )
 }
 
+function CommentsSection({ ticketId }: { ticketId: string }) {
+  const [comments, setComments] = useState<Comment[]>([])
+  const [body, setBody] = useState('')
+
+  const load = useCallback(() => {
+    commentApi.list(ticketId).then(setComments).catch(console.error)
+  }, [ticketId])
+
+  useEffect(() => { load() }, [load])
+
+  async function handleAdd(e: React.FormEvent) {
+    e.preventDefault()
+    if (!body.trim()) return
+    await commentApi.create(ticketId, { author: 'founder', body })
+    setBody('')
+    load()
+  }
+
+  return (
+    <div className="space-y-2 pt-1">
+      <div className="font-mono text-[10px] uppercase tracking-widest text-zinc-400 dark:text-zinc-600">
+        comments ({comments.length})
+      </div>
+      {comments.map(c => (
+        <div key={c.id} className="bg-zinc-100 dark:bg-zinc-900 p-3 space-y-1">
+          <div className="flex items-center gap-2">
+            <span className="font-mono text-[10px] text-zinc-500 dark:text-zinc-400">{c.author}</span>
+            <span className="font-mono text-[10px] text-zinc-400 dark:text-zinc-600">
+              {new Date(c.created_at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+            </span>
+          </div>
+          <div className="text-sm text-zinc-700 dark:text-zinc-300 whitespace-pre-wrap leading-relaxed">{c.body}</div>
+        </div>
+      ))}
+      <form onSubmit={handleAdd} className="flex gap-2">
+        <TextInput value={body} onChange={e => setBody(e.target.value)} placeholder="add a comment…" className="flex-1" />
+        <ActionButton label="add" type="submit" disabled={!body.trim()} />
+      </form>
+    </div>
+  )
+}
+
 function TicketDetail({
   ticket,
+  agents,
   onClose,
   onUpdate,
 }: {
   ticket: Ticket
+  agents: Agent[]
   onClose: () => void
   onUpdate: () => void
 }) {
   const [chain, setChain] = useState<Ticket[]>([])
   const [editing, setEditing] = useState(false)
   const [body, setBody] = useState(ticket.body)
-  const [notes, setNotes] = useState(ticket.notes ?? '')
+
+  const agentName = agents.find(a => a.id === ticket.agent_id)?.name ?? ticket.agent_id ?? 'unassigned'
 
   useEffect(() => {
     ticketApi.chain(ticket.id).then(setChain).catch(console.error)
   }, [ticket.id])
 
   async function handleSave() {
-    await ticketApi.update(ticket.id, { body, notes: notes || undefined })
+    await ticketApi.update(ticket.id, { body })
     setEditing(false)
     onUpdate()
   }
@@ -142,10 +181,11 @@ function TicketDetail({
         </div>
 
         <InfoGroup rows={[
-          { label: 'agent',   value: ticket.agent },
-          { label: 'created', value: ts(ticket.created_at) },
-          { label: 'claimed', value: ticket.claimed_at ? ts(ticket.claimed_at) : null },
-          { label: 'parent',  value: ticket.parent_id ?? null },
+          { label: 'agent',    value: agentName },
+          { label: 'priority', value: String(ticket.priority) },
+          { label: 'created',  value: ts(ticket.created_at) },
+          { label: 'claimed',  value: ticket.claimed_at ? ts(ticket.claimed_at) : null },
+          { label: 'parent',   value: ticket.parent_id ?? null },
         ]} />
 
         {editing ? (
@@ -153,24 +193,11 @@ function TicketDetail({
             <Field label="body">
               <TextArea label="body" value={body} onChange={e => setBody(e.target.value)} rows={6} />
             </Field>
-            <Field label="notes">
-              <TextArea label="notes" value={notes} onChange={e => setNotes(e.target.value)} rows={3} placeholder="optional notes" />
-            </Field>
           </div>
         ) : (
-          <>
-            <div className="bg-zinc-100 dark:bg-zinc-900 p-3 text-sm text-zinc-700 dark:text-zinc-300 whitespace-pre-wrap leading-relaxed font-sans">
-              {ticket.body}
-            </div>
-            {ticket.notes && (
-              <div className="space-y-1">
-                <div className="font-mono text-[10px] uppercase tracking-widest text-zinc-400 dark:text-zinc-600">notes</div>
-                <div className="bg-zinc-100 dark:bg-zinc-900 p-3 text-sm text-zinc-500 dark:text-zinc-400 whitespace-pre-wrap leading-relaxed font-sans">
-                  {ticket.notes}
-                </div>
-              </div>
-            )}
-          </>
+          <div className="bg-zinc-100 dark:bg-zinc-900 p-3 text-sm text-zinc-700 dark:text-zinc-300 whitespace-pre-wrap leading-relaxed font-sans">
+            {ticket.body}
+          </div>
         )}
 
         {chain.length > 1 && (
@@ -185,6 +212,8 @@ function TicketDetail({
             ))}
           </div>
         )}
+
+        <CommentsSection ticketId={ticket.id} />
       </div>
 
       {editing && (
@@ -204,6 +233,7 @@ function TicketDetail({
 
 export function TicketsView({ projectId }: { projectId: string }) {
   const [tickets, setTickets] = useState<Ticket[]>([])
+  const [agents, setAgents] = useState<Agent[]>([])
   const [selected, setSelected] = useState<Ticket | null>(null)
   const [showCreate, setShowCreate] = useState(false)
   const [statuses, setStatuses] = useState<Set<string>>(new Set())
@@ -213,8 +243,12 @@ export function TicketsView({ projectId }: { projectId: string }) {
   const [loading, setLoading] = useState(true)
 
   const load = useCallback(async () => {
-    const ts = await ticketApi.list({ projectId })
+    const [ts, as] = await Promise.all([
+      ticketApi.list({ projectId }),
+      agentApi.list(projectId),
+    ])
     setTickets(ts)
+    setAgents(as)
     setLoading(false)
   }, [projectId])
 
@@ -224,11 +258,12 @@ export function TicketsView({ projectId }: { projectId: string }) {
     month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
   })
 
-  const uniqueAgents = Array.from(new Set(tickets.map(t => t.agent))).sort()
+  const agentName = (t: Ticket) => agents.find(a => a.id === t.agent_id)?.name ?? 'unassigned'
+  const uniqueAgentNames = Array.from(new Set(tickets.map(agentName))).sort()
 
   const filtered = tickets.filter(t => {
     if (statuses.size > 0 && !statuses.has(t.status)) return false
-    if (agentFilter.size > 0 && !agentFilter.has(t.agent)) return false
+    if (agentFilter.size > 0 && !agentFilter.has(agentName(t))) return false
     if (createdFilter.size > 0 && !matchesDateFilter(t.created_at, createdFilter)) return false
     if (claimedFilter.size > 0) {
       if (claimedFilter.has('unclaimed') && !t.claimed_at) return true
@@ -243,7 +278,7 @@ export function TicketsView({ projectId }: { projectId: string }) {
   return (
     <>
       <div className="flex flex-col h-full">
-        {/* Filter bar — outside scroll container so dropdowns aren't clipped */}
+        {/* Filter bar */}
         <div className="shrink-0 flex items-center gap-2 px-4 h-11 border-b border-zinc-200 dark:border-zinc-800/60 overflow-x-auto no-scrollbar">
           <MultiSelect
             label="Status"
@@ -251,10 +286,10 @@ export function TicketsView({ projectId }: { projectId: string }) {
             selected={statuses}
             onChange={setStatuses}
           />
-          {uniqueAgents.length > 0 && (
+          {uniqueAgentNames.length > 0 && (
             <MultiSelect
               label="Agent"
-              options={uniqueAgents}
+              options={uniqueAgentNames}
               selected={agentFilter}
               onChange={setAgentFilter}
             />
@@ -281,14 +316,14 @@ export function TicketsView({ projectId }: { projectId: string }) {
               onRefresh={load}
             >
             {loading ? (
-              <EmptyState message="loading…" />
+              <EmptyState message="loading..." />
             ) : filtered.length === 0 ? (
               <EmptyState message="no tickets" />
             ) : filtered.map(t => (
               <ListRow
                 key={t.id}
                 title={t.title}
-                subtitle={[t.agent, t.parent_id ? '↳ child' : '', fmt(t.created_at)].filter(Boolean).join(' · ')}
+                subtitle={[agentName(t), t.parent_id ? '↳ child' : '', fmt(t.created_at)].filter(Boolean).join(' · ')}
                 status={t.status}
                 active={selected?.id === t.id}
                 onPress={() => setSelected(t)}
@@ -306,6 +341,7 @@ export function TicketsView({ projectId }: { projectId: string }) {
                 </div>
                 <TicketDetail
                   ticket={selected}
+                  agents={agents}
                   onClose={() => setSelected(null)}
                   onUpdate={() => { load().catch(console.error); setSelected(null) }}
                 />
@@ -320,6 +356,7 @@ export function TicketsView({ projectId }: { projectId: string }) {
       <Sheet open={showCreate} onClose={() => setShowCreate(false)} title="New Ticket">
         <TicketForm
           projectId={projectId}
+          agents={agents}
           onSave={() => { setShowCreate(false); load().catch(console.error) }}
           onCancel={() => setShowCreate(false)}
         />
@@ -331,6 +368,7 @@ export function TicketsView({ projectId }: { projectId: string }) {
           {selected && (
             <TicketDetail
               ticket={selected}
+              agents={agents}
               onClose={() => setSelected(null)}
               onUpdate={() => { load().catch(console.error); setSelected(null) }}
             />

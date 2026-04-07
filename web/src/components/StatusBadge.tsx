@@ -5,7 +5,7 @@ const dotColor: Record<string, string> = {
   failed:  'bg-red-400',
   blocked: 'bg-purple-400',
   active:  'bg-emerald-400',
-  paused:  'bg-zinc-400',
+  archived: 'bg-zinc-400',
   running: 'bg-sky-400',
 }
 

@@ -11,7 +11,7 @@ export default defineConfig({
       '/ticket': 'http://localhost:3000',
       '/file': 'http://localhost:3000',
       '/git': 'http://localhost:3000',
-      '/sandbox': 'http://localhost:3000',
+      '/execution': 'http://localhost:3000',
       '/agent': 'http://localhost:3000',
       '/session': 'http://localhost:3000',
       '/health': 'http://localhost:3000',

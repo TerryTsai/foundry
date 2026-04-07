@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { agentApi } from '../api.js'
-import type { AgentDef } from '../types.js'
+import type { Agent } from '../types.js'
 import { Sheet } from '../components/Sheet.js'
 import { PageShell } from '../components/layout/PageShell.js'
 import { ListRow } from '../components/list/ListRow.js'
@@ -16,12 +16,13 @@ function AgentSheet({
   onClose,
   onUpdate,
 }: {
-  agent: AgentDef | null
+  agent: Agent | null
   projectId: string
   onClose: () => void
   onUpdate: () => void
 }) {
   const [name, setName] = useState('')
+  const [model, setModel] = useState('claude-sonnet-4-20250514')
   const [prompt, setPrompt] = useState('')
   const [error, setError] = useState('')
   const isNew = agent === null
@@ -29,9 +30,10 @@ function AgentSheet({
   useEffect(() => {
     if (agent) {
       setName(agent.name)
+      setModel(agent.model)
       setPrompt(agent.prompt)
     } else {
-      setName(''); setPrompt('')
+      setName(''); setModel('claude-sonnet-4-20250514'); setPrompt('')
     }
     setError('')
   }, [agent])
@@ -41,9 +43,9 @@ function AgentSheet({
     setError('')
     try {
       if (isNew) {
-        await agentApi.create({ project_id: projectId, name, prompt })
+        await agentApi.create({ project_id: projectId, name, model, prompt })
       } else {
-        await agentApi.update(agent.id, { prompt })
+        await agentApi.update(agent.id, { model, prompt })
       }
       onUpdate(); onClose()
     } catch (err) { setError(err instanceof Error ? err.message : 'failed') }
@@ -63,6 +65,9 @@ function AgentSheet({
           <TextInput value={name} onChange={e => setName(e.target.value)} required disabled={!isNew}
             className="disabled:opacity-40" />
         </Field>
+        <Field label="model">
+          <TextInput value={model} onChange={e => setModel(e.target.value)} required />
+        </Field>
         <Field label="prompt">
           <TextArea label="prompt" value={prompt} onChange={e => setPrompt(e.target.value)} required rows={8} />
         </Field>
@@ -81,8 +86,8 @@ function AgentSheet({
 }
 
 export function AgentsView({ projectId }: { projectId: string }) {
-  const [agents, setAgents] = useState<AgentDef[]>([])
-  const [selected, setSelected] = useState<AgentDef | null>(null)
+  const [agents, setAgents] = useState<Agent[]>([])
+  const [selected, setSelected] = useState<Agent | null>(null)
   const [open, setOpen] = useState(false)
 
   const load = useCallback(async () => {
@@ -92,7 +97,7 @@ export function AgentsView({ projectId }: { projectId: string }) {
   useEffect(() => { load().catch(console.error) }, [load])
 
   function openNew() { setSelected(null); setOpen(true) }
-  function openAgent(a: AgentDef) { setSelected(a); setOpen(true) }
+  function openAgent(a: Agent) { setSelected(a); setOpen(true) }
 
   return (
     <>
@@ -110,7 +115,7 @@ export function AgentsView({ projectId }: { projectId: string }) {
                   <ListRow
                     key={a.id}
                     title={a.name}
-                    subtitle={a.prompt.split('\n').find(l => l.trim()) ?? ''}
+                    subtitle={a.model}
                     active={open && selected?.id === a.id}
                     onPress={() => openAgent(a)}
                   />

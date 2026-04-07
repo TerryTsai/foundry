@@ -36,7 +36,7 @@ export function App() {
         onSwitch={() => setSwitcherOpen(true)}
         onToggle={async () => {
           if (!project) return
-          await projectApi.update(project.id, { status: project.status === 'active' ? 'paused' : 'active' })
+          await projectApi.update(project.id, { status: project.status === 'active' ? 'archived' : 'active' })
           await loadProjects()
         }}
       />
@@ -48,7 +48,7 @@ export function App() {
         onSwitch={() => setSwitcherOpen(true)}
         onToggle={async () => {
           if (!project) return
-          await projectApi.update(project.id, { status: project.status === 'active' ? 'paused' : 'active' })
+          await projectApi.update(project.id, { status: project.status === 'active' ? 'archived' : 'active' })
           await loadProjects()
         }}
       />
@@ -60,7 +60,7 @@ export function App() {
           <>
             <div className={tab !== 'tickets' ? 'hidden' : 'h-full'}><TicketsView key={project.id} projectId={project.id} /></div>
             <div className={tab !== 'agents'  ? 'hidden' : 'h-full'}><AgentsView  key={project.id} projectId={project.id} /></div>
-            <div className={tab !== 'files'   ? 'hidden' : 'h-full'}><FilesView   key={project.id} projectSlug={project.slug} /></div>
+            <div className={tab !== 'files'   ? 'hidden' : 'h-full'}><FilesView   key={project.id} projectId={project.id} /></div>
             <div className={tab !== 'logs'    ? 'hidden' : 'h-full'}><LogsView    key={project.id} /></div>
           </>
         )}

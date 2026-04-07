@@ -41,17 +41,13 @@ function ProjectSheet({ project, onClose, onUpdate }: { project: Project | null;
     setError('')
   }, [project])
 
-  function toWorkspace(n: string) {
-    return `/repos/${n.toLowerCase().replace(/\s+/g, '-')}`
-  }
-
   async function handleSave(e: React.FormEvent) {
     e.preventDefault()
     setError('')
     try {
       if (isNew) {
-        const p = await projectApi.create({ name, workspace: toWorkspace(name), schedule_interval: +interval, concurrency_limit: +maxAgents })
-        await agentApi.create({ project_id: p.id, name: 'coder', image: 'node:20', prompt: DEFAULT_AGENT_PROMPT, env: [] })
+        const p = await projectApi.create({ name, schedule_interval: +interval, concurrency_limit: +maxAgents })
+        await agentApi.create({ project_id: p.id, name: 'coder', model: 'claude-sonnet-4-20250514', prompt: DEFAULT_AGENT_PROMPT })
       } else {
         await projectApi.update(project.id, { schedule_interval: +interval, concurrency_limit: +maxAgents })
       }
