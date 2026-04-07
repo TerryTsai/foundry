@@ -1,48 +1,26 @@
-import type { Request, Response, NextFunction } from 'express'
+import type { Response } from 'express'
 import type { ZodType } from 'zod'
-import { type Result, ok, badRequest } from './errors.js'
+import { AppError, badRequest } from './errors.js'
 
-// ── Parsing ──
-
-export const parseBody = <T>(schema: ZodType<T>) => (req: Request): Result<T> => {
-  const parsed = schema.safeParse(req.body)
-  return parsed.success ? ok(parsed.data) : badRequest(JSON.stringify(parsed.error.flatten()))
+export const parse = <T>(schema: ZodType<T>) => (data: unknown): T => {
+  const result = schema.safeParse(data)
+  if (!result.success) throw badRequest(JSON.stringify(result.error.flatten()))
+  return result.data
 }
 
-export const parseQuery = <T>(schema: ZodType<T>) => (req: Request): Result<T> => {
-  const parsed = schema.safeParse(req.query)
-  return parsed.success ? ok(parsed.data) : badRequest(JSON.stringify(parsed.error.flatten()))
+export const send = (res: Response, status = 200) => <T>(data: T): void => {
+  res.status(status).json(data)
 }
 
-// ── Result Sending ──
-
-export const sendResult = (res: Response) => <T>(result: Result<T>): void => {
-  result.ok
-    ? res.json(result.data) as unknown as void
-    : res.status(result.status).json({ error: result.error }) as unknown as void
+export const sendText = (res: Response) => (data: string): void => {
+  res.type('text/plain').send(data)
 }
 
-export const sendCreated = (res: Response) => <T>(result: Result<T>): void => {
-  result.ok
-    ? res.status(201).json(result.data) as unknown as void
-    : res.status(result.status).json({ error: result.error }) as unknown as void
+export const fail = (res: Response) => (err: unknown): void => {
+  if (err instanceof AppError) {
+    res.status(err.status).json({ error: err.message })
+  } else {
+    console.error(err)
+    res.status(500).json({ error: 'internal error' })
+  }
 }
-
-export const sendText = (res: Response) => (result: Result<string>): void => {
-  result.ok
-    ? res.type('text/plain').send(result.data) as unknown as void
-    : res.status(result.status).json({ error: result.error }) as unknown as void
-}
-
-// ── Chaining ──
-
-export const andThen = <A, B>(result: Result<A>, fn: (a: A) => Result<B>): Result<B> =>
-  result.ok ? fn(result.data) : result
-
-export const andThenAsync = <A, B>(result: Result<A>, fn: (a: A) => Promise<Result<B>>): Promise<Result<B>> =>
-  result.ok ? fn(result.data) : Promise.resolve(result)
-
-// ── Async Route Wrapper ──
-
-export const asyncRoute = (fn: (req: Request, res: Response) => Promise<void>) =>
-  (req: Request, res: Response, next: NextFunction) => fn(req, res).catch(next)

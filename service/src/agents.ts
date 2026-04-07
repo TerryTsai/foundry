@@ -45,12 +45,11 @@ export const runAgentSession = (db: Db, config: Config) =>
   async (sessionId: string, agentDef: AgentDefinition, ticket: Ticket): Promise<void> => {
     const client = new Anthropic({ apiKey: config.anthropicKey })
 
-    const chainResult = getTicketChain(db)(ticket.id)
-    const chain: TicketChainEntry[] = chainResult.ok ? chainResult.data : []
+    let chain: TicketChainEntry[] = []
+    try { chain = getTicketChain(db)(ticket.id) } catch { /* empty chain */ }
 
     let agentMd = ''
-    const mdResult = await gitReadFile(config.repoBase)(agentDef.project_id, 'AGENT.md')
-    if (mdResult.ok) agentMd = mdResult.data
+    try { agentMd = await gitReadFile(config.repoBase)(agentDef.project_id, 'AGENT.md') } catch { /* no AGENT.md */ }
 
     const systemPrompt = buildSystemPrompt(agentDef.prompt, agentMd, chain, ticket)
 
@@ -130,7 +129,7 @@ export const runAgentSession = (db: Db, config: Config) =>
         .where(eq(agentSessions.id, sessionId)).run()
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
-      failTicket(db)(ticket.id, msg)
+      try { failTicket(db)(ticket.id, msg) } catch { /* ticket may already be done */ }
       db.update(agentSessions)
         .set({ status: 'failed', ended_at: new Date().toISOString() })
         .where(eq(agentSessions.id, sessionId)).run()

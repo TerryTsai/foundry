@@ -19,30 +19,27 @@ export const makeRunCommandTool = (db: Db, config: Config, sessionId: string): T
     const args = runCommandParams.parse(rawArgs)
     const command = args.cwd ? `cd ${args.cwd} && ${args.command}` : args.command
 
-    const result = createSandboxRun(db, config)({
-      command,
-      workspace: `/tmp/foundry-work-${sessionId}`,
-      session_id: sessionId,
-      network: args.network ?? false,
-    })
-
-    if (!result.ok) return JSON.stringify({ error: result.error })
-
-    const { emitter } = result.data
-    const stdout: string[] = []
-    const stderr: string[] = []
-
-    return new Promise<string>(resolve => {
-      emitter.on('stdout', (line: string) => stdout.push(line))
-      emitter.on('stderr', (line: string) => stderr.push(line))
-      emitter.once('exit', (code: number) => {
-        resolve(JSON.stringify({
-          stdout: stdout.join('\n'),
-          stderr: stderr.join('\n'),
-          exitCode: code,
-        }))
+    try {
+      const { emitter } = createSandboxRun(db, config)({
+        command,
+        workspace: `/tmp/foundry-work-${sessionId}`,
+        session_id: sessionId,
+        network: args.network ?? false,
       })
-    })
+
+      const stdout: string[] = []
+      const stderr: string[] = []
+
+      return await new Promise<string>(resolve => {
+        emitter.on('stdout', (line: string) => stdout.push(line))
+        emitter.on('stderr', (line: string) => stderr.push(line))
+        emitter.once('exit', (code: number) => {
+          resolve(JSON.stringify({ stdout: stdout.join('\n'), stderr: stderr.join('\n'), exitCode: code }))
+        })
+      })
+    } catch (err) {
+      return JSON.stringify({ error: err instanceof Error ? err.message : String(err) })
+    }
   },
 })
 
@@ -53,18 +50,15 @@ export const makeCreateTicketTool = (db: Db, projectId: string, currentTicketId:
   execute: async (rawArgs: unknown): Promise<string> => {
     const args = createTicketParams.parse(rawArgs)
 
-    const result = createTicket(db)({
-      project_id:  projectId,
-      title:       args.title,
-      body:        args.body,
-      agent:       args.agent,
-      parent_id:   currentTicketId,
-      created_by:  agentName,
-      block:       args.block,
-    })
-
-    return result.ok
-      ? JSON.stringify({ ticket_id: result.data.id })
-      : JSON.stringify({ error: result.error })
+    try {
+      const ticket = createTicket(db)({
+        project_id: projectId, title: args.title, body: args.body,
+        agent: args.agent, parent_id: currentTicketId,
+        created_by: agentName, block: args.block,
+      })
+      return JSON.stringify({ ticket_id: ticket.id })
+    } catch (err) {
+      return JSON.stringify({ error: err instanceof Error ? err.message : String(err) })
+    }
   },
 })

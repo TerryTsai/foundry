@@ -9,15 +9,15 @@ import type { EventEmitter } from 'events'
 import type { Response } from 'express'
 import type { Db } from './db.js'
 import type { Config } from './config.js'
-import type { Ticket, AgentDefinition } from './schema.js'
+import type { Ticket, Project, AgentDefinition, AgentSession, AgentMessage, SandboxRun } from './schema.js'
 import {
   tickets, projects, agentDefinitions, agentSessions, agentMessages, sandboxRuns,
 } from './schema.js'
-import { type Result, ok, notFound, conflict, badRequest, fail } from './errors.js'
+import { notFound, conflict, badRequest, AppError } from './errors.js'
 import { spawnRun, type RunHandle } from './runner.js'
 import type { z } from 'zod'
 import type {
-  createTicketBody, updateTicketBody, doneTicketBody, failTicketBody, listTicketsQuery,
+  createTicketBody, updateTicketBody, listTicketsQuery,
   createProjectBody, updateProjectBody, listProjectsQuery,
   createAgentDefBody, updateAgentDefBody, listAgentDefsQuery,
   createSandboxBody,
@@ -34,7 +34,7 @@ const now = () => new Date().toISOString()
 
 // ── Tickets ──
 
-export const listTickets = (db: Db) => (filters: z.infer<typeof listTicketsQuery>): Result<Ticket[]> => {
+export const listTickets = (db: Db) => (filters: z.infer<typeof listTicketsQuery>): Ticket[] => {
   const conditions = []
   if (filters.projectId) conditions.push(eq(tickets.project_id, filters.projectId))
   if (filters.agent)     conditions.push(eq(tickets.agent, filters.agent))
@@ -45,24 +45,23 @@ export const listTickets = (db: Db) => (filters: z.infer<typeof listTicketsQuery
     conditions.push(eq(tickets.parent_id, filters.parentId))
   }
 
-  const rows = conditions.length
+  return conditions.length
     ? db.select().from(tickets).where(and(...conditions)).all()
     : db.select().from(tickets).all()
-
-  return ok(rows)
 }
 
-export const getTicket = (db: Db) => (id: string): Result<Ticket> => {
+export const getTicket = (db: Db) => (id: string): Ticket => {
   const ticket = db.select().from(tickets).where(eq(tickets.id, id)).get()
-  return ticket ? ok(ticket) : notFound()
+  if (!ticket) throw notFound()
+  return ticket
 }
 
-export const createTicket = (db: Db) => (input: z.infer<typeof createTicketBody>): Result<Ticket> => {
+export const createTicket = (db: Db) => (input: z.infer<typeof createTicketBody>): Ticket => {
   const { project_id, title, body, agent, parent_id, created_by, block } = input
 
   if (parent_id) {
     const parent = db.select().from(tickets).where(eq(tickets.id, parent_id)).get()
-    if (!parent) return badRequest('parent_id not found')
+    if (!parent) throw badRequest('parent_id not found')
   }
 
   const id = nanoid()
@@ -84,12 +83,12 @@ export const createTicket = (db: Db) => (input: z.infer<typeof createTicketBody>
     }
   })
 
-  return ok(db.select().from(tickets).where(eq(tickets.id, id)).get()!)
+  return db.select().from(tickets).where(eq(tickets.id, id)).get()!
 }
 
-export const updateTicket = (db: Db) => (id: string, input: z.infer<typeof updateTicketBody>): Result<Ticket> => {
+export const updateTicket = (db: Db) => (id: string, input: z.infer<typeof updateTicketBody>): Ticket => {
   const ticket = db.select().from(tickets).where(eq(tickets.id, id)).get()
-  if (!ticket) return notFound()
+  if (!ticket) throw notFound()
 
   const updates: Record<string, unknown> = {}
   if (input.body !== undefined)  updates.body = input.body
@@ -99,24 +98,24 @@ export const updateTicket = (db: Db) => (id: string, input: z.infer<typeof updat
     db.update(tickets).set(updates).where(eq(tickets.id, id)).run()
   }
 
-  return ok(db.select().from(tickets).where(eq(tickets.id, id)).get()!)
+  return db.select().from(tickets).where(eq(tickets.id, id)).get()!
 }
 
-export const claimTicket = (db: Db) => (id: string): Result<Ticket> =>
+export const claimTicket = (db: Db) => (id: string): Ticket =>
   db.transaction(tx => {
     const ticket = tx.select().from(tickets).where(eq(tickets.id, id)).get()
-    if (!ticket) return notFound<Ticket>()
-    if (ticket.status !== 'open') return conflict<Ticket>(`cannot claim ticket with status '${ticket.status}'`)
+    if (!ticket) throw notFound()
+    if (ticket.status !== 'open') throw conflict(`cannot claim ticket with status '${ticket.status}'`)
 
     tx.update(tickets).set({ status: 'claimed', claimed_at: now() }).where(eq(tickets.id, id)).run()
-    return ok(tx.select().from(tickets).where(eq(tickets.id, id)).get()!)
-  }) as Result<Ticket>
+    return tx.select().from(tickets).where(eq(tickets.id, id)).get()!
+  }) as Ticket
 
-export const completeTicket = (db: Db) => (id: string, notes?: string): Result<Ticket> =>
+export const completeTicket = (db: Db) => (id: string, notes?: string): Ticket =>
   db.transaction(tx => {
     const ticket = tx.select().from(tickets).where(eq(tickets.id, id)).get()
-    if (!ticket) return notFound<Ticket>()
-    if (ticket.status !== 'claimed') return conflict<Ticket>(`cannot mark done from status '${ticket.status}'`)
+    if (!ticket) throw notFound()
+    if (ticket.status !== 'claimed') throw conflict(`cannot mark done from status '${ticket.status}'`)
 
     tx.update(tickets)
       .set({ status: 'done', ...(notes !== undefined ? { notes } : {}) })
@@ -129,34 +128,39 @@ export const completeTicket = (db: Db) => (id: string, notes?: string): Result<T
       }
     }
 
-    return ok(tx.select().from(tickets).where(eq(tickets.id, id)).get()!)
-  }) as Result<Ticket>
+    return tx.select().from(tickets).where(eq(tickets.id, id)).get()!
+  }) as Ticket
 
-export const failTicket = (db: Db) => (id: string, notes?: string): Result<Ticket> => {
+export const failTicket = (db: Db) => (id: string, notes?: string): Ticket => {
   const ticket = db.select().from(tickets).where(eq(tickets.id, id)).get()
-  if (!ticket) return notFound()
-  if (ticket.status !== 'claimed') return conflict(`cannot fail ticket with status '${ticket.status}'`)
+  if (!ticket) throw notFound()
+  if (ticket.status !== 'claimed') throw conflict(`cannot fail ticket with status '${ticket.status}'`)
 
   db.update(tickets)
     .set({ status: 'failed', ...(notes !== undefined ? { notes } : {}) })
     .where(eq(tickets.id, id)).run()
 
-  return ok(db.select().from(tickets).where(eq(tickets.id, id)).get()!)
+  return db.select().from(tickets).where(eq(tickets.id, id)).get()!
 }
 
-export const reopenTicket = (db: Db) => (id: string): Result<Ticket> => {
+export const reopenTicket = (db: Db) => (id: string): Ticket => {
   const ticket = db.select().from(tickets).where(eq(tickets.id, id)).get()
-  if (!ticket) return notFound()
-  if (ticket.status !== 'failed') return conflict(`cannot reopen ticket with status '${ticket.status}'`)
+  if (!ticket) throw notFound()
+  if (ticket.status !== 'failed') throw conflict(`cannot reopen ticket with status '${ticket.status}'`)
 
   db.update(tickets).set({ status: 'open', claimed_at: null }).where(eq(tickets.id, id)).run()
-  return ok(db.select().from(tickets).where(eq(tickets.id, id)).get()!)
+  return db.select().from(tickets).where(eq(tickets.id, id)).get()!
 }
 
-export const getTicketChain = (db: Db) => (id: string): Result<TicketChainEntry[]> => {
+export interface TicketChainEntry {
+  id: string; title: string; body: string
+  notes: string | null; agent: string; status: string
+}
+
+export const getTicketChain = (db: Db) => (id: string): TicketChainEntry[] => {
   const chain: Ticket[] = []
   let current = db.select().from(tickets).where(eq(tickets.id, id)).get()
-  if (!current) return notFound()
+  if (!current) throw notFound()
 
   const visited = new Set<string>()
   while (current) {
@@ -167,37 +171,31 @@ export const getTicketChain = (db: Db) => (id: string): Result<TicketChainEntry[
     current = db.select().from(tickets).where(eq(tickets.id, current.parent_id)).get()
   }
 
-  return ok(chain.map(t => ({
+  return chain.map(t => ({
     id: t.id, title: t.title, body: t.body,
     notes: t.notes, agent: t.agent, status: t.status,
-  })))
-}
-
-export interface TicketChainEntry {
-  id: string; title: string; body: string
-  notes: string | null; agent: string; status: string
+  }))
 }
 
 // ── Projects ──
 
-export const listProjects = (db: Db) => (filters: z.infer<typeof listProjectsQuery>): Result<typeof projects.$inferSelect[]> => {
-  const rows = filters.status
+export const listProjects = (db: Db) => (filters: z.infer<typeof listProjectsQuery>): Project[] =>
+  filters.status
     ? db.select().from(projects).where(eq(projects.status, filters.status)).all()
     : db.select().from(projects).all()
-  return ok(rows)
-}
 
-export const getProject = (db: Db) => (id: string): Result<typeof projects.$inferSelect> => {
+export const getProject = (db: Db) => (id: string): Project => {
   const project = db.select().from(projects).where(eq(projects.id, id)).get()
-  return project ? ok(project) : notFound()
+  if (!project) throw notFound()
+  return project
 }
 
-export const createProject = (db: Db) => (input: z.infer<typeof createProjectBody>): Result<typeof projects.$inferSelect> => {
+export const createProject = (db: Db) => (input: z.infer<typeof createProjectBody>): Project => {
   const { name, workspace, schedule_interval = 600, concurrency_limit = 3 } = input
   const slug = slugify(name)
 
   const existing = db.select().from(projects).where(eq(projects.slug, slug)).get()
-  if (existing) return conflict(`slug '${slug}' already exists`)
+  if (existing) throw conflict(`slug '${slug}' already exists`)
 
   const id = nanoid()
   db.insert(projects).values({
@@ -207,12 +205,12 @@ export const createProject = (db: Db) => (input: z.infer<typeof createProjectBod
 
   const project = db.select().from(projects).where(eq(projects.id, id)).get()!
   scheduleProject(db)(project.id, project.schedule_interval)
-  return ok(project)
+  return project
 }
 
-export const updateProject = (db: Db) => (id: string, input: z.infer<typeof updateProjectBody>): Result<typeof projects.$inferSelect> => {
+export const updateProject = (db: Db) => (id: string, input: z.infer<typeof updateProjectBody>): Project => {
   const project = db.select().from(projects).where(eq(projects.id, id)).get()
-  if (!project) return notFound()
+  if (!project) throw notFound()
 
   const updates: Record<string, unknown> = {}
   if (input.name !== undefined) {
@@ -224,7 +222,7 @@ export const updateProject = (db: Db) => (id: string, input: z.infer<typeof upda
   if (input.schedule_interval !== undefined) updates.schedule_interval = input.schedule_interval
   if (input.concurrency_limit !== undefined) updates.concurrency_limit = input.concurrency_limit
 
-  if (Object.keys(updates).length === 0) return ok(project)
+  if (Object.keys(updates).length === 0) return project
 
   db.update(projects).set(updates).where(eq(projects.id, id)).run()
   const updated = db.select().from(projects).where(eq(projects.id, id)).get()!
@@ -237,41 +235,40 @@ export const updateProject = (db: Db) => (id: string, input: z.infer<typeof upda
     scheduleProject(db)(id, updated.schedule_interval)
   }
 
-  return ok(updated)
+  return updated
 }
 
-export const runProject = (db: Db) => (id: string): Result<{ ok: true }> => {
+export const runProject = (db: Db) => (id: string): { ok: true } => {
   const project = db.select().from(projects).where(eq(projects.id, id)).get()
-  if (!project) return notFound()
-  if (project.status !== 'active') return conflict('project is paused')
+  if (!project) throw notFound()
+  if (project.status !== 'active') throw conflict('project is paused')
 
   dispatch(db)(project.id).catch((err: unknown) =>
     console.error(`dispatch error for project ${project.id}:`, err))
 
-  return ok({ ok: true })
+  return { ok: true }
 }
 
 // ── Agent Definitions ──
 
-export const listAgentDefs = (db: Db) => (filters: z.infer<typeof listAgentDefsQuery>): Result<AgentDefinition[]> => {
-  const rows = filters.projectId
+export const listAgentDefs = (db: Db) => (filters: z.infer<typeof listAgentDefsQuery>): AgentDefinition[] =>
+  filters.projectId
     ? db.select().from(agentDefinitions).where(eq(agentDefinitions.project_id, filters.projectId)).all()
     : db.select().from(agentDefinitions).all()
-  return ok(rows)
-}
 
-export const getAgentDef = (db: Db) => (id: string): Result<AgentDefinition> => {
+export const getAgentDef = (db: Db) => (id: string): AgentDefinition => {
   const def = db.select().from(agentDefinitions).where(eq(agentDefinitions.id, id)).get()
-  return def ? ok(def) : notFound()
+  if (!def) throw notFound()
+  return def
 }
 
-export const createAgentDef = (db: Db) => (input: z.infer<typeof createAgentDefBody>): Result<AgentDefinition> => {
+export const createAgentDef = (db: Db) => (input: z.infer<typeof createAgentDefBody>): AgentDefinition => {
   const { project_id, name, prompt } = input
 
   const existing = db.select().from(agentDefinitions)
     .where(and(eq(agentDefinitions.project_id, project_id), eq(agentDefinitions.name, name)))
     .get()
-  if (existing) return conflict(`agent '${name}' already exists in project '${project_id}'`)
+  if (existing) throw conflict(`agent '${name}' already exists in project '${project_id}'`)
 
   const id = nanoid()
   db.insert(agentDefinitions).values({
@@ -279,12 +276,12 @@ export const createAgentDef = (db: Db) => (input: z.infer<typeof createAgentDefB
     image: 'node:20-alpine', env: '[]', created_at: now(),
   }).run()
 
-  return ok(db.select().from(agentDefinitions).where(eq(agentDefinitions.id, id)).get()!)
+  return db.select().from(agentDefinitions).where(eq(agentDefinitions.id, id)).get()!
 }
 
-export const updateAgentDef = (db: Db) => (id: string, input: z.infer<typeof updateAgentDefBody>): Result<AgentDefinition> => {
+export const updateAgentDef = (db: Db) => (id: string, input: z.infer<typeof updateAgentDefBody>): AgentDefinition => {
   const def = db.select().from(agentDefinitions).where(eq(agentDefinitions.id, id)).get()
-  if (!def) return notFound()
+  if (!def) throw notFound()
 
   const updates: Record<string, unknown> = {}
   if (input.prompt !== undefined) updates.prompt = input.prompt
@@ -293,61 +290,68 @@ export const updateAgentDef = (db: Db) => (id: string, input: z.infer<typeof upd
     db.update(agentDefinitions).set(updates).where(eq(agentDefinitions.id, id)).run()
   }
 
-  return ok(db.select().from(agentDefinitions).where(eq(agentDefinitions.id, id)).get()!)
+  return db.select().from(agentDefinitions).where(eq(agentDefinitions.id, id)).get()!
 }
 
-export const deleteAgentDef = (db: Db) => (id: string): Result<{ ok: true }> => {
+export const deleteAgentDef = (db: Db) => (id: string): { ok: true } => {
   const def = db.select().from(agentDefinitions).where(eq(agentDefinitions.id, id)).get()
-  if (!def) return notFound()
+  if (!def) throw notFound()
   db.delete(agentDefinitions).where(eq(agentDefinitions.id, id)).run()
-  return ok({ ok: true })
+  return { ok: true }
 }
 
 // ── Sessions ──
 
-export const getSession = (db: Db) => (id: string): Result<typeof agentSessions.$inferSelect> => {
+export const getSession = (db: Db) => (id: string): AgentSession => {
   const session = db.select().from(agentSessions).where(eq(agentSessions.id, id)).get()
-  return session ? ok(session) : notFound()
+  if (!session) throw notFound()
+  return session
 }
 
-export const getSessionStatus = (db: Db) => (id: string): Result<{ status: string }> => {
+export const getSessionStatus = (db: Db) => (id: string): { status: string } => {
   const session = db.select().from(agentSessions).where(eq(agentSessions.id, id)).get()
-  if (!session) return notFound()
-  return ok({ status: session.status })
+  if (!session) throw notFound()
+  return { status: session.status }
 }
 
-export const killSession = (db: Db) => (id: string): Result<{ ok: true }> => {
+export const killSession = (db: Db) => (id: string): { ok: true } => {
   const session = db.select().from(agentSessions).where(eq(agentSessions.id, id)).get()
-  if (!session) return notFound()
-  if (session.status !== 'running') return conflict(`session is not running (status: ${session.status})`)
+  if (!session) throw notFound()
+  if (session.status !== 'running') throw conflict(`session is not running (status: ${session.status})`)
 
   db.update(agentSessions)
     .set({ status: 'failed', ended_at: now() })
     .where(eq(agentSessions.id, id)).run()
 
-  return ok({ ok: true })
+  return { ok: true }
 }
 
-export const insertMessage = (db: Db) => (sessionId: string, role: string, content: string): Result<typeof agentMessages.$inferSelect> => {
+export const insertMessage = (db: Db) => (sessionId: string, role: string, content: string): AgentMessage => {
   const session = db.select().from(agentSessions).where(eq(agentSessions.id, sessionId)).get()
-  if (!session) return notFound()
+  if (!session) throw notFound()
 
   const id = nanoid()
   db.insert(agentMessages).values({
     id, session_id: sessionId, role, content, created_at: now(),
   }).run()
 
-  return ok(db.select().from(agentMessages).where(eq(agentMessages.id, id)).get()!)
+  return db.select().from(agentMessages).where(eq(agentMessages.id, id)).get()!
 }
 
-export const getMessages = (db: Db) => (sessionId: string): Result<typeof agentMessages.$inferSelect[]> => {
+export const getMessages = (db: Db) => (sessionId: string): AgentMessage[] => {
   const session = db.select().from(agentSessions).where(eq(agentSessions.id, sessionId)).get()
-  if (!session) return notFound()
-  return ok(db.select().from(agentMessages).where(eq(agentMessages.session_id, sessionId)).all())
+  if (!session) throw notFound()
+  return db.select().from(agentMessages).where(eq(agentMessages.session_id, sessionId)).all()
 }
 
-export const listAllSessions = (db: Db) => (): Result<unknown[]> => {
-  const rows = db.select({
+interface SessionRow {
+  id: string; ticket_id: string; agent_def_id: string
+  agent_name: string | null; status: string
+  started_at: string; ended_at: string | null
+}
+
+export const listAllSessions = (db: Db) => (): SessionRow[] =>
+  db.select({
     id:           agentSessions.id,
     ticket_id:    agentSessions.ticket_id,
     agent_def_id: agentSessions.agent_def_id,
@@ -363,36 +367,26 @@ export const listAllSessions = (db: Db) => (): Result<unknown[]> => {
   .reverse()
   .slice(0, 200)
 
-  return ok(rows)
-}
-
 export const startAgentSession = (db: Db, config: Config) =>
-  async (agentDefId: string, ticketId: string): Promise<Result<typeof agentSessions.$inferSelect>> => {
+  async (agentDefId: string, ticketId: string): Promise<AgentSession> => {
     const agentDef = db.select().from(agentDefinitions).where(eq(agentDefinitions.id, agentDefId)).get()
-    if (!agentDef) return notFound('agent definition not found')
+    if (!agentDef) throw notFound('agent definition not found')
 
-    const claimResult = claimTicket(db)(ticketId)
-    if (!claimResult.ok) return conflict(claimResult.error)
-
-    const ticketResult = getTicket(db)(ticketId)
-    if (!ticketResult.ok) return fail(500, 'failed to fetch ticket')
+    claimTicket(db)(ticketId)
+    const ticket = getTicket(db)(ticketId)
 
     const sessionId = nanoid()
     db.insert(agentSessions).values({
-      id: sessionId,
-      ticket_id: ticketId,
-      agent_def_id: agentDef.id,
-      status: 'running',
-      started_at: now(),
+      id: sessionId, ticket_id: ticketId,
+      agent_def_id: agentDef.id, status: 'running', started_at: now(),
     }).run()
 
-    // Lazy import to avoid circular dependency
     const { runAgentSession } = await import('./agents.js')
-    runAgentSession(db, config)(sessionId, agentDef, ticketResult.data).catch((err: unknown) => {
+    runAgentSession(db, config)(sessionId, agentDef, ticket).catch((err: unknown) => {
       console.error(`session ${sessionId} crashed:`, err)
     })
 
-    return ok(db.select().from(agentSessions).where(eq(agentSessions.id, sessionId)).get()!)
+    return db.select().from(agentSessions).where(eq(agentSessions.id, sessionId)).get()!
   }
 
 // ── Files ──
@@ -405,25 +399,24 @@ const gitExec = async (args: string[], cwd: string): Promise<string> => {
 const bareDir = (repoBase: string, slug: string): string =>
   join(repoBase, `${slug}.git`)
 
-export const gitListFiles = (repoBase: string) => async (slug: string): Promise<Result<string[]>> => {
+export const gitListFiles = (repoBase: string) => async (slug: string): Promise<string[]> => {
   try {
     const out = await gitExec(['ls-tree', '-r', 'HEAD', '--name-only'], bareDir(repoBase, slug))
-    return ok(out.trim() ? out.trim().split('\n') : [])
+    return out.trim() ? out.trim().split('\n') : []
   } catch {
-    return notFound('project not found or has no commits')
+    throw notFound('project not found or has no commits')
   }
 }
 
-export const gitReadFile = (repoBase: string) => async (slug: string, path: string): Promise<Result<string>> => {
+export const gitReadFile = (repoBase: string) => async (slug: string, path: string): Promise<string> => {
   try {
-    const content = await gitExec(['show', `HEAD:${path}`], bareDir(repoBase, slug))
-    return ok(content)
+    return await gitExec(['show', `HEAD:${path}`], bareDir(repoBase, slug))
   } catch {
-    return notFound('file not found')
+    throw notFound('file not found')
   }
 }
 
-export const gitWriteFile = (repoBase: string) => async (slug: string, path: string, content: string, message: string): Promise<Result<{ ok: true }>> => {
+export const gitWriteFile = (repoBase: string) => async (slug: string, path: string, content: string, message: string): Promise<{ ok: true }> => {
   const workDir = await mkdtemp(join(tmpdir(), 'foundry-work-'))
   try {
     const bare = bareDir(repoBase, slug)
@@ -437,9 +430,9 @@ export const gitWriteFile = (repoBase: string) => async (slug: string, path: str
     await execFileAsync('git', ['-C', workDir, 'commit', '-m', message, '--allow-empty'])
     const { stdout: branchOut } = await execFileAsync('git', ['-C', workDir, 'rev-parse', '--abbrev-ref', 'HEAD'])
     await execFileAsync('git', ['-C', workDir, 'push', 'origin', `HEAD:${branchOut.trim()}`])
-    return ok({ ok: true })
+    return { ok: true }
   } catch (err) {
-    return fail(500, err instanceof Error ? err.message : String(err))
+    throw new AppError(500, err instanceof Error ? err.message : String(err))
   } finally {
     await rm(workDir, { recursive: true, force: true })
   }
@@ -452,23 +445,22 @@ const activeRuns = new Map<string, RunHandle>()
 export const getRunHandle = (id: string): RunHandle | undefined =>
   activeRuns.get(id)
 
-export const listSandboxRuns = (db: Db) => (): Result<typeof sandboxRuns.$inferSelect[]> => {
-  const rows = db.select().from(sandboxRuns)
+export const listSandboxRuns = (db: Db) => (): SandboxRun[] =>
+  db.select().from(sandboxRuns)
     .orderBy(sandboxRuns.started_at)
     .all()
     .reverse()
     .slice(0, 200)
-  return ok(rows)
-}
 
-export const getSandboxRun = (db: Db) => (id: string): Result<typeof sandboxRuns.$inferSelect> => {
+export const getSandboxRun = (db: Db) => (id: string): SandboxRun => {
   const run = db.select().from(sandboxRuns).where(eq(sandboxRuns.id, id)).get()
-  return run ? ok(run) : notFound()
+  if (!run) throw notFound()
+  return run
 }
 
 export const createSandboxRun = (db: Db, config: Config) =>
   (input: { command: string; workspace: string; session_id?: string | undefined; env?: Record<string, string> | undefined; network?: boolean | undefined }):
-  Result<{ id: string; emitter: EventEmitter }> => {
+  { id: string; emitter: EventEmitter } => {
     const { command, workspace, session_id, env = {}, network = false } = input
     const id = nanoid()
 
@@ -491,13 +483,13 @@ export const createSandboxRun = (db: Db, config: Config) =>
       activeRuns.delete(id)
     })
 
-    return ok({ id, emitter: handle.emitter })
+    return { id, emitter: handle.emitter }
   }
 
-export const killSandboxRun = (db: Db) => (id: string): Result<{ ok: true }> => {
+export const killSandboxRun = (db: Db) => (id: string): { ok: true } => {
   const run = db.select().from(sandboxRuns).where(eq(sandboxRuns.id, id)).get()
-  if (!run) return notFound()
-  if (run.status !== 'running') return conflict(`run is not active (status: ${run.status})`)
+  if (!run) throw notFound()
+  if (run.status !== 'running') throw conflict(`run is not active (status: ${run.status})`)
 
   const handle = activeRuns.get(id)
   if (handle) {
@@ -509,41 +501,38 @@ export const killSandboxRun = (db: Db) => (id: string): Result<{ ok: true }> => 
     .set({ status: 'failed', exit_code: -1, ended_at: now() })
     .where(eq(sandboxRuns.id, id)).run()
 
-  return ok({ ok: true })
+  return { ok: true }
 }
 
 export const streamSandboxOutput = (db: Db) => (id: string, res: Response): void => {
   const run = db.select().from(sandboxRuns).where(eq(sandboxRuns.id, id)).get()
-  if (!run) {
-    res.status(404).json({ error: 'not found' })
-    return
-  }
+  if (!run) throw notFound()
 
   res.setHeader('Content-Type', 'text/event-stream')
   res.setHeader('Cache-Control', 'no-cache')
   res.setHeader('Connection', 'keep-alive')
   res.flushHeaders()
 
-  const send = (event: string, data: unknown) => {
+  const sse = (event: string, data: unknown) => {
     res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
   }
 
   if (run.status !== 'running') {
-    send('exit', { code: run.exit_code ?? -1 })
+    sse('exit', { code: run.exit_code ?? -1 })
     res.end()
     return
   }
 
   const handle = activeRuns.get(id)
   if (!handle) {
-    send('exit', { code: -1 })
+    sse('exit', { code: -1 })
     res.end()
     return
   }
 
-  const onStdout = (line: string) => send('stdout', { line })
-  const onStderr = (line: string) => send('stderr', { line })
-  const onExit   = (code: number) => { send('exit', { code }); res.end() }
+  const onStdout = (line: string) => sse('stdout', { line })
+  const onStderr = (line: string) => sse('stderr', { line })
+  const onExit   = (code: number) => { sse('exit', { code }); res.end() }
 
   handle.emitter.on('stdout', onStdout)
   handle.emitter.on('stderr', onStderr)
@@ -568,14 +557,13 @@ export const dispatch = (db: Db) => async (projectId: string): Promise<void> => 
   const claimed = listTickets(db)({ projectId, status: 'claimed' })
   const agents  = listAgentDefs(db)({ projectId })
 
-  if (!open.ok || !claimed.ok || !agents.ok) return
-  if (claimed.data.length >= project.concurrency_limit) return
+  if (claimed.length >= project.concurrency_limit) return
 
-  const slots = project.concurrency_limit - claimed.data.length
-  const toDispatch = open.data.slice(0, slots)
+  const slots = project.concurrency_limit - claimed.length
+  const toDispatch = open.slice(0, slots)
 
   for (const ticket of toDispatch) {
-    const agentDef = agents.data.find(a => a.name === ticket.agent)
+    const agentDef = agents.find(a => a.name === ticket.agent)
     if (!agentDef) continue
 
     const { runAgentSession } = await import('./agents.js')
@@ -586,8 +574,9 @@ export const dispatch = (db: Db) => async (projectId: string): Promise<void> => 
       agent_def_id: agentDef.id, status: 'running', started_at: now(),
     }).run()
 
-    const claimResult = claimTicket(db)(ticket.id)
-    if (!claimResult.ok) continue
+    try {
+      claimTicket(db)(ticket.id)
+    } catch { continue }
 
     const { config } = await import('./config.js')
     runAgentSession(db, config)(sessionId, agentDef, ticket).catch((err: unknown) =>
@@ -601,12 +590,11 @@ export const recoverStalledTickets = (db: Db) => async (): Promise<void> => {
     const threshold = project.schedule_interval * 3 * 1000
     const cutoff = new Date(Date.now() - threshold).toISOString()
 
-    const result = listTickets(db)({ projectId: project.id, status: 'claimed' })
-    if (!result.ok) continue
+    const claimed = listTickets(db)({ projectId: project.id, status: 'claimed' })
 
-    for (const ticket of result.data) {
+    for (const ticket of claimed) {
       if (ticket.claimed_at && ticket.claimed_at < cutoff) {
-        reopenTicket(db)(ticket.id)
+        try { reopenTicket(db)(ticket.id) } catch { /* skip */ }
       }
     }
   }
