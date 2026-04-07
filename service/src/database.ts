@@ -4,8 +4,8 @@ import { eq, and, isNull, type SQL } from 'drizzle-orm'
 import { nanoid } from 'nanoid'
 import * as schema from './schema.js'
 import {
-  tickets, projects, agentDefinitions, agentSessions, agentMessages, sandboxRuns,
-  type Ticket, type Project, type AgentDefinition, type AgentSession, type AgentMessage, type SandboxRun,
+  agent, comment, execution, message, project, session, ticket,
+  type Agent, type Comment, type Execution, type Message, type Project, type Session, type Ticket,
 } from './schema.js'
 
 type Drizzle = ReturnType<typeof drizzle<typeof schema>>
@@ -40,18 +40,24 @@ const removeRow = (d: Drizzle, table: any, idCol: any, id: string): void => {
 // ── Database interface ──
 
 export interface SessionRow {
-  id: string; ticket_id: string; agent_def_id: string
+  id: string; ticket_id: string; agent_id: string
   agent_name: string | null; status: string
   started_at: string; ended_at: string | null
 }
 
-export interface Database {
+export interface Db {
   ticket: {
     get:    (id: string) => Ticket | undefined
     all:    (conditions?: SQL[]) => Ticket[]
     insert: (data: Record<string, unknown>) => Ticket
     update: (id: string, data: Record<string, unknown>) => Ticket
     remove: (id: string) => void
+  }
+  comment: {
+    get:      (id: string) => Comment | undefined
+    all:      (conditions?: SQL[]) => Comment[]
+    insert:   (data: Record<string, unknown>) => Comment
+    byTicket: (ticketId: string) => Comment[]
   }
   project: {
     get:    (id: string) => Project | undefined
@@ -61,125 +67,124 @@ export interface Database {
     remove: (id: string) => void
   }
   agent: {
-    get:    (id: string) => AgentDefinition | undefined
-    all:    (conditions?: SQL[]) => AgentDefinition[]
-    insert: (data: Record<string, unknown>) => AgentDefinition
-    update: (id: string, data: Record<string, unknown>) => AgentDefinition
+    get:    (id: string) => Agent | undefined
+    all:    (conditions?: SQL[]) => Agent[]
+    insert: (data: Record<string, unknown>) => Agent
+    update: (id: string, data: Record<string, unknown>) => Agent
     remove: (id: string) => void
   }
   session: {
-    get:          (id: string) => AgentSession | undefined
-    all:          (conditions?: SQL[]) => AgentSession[]
-    insert:       (data: Record<string, unknown>) => AgentSession
-    update:       (id: string, data: Record<string, unknown>) => AgentSession
-    remove:       (id: string) => void
+    get:           (id: string) => Session | undefined
+    all:           (conditions?: SQL[]) => Session[]
+    insert:        (data: Record<string, unknown>) => Session
+    update:        (id: string, data: Record<string, unknown>) => Session
+    remove:        (id: string) => void
     listWithAgent: () => SessionRow[]
   }
   message: {
-    get:       (id: string) => AgentMessage | undefined
-    all:       (conditions?: SQL[]) => AgentMessage[]
-    insert:    (data: Record<string, unknown>) => AgentMessage
-    update:    (id: string, data: Record<string, unknown>) => AgentMessage
-    remove:    (id: string) => void
-    bySession: (sessionId: string) => AgentMessage[]
+    get:       (id: string) => Message | undefined
+    all:       (conditions?: SQL[]) => Message[]
+    insert:    (data: Record<string, unknown>) => Message
+    bySession: (sessionId: string) => Message[]
   }
-  run: {
-    get:    (id: string) => SandboxRun | undefined
-    all:    (conditions?: SQL[]) => SandboxRun[]
-    insert: (data: Record<string, unknown>) => SandboxRun
-    update: (id: string, data: Record<string, unknown>) => SandboxRun
+  execution: {
+    get:    (id: string) => Execution | undefined
+    all:    (conditions?: SQL[]) => Execution[]
+    insert: (data: Record<string, unknown>) => Execution
+    update: (id: string, data: Record<string, unknown>) => Execution
     remove: (id: string) => void
   }
-  tx: <T>(fn: (db: Database) => T) => T
+  tx: <T>(fn: (db: Db) => T) => T
   eq:     typeof eq
   and:    typeof and
   isNull: typeof isNull
   col: {
-    ticket:  typeof tickets
-    project: typeof projects
-    agent:   typeof agentDefinitions
-    session: typeof agentSessions
-    message: typeof agentMessages
-    run:     typeof sandboxRuns
+    ticket:    typeof ticket
+    comment:   typeof comment
+    project:   typeof project
+    agent:     typeof agent
+    session:   typeof session
+    message:   typeof message
+    execution: typeof execution
   }
 }
 
 // ── Constructor ──
 
-const wrap = (d: Drizzle): Database => ({
+const wrap = (d: Drizzle): Db => ({
   ticket: {
-    get:    (id) => getById<Ticket>(d, tickets, tickets.id, id),
-    all:    (c)  => getAll<Ticket>(d, tickets, c),
-    insert: (data) => insertRow<Ticket>(d, tickets, tickets.id, data),
-    update: (id, data) => updateRow<Ticket>(d, tickets, tickets.id, id, data),
-    remove: (id) => removeRow(d, tickets, tickets.id, id),
+    get:    (id) => getById<Ticket>(d, ticket, ticket.id, id),
+    all:    (c)  => getAll<Ticket>(d, ticket, c),
+    insert: (data) => insertRow<Ticket>(d, ticket, ticket.id, data),
+    update: (id, data) => updateRow<Ticket>(d, ticket, ticket.id, id, data),
+    remove: (id) => removeRow(d, ticket, ticket.id, id),
+  },
+  comment: {
+    get:      (id) => getById<Comment>(d, comment, comment.id, id),
+    all:      (c)  => getAll<Comment>(d, comment, c),
+    insert:   (data) => insertRow<Comment>(d, comment, comment.id, data),
+    byTicket: (ticketId) =>
+      d.select().from(comment).where(eq(comment.ticket_id, ticketId)).all(),
   },
   project: {
-    get:    (id) => getById<Project>(d, projects, projects.id, id),
-    all:    (c)  => getAll<Project>(d, projects, c),
-    insert: (data) => insertRow<Project>(d, projects, projects.id, data),
-    update: (id, data) => updateRow<Project>(d, projects, projects.id, id, data),
-    remove: (id) => removeRow(d, projects, projects.id, id),
+    get:    (id) => getById<Project>(d, project, project.id, id),
+    all:    (c)  => getAll<Project>(d, project, c),
+    insert: (data) => insertRow<Project>(d, project, project.id, data),
+    update: (id, data) => updateRow<Project>(d, project, project.id, id, data),
+    remove: (id) => removeRow(d, project, project.id, id),
   },
   agent: {
-    get:    (id) => getById<AgentDefinition>(d, agentDefinitions, agentDefinitions.id, id),
-    all:    (c)  => getAll<AgentDefinition>(d, agentDefinitions, c),
-    insert: (data) => insertRow<AgentDefinition>(d, agentDefinitions, agentDefinitions.id, data),
-    update: (id, data) => updateRow<AgentDefinition>(d, agentDefinitions, agentDefinitions.id, id, data),
-    remove: (id) => removeRow(d, agentDefinitions, agentDefinitions.id, id),
+    get:    (id) => getById<Agent>(d, agent, agent.id, id),
+    all:    (c)  => getAll<Agent>(d, agent, c),
+    insert: (data) => insertRow<Agent>(d, agent, agent.id, data),
+    update: (id, data) => updateRow<Agent>(d, agent, agent.id, id, data),
+    remove: (id) => removeRow(d, agent, agent.id, id),
   },
   session: {
-    get:    (id) => getById<AgentSession>(d, agentSessions, agentSessions.id, id),
-    all:    (c)  => getAll<AgentSession>(d, agentSessions, c),
-    insert: (data) => insertRow<AgentSession>(d, agentSessions, agentSessions.id, data),
-    update: (id, data) => updateRow<AgentSession>(d, agentSessions, agentSessions.id, id, data),
-    remove: (id) => removeRow(d, agentSessions, agentSessions.id, id),
+    get:    (id) => getById<Session>(d, session, session.id, id),
+    all:    (c)  => getAll<Session>(d, session, c),
+    insert: (data) => insertRow<Session>(d, session, session.id, data),
+    update: (id, data) => updateRow<Session>(d, session, session.id, id, data),
+    remove: (id) => removeRow(d, session, session.id, id),
     listWithAgent: () =>
       d.select({
-        id:           agentSessions.id,
-        ticket_id:    agentSessions.ticket_id,
-        agent_def_id: agentSessions.agent_def_id,
-        agent_name:   agentDefinitions.name,
-        status:       agentSessions.status,
-        started_at:   agentSessions.started_at,
-        ended_at:     agentSessions.ended_at,
+        id:         session.id,
+        ticket_id:  session.ticket_id,
+        agent_id:   session.agent_id,
+        agent_name: agent.name,
+        status:     session.status,
+        started_at: session.started_at,
+        ended_at:   session.ended_at,
       })
-      .from(agentSessions)
-      .leftJoin(agentDefinitions, eq(agentSessions.agent_def_id, agentDefinitions.id))
-      .orderBy(agentSessions.started_at)
+      .from(session)
+      .leftJoin(agent, eq(session.agent_id, agent.id))
+      .orderBy(session.started_at)
       .all()
       .reverse()
       .slice(0, 200),
   },
   message: {
-    get:    (id) => getById<AgentMessage>(d, agentMessages, agentMessages.id, id),
-    all:    (c)  => getAll<AgentMessage>(d, agentMessages, c),
-    insert: (data) => insertRow<AgentMessage>(d, agentMessages, agentMessages.id, data),
-    update: (id, data) => updateRow<AgentMessage>(d, agentMessages, agentMessages.id, id, data),
-    remove: (id) => removeRow(d, agentMessages, agentMessages.id, id),
+    get:       (id) => getById<Message>(d, message, message.id, id),
+    all:       (c)  => getAll<Message>(d, message, c),
+    insert:    (data) => insertRow<Message>(d, message, message.id, data),
     bySession: (sessionId) =>
-      d.select().from(agentMessages).where(eq(agentMessages.session_id, sessionId)).all(),
+      d.select().from(message).where(eq(message.session_id, sessionId)).all(),
   },
-  run: {
-    get:    (id) => getById<SandboxRun>(d, sandboxRuns, sandboxRuns.id, id),
-    all:    (c)  => getAll<SandboxRun>(d, sandboxRuns, c),
-    insert: (data) => insertRow<SandboxRun>(d, sandboxRuns, sandboxRuns.id, data),
-    update: (id, data) => updateRow<SandboxRun>(d, sandboxRuns, sandboxRuns.id, id, data),
-    remove: (id) => removeRow(d, sandboxRuns, sandboxRuns.id, id),
+  execution: {
+    get:    (id) => getById<Execution>(d, execution, execution.id, id),
+    all:    (c)  => getAll<Execution>(d, execution, c),
+    insert: (data) => insertRow<Execution>(d, execution, execution.id, data),
+    update: (id, data) => updateRow<Execution>(d, execution, execution.id, id, data),
+    remove: (id) => removeRow(d, execution, execution.id, id),
   },
-  tx: <T>(fn: (db: Database) => T): T => d.transaction(tx => fn(wrap(tx as any))) as T,
+  tx: <T>(fn: (db: Db) => T): T => d.transaction(tx => fn(wrap(tx as any))) as T,
   eq, and, isNull,
   col: {
-    ticket:  tickets,
-    project: projects,
-    agent:   agentDefinitions,
-    session: agentSessions,
-    message: agentMessages,
-    run:     sandboxRuns,
+    ticket, comment, project, agent, session, message, execution,
   },
 })
 
-export const createDatabase = (path: string): Database => {
+export const createDatabase = (path: string): Db => {
   const sqlite = new Database(path)
   sqlite.pragma('journal_mode = WAL')
   sqlite.pragma('foreign_keys = ON')

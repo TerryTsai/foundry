@@ -1,4 +1,4 @@
-import type { Database } from './database.js'
+import type { Db } from './database.js'
 import type { Config } from './config.js'
 import * as v from './validate.js'
 import domain from './domain.js'
@@ -11,7 +11,7 @@ export interface Tool {
   execute:     (args: unknown) => Promise<string>
 }
 
-export const makeRunCommandTool = (db: Database, config: Config, sessionId: string): Tool => ({
+export const makeRunCommandTool = (db: Db, config: Config, sessionId: string): Tool => ({
   name: 'run_command',
   description: 'Run a shell command in a sandboxed Podman container. Returns stdout, stderr, and exit code.',
   params: v.tool.runCommand,
@@ -20,11 +20,8 @@ export const makeRunCommandTool = (db: Database, config: Config, sessionId: stri
     const command = args.cwd ? `cd ${args.cwd} && ${args.command}` : args.command
 
     try {
-      const { emitter } = domain.sandbox.create(db, config)({
-        command,
-        workspace: `/tmp/foundry-work-${sessionId}`,
-        session_id: sessionId,
-        network: args.network ?? false,
+      const { emitter } = domain.execution.create(db, config)({
+        command, session_id: sessionId, network: args.network ?? false,
       })
 
       const stdout: string[] = []
@@ -43,17 +40,21 @@ export const makeRunCommandTool = (db: Database, config: Config, sessionId: stri
   },
 })
 
-export const makeCreateTicketTool = (db: Database, projectId: string, currentTicketId: string, agentName: string): Tool => ({
+export const makeCreateTicketTool = (db: Db, projectId: string, currentTicketId: string, agentName: string): Tool => ({
   name: 'create_ticket',
   description: 'Create a child ticket. If block=true, the current ticket is suspended until the child resolves.',
   params: v.tool.createTicket,
   execute: async (rawArgs: unknown): Promise<string> => {
     const args = v.tool.createTicket.parse(rawArgs)
 
+    // Resolve agent name to agent_id
+    const agents = domain.agent.list(db)({ projectId })
+    const agentDef = agents.find(a => a.name === args.agent)
+
     try {
       const row = domain.ticket.create(db)({
         project_id: projectId, title: args.title, body: args.body,
-        agent: args.agent, parent_id: currentTicketId,
+        priority: 0, agent_id: agentDef?.id, parent_id: currentTicketId,
         created_by: agentName, block: args.block,
       })
       return JSON.stringify({ ticket_id: row.id })

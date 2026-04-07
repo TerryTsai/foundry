@@ -4,29 +4,30 @@ import { join, dirname } from 'path'
 import { tmpdir } from 'os'
 import { mkdtemp, rm, writeFile as fsWrite, mkdir } from 'fs/promises'
 import type { Response } from 'express'
-import type { Database } from './database.js'
+import type { Db } from './database.js'
 import type { Config } from './config.js'
-import type { Ticket, Project, AgentDefinition, AgentSession, AgentMessage, SandboxRun } from './schema.js'
-import { require, assertStatus, slugify, pick, now, AppError, notFound, conflict } from './functional.js'
+import type { Ticket, Comment, Project, Agent, Session, Message, Execution } from './schema.js'
+import { require, assertStatus, slugify, pick, now, AppError, conflict } from './functional.js'
 import { spawnRun, type RunHandle } from './runner.js'
 import type { z } from 'zod'
 import type * as v from './validate.js'
 
 const execFileAsync = promisify(execFile)
+const ts = () => { const t = now(); return { created_at: t, updated_at: t } }
 
 // ── Tickets ──
 
 export interface TicketChainEntry {
   id: string; title: string; body: string
-  notes: string | null; agent: string; status: string
+  agent_id: string | null; status: string
 }
 
 export const ticket = {
-  list: (db: Database) => (filters: z.infer<typeof v.ticket.list>): Ticket[] => {
+  list: (db: Db) => (filters: z.infer<typeof v.ticket.list>): Ticket[] => {
     const { eq, isNull, col } = db
     const conditions = [
       filters.projectId ? eq(col.ticket.project_id, filters.projectId) : null,
-      filters.agent     ? eq(col.ticket.agent, filters.agent)           : null,
+      filters.agentId   ? eq(col.ticket.agent_id, filters.agentId)     : null,
       filters.status    ? eq(col.ticket.status, filters.status)         : null,
       filters.parentId === 'null' ? isNull(col.ticket.parent_id)
         : filters.parentId        ? eq(col.ticket.parent_id, filters.parentId) : null,
@@ -34,57 +35,65 @@ export const ticket = {
     return db.ticket.all(conditions)
   },
 
-  get: (db: Database) => (id: string): Ticket =>
+  get: (db: Db) => (id: string): Ticket =>
     require(db.ticket.get(id)),
 
-  create: (db: Database) => (input: z.infer<typeof v.ticket.create>): Ticket => {
-    const { project_id, title, body, agent, parent_id, created_by, block } = input
+  create: (db: Db) => (input: z.infer<typeof v.ticket.create>): Ticket => {
+    const { project_id, agent_id, title, body, priority, parent_id, created_by, block } = input
     if (parent_id) require(db.ticket.get(parent_id), 'parent_id not found')
 
     return db.tx(tx => {
       const row = tx.ticket.insert({
-        project_id, title, body, agent, status: 'open',
-        parent_id: parent_id ?? null, created_by, created_at: now(),
+        project_id, agent_id: agent_id ?? null, title, body, priority,
+        status: 'open', parent_id: parent_id ?? null,
+        created_by, ...ts(), claimed_at: null,
       })
       if (block && parent_id && tx.ticket.get(parent_id)?.status === 'claimed') {
-        tx.ticket.update(parent_id, { status: 'blocked' })
+        tx.ticket.update(parent_id, { status: 'blocked', updated_at: now() })
       }
       return row
     })
   },
 
-  update: (db: Database) => (id: string, input: z.infer<typeof v.ticket.update>): Ticket => {
+  update: (db: Db) => (id: string, input: z.infer<typeof v.ticket.update>): Ticket => {
     require(db.ticket.get(id))
-    return db.ticket.update(id, pick(input, 'body', 'notes'))
+    return db.ticket.update(id, { ...pick(input, 'title', 'body', 'agent_id', 'priority'), updated_at: now() })
   },
 
-  claim: (db: Database) => (id: string): Ticket =>
+  claim: (db: Db) => (id: string): Ticket =>
     db.tx(tx => {
       assertStatus(require(tx.ticket.get(id)), 'open')
-      return tx.ticket.update(id, { status: 'claimed', claimed_at: now() })
+      return tx.ticket.update(id, { status: 'claimed', claimed_at: now(), updated_at: now() })
     }),
 
-  complete: (db: Database) => (id: string, notes?: string): Ticket =>
+  complete: (db: Db) => (id: string, notes?: string): Ticket =>
     db.tx(tx => {
       const row = assertStatus(require(tx.ticket.get(id)), 'claimed')
-      tx.ticket.update(id, { status: 'done', ...(notes !== undefined ? { notes } : {}) })
+      tx.ticket.update(id, { status: 'done', updated_at: now() })
+      if (notes) {
+        tx.comment.insert({ ticket_id: id, author: 'system', body: notes, created_at: now() })
+      }
       if (row.parent_id && tx.ticket.get(row.parent_id)?.status === 'blocked') {
-        tx.ticket.update(row.parent_id, { status: 'open' })
+        tx.ticket.update(row.parent_id, { status: 'open', updated_at: now() })
       }
       return require(tx.ticket.get(id))
     }),
 
-  fail: (db: Database) => (id: string, notes?: string): Ticket => {
+  fail: (db: Db) => (id: string, notes?: string): Ticket => {
     assertStatus(require(db.ticket.get(id)), 'claimed')
-    return db.ticket.update(id, { status: 'failed', ...(notes !== undefined ? { notes } : {}) })
+    const row = db.ticket.update(id, { status: 'failed', updated_at: now() })
+    if (notes) {
+      db.comment.insert({ ticket_id: id, author: 'system', body: notes, created_at: now() })
+    }
+    return row
   },
 
-  reopen: (db: Database) => (id: string): Ticket => {
+  reopen: (db: Db) => (id: string): Ticket => {
     assertStatus(require(db.ticket.get(id)), 'failed')
-    return db.ticket.update(id, { status: 'open', claimed_at: null })
+    return db.ticket.update(id, { status: 'open', claimed_at: null, updated_at: now() })
   },
 
-  chain: (db: Database) => (id: string): TicketChainEntry[] => {
+  chain: (db: Db) => (id: string): TicketChainEntry[] => {
     const chain: Ticket[] = []
     let current: Ticket | undefined = require(db.ticket.get(id))
     const visited = new Set<string>()
@@ -97,87 +106,94 @@ export const ticket = {
     }
     return chain.map(t => ({
       id: t.id, title: t.title, body: t.body,
-      notes: t.notes, agent: t.agent, status: t.status,
+      agent_id: t.agent_id, status: t.status,
     }))
+  },
+}
+
+// ── Comments ──
+
+export const comment = {
+  list: (db: Db) => (ticketId: string): Comment[] => {
+    require(db.ticket.get(ticketId))
+    return db.comment.byTicket(ticketId)
+  },
+
+  create: (db: Db) => (ticketId: string, input: z.infer<typeof v.comment.create>): Comment => {
+    require(db.ticket.get(ticketId))
+    return db.comment.insert({ ticket_id: ticketId, author: input.author, body: input.body, created_at: now() })
   },
 }
 
 // ── Projects ──
 
 export const project = {
-  list: (db: Database) => (filters: z.infer<typeof v.project.list>): Project[] => {
+  list: (db: Db) => (filters: z.infer<typeof v.project.list>): Project[] => {
     const conditions = filters.status ? [db.eq(db.col.project.status, filters.status)] : []
     return db.project.all(conditions)
   },
 
-  get: (db: Database) => (id: string): Project =>
+  get: (db: Db) => (id: string): Project =>
     require(db.project.get(id)),
 
-  create: (db: Database) => (input: z.infer<typeof v.project.create>): Project => {
-    const { name, workspace, schedule_interval = 600, concurrency_limit = 3 } = input
-    const slug = slugify(name)
-    if (db.project.all([db.eq(db.col.project.slug, slug)]).length > 0) {
-      throw conflict(`slug '${slug}' already exists`)
-    }
+  create: (db: Db) => (input: z.infer<typeof v.project.create>): Project => {
+    const { name, schedule_interval = 600, concurrency_limit = 3 } = input
     const row = db.project.insert({
-      name, slug, status: 'active', workspace,
-      schedule_interval, concurrency_limit, created_at: now(),
+      name, status: 'active',
+      schedule_interval, concurrency_limit, ...ts(),
     })
     scheduler.start(db)(row.id, row.schedule_interval)
     return row
   },
 
-  update: (db: Database) => (id: string, input: z.infer<typeof v.project.update>): Project => {
+  update: (db: Db) => (id: string, input: z.infer<typeof v.project.update>): Project => {
     const prev = require(db.project.get(id))
     const updates: Record<string, unknown> = {
-      ...pick(input, 'workspace', 'status', 'schedule_interval', 'concurrency_limit'),
+      ...pick(input, 'name', 'status', 'schedule_interval', 'concurrency_limit'),
+      updated_at: now(),
     }
-    if (input.name !== undefined) { updates.name = input.name; updates.slug = slugify(input.name) }
-    if (Object.keys(updates).length === 0) return prev
+    if (Object.keys(updates).length <= 1) return prev
 
     const row = db.project.update(id, updates)
-    if (input.status === 'paused') scheduler.stop(id)
-    if (input.status === 'active' && prev.status === 'paused') scheduler.start(db)(id, row.schedule_interval)
+    if (input.status === 'archived') scheduler.stop(id)
+    if (input.status === 'active' && prev.status === 'archived') scheduler.start(db)(id, row.schedule_interval)
     if (input.schedule_interval !== undefined && row.status === 'active') scheduler.start(db)(id, row.schedule_interval)
     return row
   },
 
-  run: (db: Database) => (id: string): { ok: true } => {
-    const row = assertStatus(require(db.project.get(id)), 'active', 'project is paused')
+  run: (db: Db) => (id: string): { ok: true } => {
+    const row = assertStatus(require(db.project.get(id)), 'active', 'project is not active')
     scheduler.dispatch(db)(row.id).catch((err: unknown) =>
       console.error(`dispatch error for project ${row.id}:`, err))
     return { ok: true }
   },
 }
 
-// ── Agent Definitions ──
+// ── Agents ──
 
 export const agent = {
-  list: (db: Database) => (filters: z.infer<typeof v.agent.list>): AgentDefinition[] => {
+  list: (db: Db) => (filters: z.infer<typeof v.agent.list>): Agent[] => {
     const conditions = filters.projectId ? [db.eq(db.col.agent.project_id, filters.projectId)] : []
     return db.agent.all(conditions)
   },
 
-  get: (db: Database) => (id: string): AgentDefinition =>
+  get: (db: Db) => (id: string): Agent =>
     require(db.agent.get(id)),
 
-  create: (db: Database) => (input: z.infer<typeof v.agent.create>): AgentDefinition => {
-    const { project_id, name, prompt } = input
+  create: (db: Db) => (input: z.infer<typeof v.agent.create>): Agent => {
+    const { project_id, name, model, prompt } = input
     if (db.agent.all([db.eq(db.col.agent.project_id, project_id), db.eq(db.col.agent.name, name)]).length > 0) {
       throw conflict(`agent '${name}' already exists in project '${project_id}'`)
     }
-    return db.agent.insert({
-      project_id, name, prompt,
-      image: 'node:20-alpine', env: '[]', created_at: now(),
-    })
+    return db.agent.insert({ project_id, name, model, prompt, ...ts() })
   },
 
-  update: (db: Database) => (id: string, input: z.infer<typeof v.agent.update>): AgentDefinition => {
+  update: (db: Db) => (id: string, input: z.infer<typeof v.agent.update>): Agent => {
     require(db.agent.get(id))
-    return db.agent.update(id, pick(input, 'prompt'))
+    return db.agent.update(id, { ...pick(input, 'model', 'prompt'), updated_at: now() })
   },
 
-  remove: (db: Database) => (id: string): { ok: true } => {
+  remove: (db: Db) => (id: string): { ok: true } => {
     require(db.agent.get(id))
     db.agent.remove(id)
     return { ok: true }
@@ -187,42 +203,44 @@ export const agent = {
 // ── Sessions ──
 
 export const session = {
-  get: (db: Database) => (id: string): AgentSession =>
+  get: (db: Db) => (id: string): Session =>
     require(db.session.get(id)),
 
-  status: (db: Database) => (id: string): { status: string } =>
+  status: (db: Db) => (id: string): { status: string } =>
     ({ status: require(db.session.get(id)).status }),
 
-  kill: (db: Database) => (id: string): { ok: true } => {
+  kill: (db: Db) => (id: string): { ok: true } => {
     assertStatus(require(db.session.get(id)), 'running', 'session is not running')
-    db.session.update(id, { status: 'failed', ended_at: now() })
+    db.session.update(id, { status: 'failed', error: 'killed', ended_at: now() })
     return { ok: true }
   },
 
-  message: (db: Database) => (sessionId: string, role: string, content: string): AgentMessage => {
+  message: (db: Db) => (sessionId: string, role: string, content: string, tokens?: number): Message => {
     require(db.session.get(sessionId))
-    return db.message.insert({ session_id: sessionId, role, content, created_at: now() })
+    return db.message.insert({
+      session_id: sessionId, role, content,
+      tokens: tokens ?? null, created_at: now(),
+    })
   },
 
-  messages: (db: Database) => (sessionId: string): AgentMessage[] => {
+  messages: (db: Db) => (sessionId: string): Message[] => {
     require(db.session.get(sessionId))
     return db.message.bySession(sessionId)
   },
 
-  listAll: (db: Database) => () =>
+  listAll: (db: Db) => () =>
     db.session.listWithAgent(),
 
-  start: (db: Database, config: Config) => async (agentDefId: string, ticketId: string): Promise<AgentSession> => {
-    require(db.agent.get(agentDefId), 'agent definition not found')
+  start: (db: Db, config: Config) => async (agentDefId: string, ticketId: string): Promise<Session> => {
+    const agentDef = require(db.agent.get(agentDefId), 'agent not found')
     ticket.claim(db)(ticketId)
     const t = ticket.get(db)(ticketId)
 
     const row = db.session.insert({
-      ticket_id: ticketId, agent_def_id: agentDefId,
-      status: 'running', started_at: now(),
+      ticket_id: ticketId, agent_id: agentDefId,
+      status: 'running', model: agentDef.model, started_at: now(),
     })
 
-    const agentDef = db.agent.get(agentDefId)!
     const { runAgentSession } = await import('./agent.js')
     runAgentSession(db, config)(row.id, agentDef, t).catch((err: unknown) =>
       console.error(`session ${row.id} crashed:`, err))
@@ -247,7 +265,7 @@ export const file = {
       const out = await gitExec(['ls-tree', '-r', 'HEAD', '--name-only'], bareDir(repoBase, slug))
       return out.trim() ? out.trim().split('\n') : []
     } catch {
-      throw notFound('project not found or has no commits')
+      throw new AppError(404, 'project not found or has no commits')
     }
   },
 
@@ -255,7 +273,7 @@ export const file = {
     try {
       return await gitExec(['show', `HEAD:${path}`], bareDir(repoBase, slug))
     } catch {
-      throw notFound('file not found')
+      throw new AppError(404, 'file not found')
     }
   },
 
@@ -282,46 +300,51 @@ export const file = {
   },
 }
 
-// ── Sandbox ──
+// ── Execution ──
 
 const activeRuns = new Map<string, RunHandle>()
 
-export const sandbox = {
-  list: (db: Database) => (): SandboxRun[] =>
-    db.run.all().reverse().slice(0, 200),
+export const execution = {
+  list: (db: Db) => (): Execution[] =>
+    db.execution.all().reverse().slice(0, 200),
 
-  get: (db: Database) => (id: string): SandboxRun =>
-    require(db.run.get(id)),
+  get: (db: Db) => (id: string): Execution =>
+    require(db.execution.get(id)),
 
-  create: (db: Database, config: Config) =>
-    (input: { command: string; workspace: string; session_id?: string | undefined; env?: Record<string, string> | undefined; network?: boolean | undefined }) => {
-      const { command, workspace, session_id, env = {}, network = false } = input
-      const row = db.run.insert({
-        session_id: session_id ?? null, image: config.sandboxImage,
-        command, status: 'running', started_at: now(),
+  create: (db: Db, config: Config) =>
+    (input: { command: string; session_id?: string | undefined; timeout_ms?: number | undefined; memory_mb?: number | undefined; network?: boolean | undefined }) => {
+      const { command, session_id, timeout_ms = config.sandboxTimeout, memory_mb, network = false } = input
+      const row = db.execution.insert({
+        session_id: session_id ?? null, command,
+        status: 'running', timeout_ms, memory_mb: memory_mb ?? null,
+        started_at: now(),
       })
       const handle = spawnRun({
-        command, workspace, image: config.sandboxImage,
-        env, network, timeoutMs: config.sandboxTimeout,
+        command, workspace: `/tmp/foundry-exec-${row.id}`,
+        image: config.sandboxImage, env: {},
+        network, timeoutMs: timeout_ms,
       })
       activeRuns.set(row.id, handle)
       handle.emitter.on('exit', (code: number) => {
-        db.run.update(row.id, { status: code === 0 ? 'done' : 'failed', exit_code: code, ended_at: now() })
+        db.execution.update(row.id, {
+          status: code === 0 ? 'done' : 'failed',
+          exit_code: code, ended_at: now(),
+        })
         activeRuns.delete(row.id)
       })
       return { id: row.id, emitter: handle.emitter }
     },
 
-  kill: (db: Database) => (id: string): { ok: true } => {
-    assertStatus(require(db.run.get(id)), 'running', 'run is not active')
+  kill: (db: Db) => (id: string): { ok: true } => {
+    assertStatus(require(db.execution.get(id)), 'running', 'execution is not active')
     const handle = activeRuns.get(id)
     if (handle) { handle.kill(); activeRuns.delete(id) }
-    db.run.update(id, { status: 'failed', exit_code: -1, ended_at: now() })
+    db.execution.update(id, { status: 'failed', exit_code: -1, ended_at: now() })
     return { ok: true }
   },
 
-  stream: (db: Database) => (id: string, res: Response): void => {
-    const row = require(db.run.get(id))
+  stream: (db: Db) => (id: string, res: Response): void => {
+    const row = require(db.execution.get(id))
     res.setHeader('Content-Type', 'text/event-stream')
     res.setHeader('Cache-Control', 'no-cache')
     res.setHeader('Connection', 'keep-alive')
@@ -355,7 +378,7 @@ export const sandbox = {
 const intervals = new Map<string, ReturnType<typeof setInterval>>()
 
 export const scheduler = {
-  dispatch: (db: Database) => async (projectId: string): Promise<void> => {
+  dispatch: (db: Db) => async (projectId: string): Promise<void> => {
     const proj = db.project.get(projectId)
     if (!proj || proj.status !== 'active') return
 
@@ -366,13 +389,14 @@ export const scheduler = {
     if (claimed.length >= proj.concurrency_limit) return
 
     for (const t of open.slice(0, proj.concurrency_limit - claimed.length)) {
-      const def = agents.find(a => a.name === t.agent)
+      if (!t.agent_id) continue
+      const def = agents.find(a => a.id === t.agent_id)
       if (!def) continue
       try { ticket.claim(db)(t.id) } catch { continue }
 
       const row = db.session.insert({
-        ticket_id: t.id, agent_def_id: def.id,
-        status: 'running', started_at: now(),
+        ticket_id: t.id, agent_id: def.id,
+        status: 'running', model: def.model, started_at: now(),
       })
 
       const { runAgentSession } = await import('./agent.js')
@@ -382,7 +406,7 @@ export const scheduler = {
     }
   },
 
-  recover: (db: Database) => async (): Promise<void> => {
+  recover: (db: Db) => async (): Promise<void> => {
     for (const proj of db.project.all()) {
       const cutoff = new Date(Date.now() - proj.schedule_interval * 3 * 1000).toISOString()
       for (const t of ticket.list(db)({ projectId: proj.id, status: 'claimed' })) {
@@ -393,7 +417,7 @@ export const scheduler = {
     }
   },
 
-  start: (db: Database) => (projectId: string, intervalSeconds: number): void => {
+  start: (db: Db) => (projectId: string, intervalSeconds: number): void => {
     scheduler.stop(projectId)
     intervals.set(projectId, setInterval(
       () => scheduler.dispatch(db)(projectId).catch((err: unknown) =>
@@ -407,7 +431,7 @@ export const scheduler = {
     if (existing) { clearInterval(existing); intervals.delete(projectId) }
   },
 
-  startAll: (db: Database) => (): void => {
+  startAll: (db: Db) => (): void => {
     for (const proj of db.project.all([db.eq(db.col.project.status, 'active')])) {
       scheduler.start(db)(proj.id, proj.schedule_interval)
     }
@@ -421,4 +445,4 @@ export const scheduler = {
 
 // ── Barrel Export ──
 
-export default { ticket, project, agent, session, file, sandbox, scheduler }
+export default { ticket, comment, project, agent, session, file, execution, scheduler }

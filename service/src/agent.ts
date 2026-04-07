@@ -1,10 +1,10 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { zodToJsonSchema } from 'zod-to-json-schema'
-import type { Database } from './database.js'
+import type { Db } from './database.js'
 import type { Config } from './config.js'
-import type { Ticket, AgentDefinition } from './schema.js'
+import type { Ticket, Agent as AgentDef } from './schema.js'
 import domain, { type TicketChainEntry } from './domain.js'
-import { now } from './functional.js'
+import { now, slugify } from './functional.js'
 import { makeRunCommandTool, makeCreateTicketTool, type Tool } from './tool.js'
 
 // ── System Prompt ──
@@ -16,7 +16,7 @@ export const buildSystemPrompt = (
   ticketData: Ticket,
 ): string => {
   const chainText = chain.slice(0, -1)
-    .map(t => `### ${t.title} (${t.status})\n${t.body}${t.notes ? `\n\nNotes: ${t.notes}` : ''}`)
+    .map(t => `### ${t.title} (${t.status})\n${t.body}`)
     .join('\n\n')
 
   return [
@@ -39,21 +39,28 @@ export const buildSystemPrompt = (
 
 // ── Session Runner ──
 
-export const runAgentSession = (db: Database, config: Config) =>
-  async (sessionId: string, agentDef: AgentDefinition, ticketData: Ticket): Promise<void> => {
+export const runAgentSession = (db: Db, config: Config) =>
+  async (sessionId: string, agentDef: AgentDef, ticketData: Ticket): Promise<void> => {
     const client = new Anthropic({ apiKey: config.anthropicKey })
+    const startTime = Date.now()
+    let totalTokensIn = 0
+    let totalTokensOut = 0
 
     let chain: TicketChainEntry[] = []
     try { chain = domain.ticket.chain(db)(ticketData.id) } catch { /* empty chain */ }
 
+    // Derive slug from project name for file access
     let agentMd = ''
-    try { agentMd = await domain.file.read(config.repoBase)(agentDef.project_id, 'AGENT.md') } catch { /* no AGENT.md */ }
+    try {
+      const proj = db.project.get(ticketData.project_id)
+      if (proj) agentMd = await domain.file.read(config.repoBase)(slugify(proj.name), 'AGENT.md')
+    } catch { /* no AGENT.md */ }
 
     const systemPrompt = buildSystemPrompt(agentDef.prompt, agentMd, chain, ticketData)
 
     const tools: Tool[] = [
       makeRunCommandTool(db, config, sessionId),
-      makeCreateTicketTool(db, agentDef.project_id, ticketData.id, agentDef.name),
+      makeCreateTicketTool(db, ticketData.project_id, ticketData.id, agentDef.name),
     ]
 
     const sdkTools: Anthropic.Messages.Tool[] = tools.map(t => ({
@@ -66,8 +73,8 @@ export const runAgentSession = (db: Database, config: Config) =>
       { role: 'user', content: ticketData.body },
     ]
 
-    const saveMessage = (role: string, content: string) =>
-      db.message.insert({ session_id: sessionId, role, content, created_at: now() })
+    const saveMessage = (role: string, content: string, tokens?: number) =>
+      db.message.insert({ session_id: sessionId, role, content, tokens: tokens ?? null, created_at: now() })
 
     saveMessage('user', ticketData.body)
 
@@ -76,19 +83,22 @@ export const runAgentSession = (db: Database, config: Config) =>
     try {
       while (true) {
         const response = await client.messages.create({
-          model: config.agentModel,
+          model: agentDef.model,
           max_tokens: 8192,
           system: systemPrompt,
           tools: sdkTools,
           messages,
         })
 
+        totalTokensIn  += response.usage?.input_tokens ?? 0
+        totalTokensOut += response.usage?.output_tokens ?? 0
+
         const assistantText = response.content
           .filter((b): b is Anthropic.Messages.TextBlock => b.type === 'text')
           .map(b => b.text)
           .join('\n')
 
-        saveMessage('assistant', JSON.stringify(response.content))
+        saveMessage('assistant', JSON.stringify(response.content), response.usage?.output_tokens)
         messages.push({ role: 'assistant', content: response.content })
 
         if (response.stop_reason === 'end_turn') {
@@ -118,10 +128,18 @@ export const runAgentSession = (db: Database, config: Config) =>
       }
 
       domain.ticket.complete(db)(ticketData.id, notes)
-      db.session.update(sessionId, { status: 'done', ended_at: now() })
+      db.session.update(sessionId, {
+        status: 'done', ended_at: now(),
+        tokens_in: totalTokensIn, tokens_out: totalTokensOut,
+        duration_ms: Date.now() - startTime,
+      })
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       try { domain.ticket.fail(db)(ticketData.id, msg) } catch { /* ticket may already be done */ }
-      db.session.update(sessionId, { status: 'failed', ended_at: now() })
+      db.session.update(sessionId, {
+        status: 'failed', error: msg, ended_at: now(),
+        tokens_in: totalTokensIn, tokens_out: totalTokensOut,
+        duration_ms: Date.now() - startTime,
+      })
     }
   }
