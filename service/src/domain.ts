@@ -138,12 +138,15 @@ export const project = {
   get: (db: Db) => (id: string): Project =>
     require(db.project.get(id)),
 
-  create: (db: Db) => (input: z.infer<typeof v.project.create>): Project => {
+  create: (db: Db, config: Config) => async (input: z.infer<typeof v.project.create>): Promise<Project> => {
     const { name, schedule_interval = 600, concurrency_limit = 3 } = input
     const row = db.project.insert({
       name, status: 'active',
       schedule_interval, concurrency_limit, ...ts(),
     })
+    // Init bare repo for project
+    const bare = join(config.repoBase, `${slugify(name)}.git`)
+    await execFileAsync('git', ['init', '--bare', bare])
     scheduler.start(db)(row.id, row.schedule_interval)
     return row
   },

@@ -29,10 +29,10 @@ export const ticket = (db: Db) => {
 
 // ── Projects ──
 
-export const project = (db: Db) => {
+export const project = (db: Db, config: Config) => {
   const r = Router()
   r.get   ('/',         parse(v.project.list, 'query'), run(req => domain.project.list(db)(req.data)),                         send())
-  r.post  ('/',         parse(v.project.create),        run(req => domain.project.create(db)(req.data)),                       send(201))
+  r.post  ('/',         parse(v.project.create),        run(req => domain.project.create(db, config)(req.data)),               send(201))
   r.get   ('/:id',                                      run(req => domain.project.get(db)(req.params.id)),                     send())
   r.put   ('/:id',      parse(v.project.update),        run(req => domain.project.update(db)(req.params.id, req.data)),        send())
   r.post  ('/:id/run',                                  run(req => domain.project.run(db)(req.params.id)),                     send(202))
