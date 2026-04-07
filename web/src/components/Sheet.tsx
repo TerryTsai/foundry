@@ -35,8 +35,10 @@ export function Sheet({ open, onClose, title, children }: SheetProps) {
             <X size={16} strokeWidth={2} />
           </button>
         </div>
-        <div className="flex-1 min-h-0 px-4 pt-4 pb-4">
-          {children}
+        <div className="flex-1 min-h-0 overflow-y-auto">
+          <div className="px-4 pt-4 pb-4">
+            {children}
+          </div>
         </div>
       </div>
     </div>
