@@ -76,6 +76,7 @@ export const message = sqliteTable('message', {
   role:       text('role').notNull(),
   content:    text('content').notNull(),
   tokens:     integer('tokens'),
+  tokens_in:  integer('tokens_in'),
   created_at: text('created_at').notNull(),
 })
 
@@ -104,6 +105,7 @@ export const session = sqliteTable('session', {
   agent_id:      text('agent_id').notNull().references(() => agent.id),
   status:        text('status').notNull().default('running'),
   model:         text('model').notNull(),
+  system_prompt: text('system_prompt'),
   error:         text('error'),
   tokens_in:     integer('tokens_in'),
   tokens_out:    integer('tokens_out'),

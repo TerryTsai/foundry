@@ -94,6 +94,7 @@ export const runAgentSession = (db: Db, config: Config) =>
       } catch { /* no AGENT.md */ }
 
       const system = buildSystemPrompt(agentDef.prompt, agentMd, chain, ticketData)
+      db.session.update(sessionId, { system_prompt: system })
       const tools = makeTools(db, config, sessionId, ticketData.project_id, ticketData.id, agentDef.name, workDir)
 
       // Log session start as a comment on the ticket
@@ -109,12 +110,17 @@ export const runAgentSession = (db: Db, config: Config) =>
         stopWhen: stepCountIs(agentDef.max_steps),
         maxOutputTokens: agentDef.max_tokens,
         ...(agentDef.temperature !== null ? { temperature: agentDef.temperature } : {}),
-        onStepFinish: ({ text, toolCalls, toolResults, usage }) => {
+        onStepFinish: ({ text, reasoningText, toolCalls, toolResults, usage }) => {
+          const tokensOut = usage?.outputTokens ?? undefined
+          const tokensIn = usage?.inputTokens ?? undefined
+          if (reasoningText) {
+            domain.session.message(db)(sessionId, 'reasoning', reasoningText)
+          }
           if (text) {
-            domain.session.message(db)(sessionId, 'assistant', text, usage?.outputTokens ?? undefined)
+            domain.session.message(db)(sessionId, 'assistant', text, tokensOut, tokensIn)
           }
           if (toolCalls?.length) {
-            domain.session.message(db)(sessionId, 'assistant', JSON.stringify(toolCalls), usage?.outputTokens ?? undefined)
+            domain.session.message(db)(sessionId, 'assistant', JSON.stringify(toolCalls), tokensOut, tokensIn)
           }
           if (toolResults?.length) {
             domain.session.message(db)(sessionId, 'user', JSON.stringify(toolResults))
@@ -130,7 +136,14 @@ export const runAgentSession = (db: Db, config: Config) =>
       const stepCount = result.steps?.length ?? null
       const toolCallCount = result.steps?.reduce((sum, s) => sum + (s.toolCalls?.length ?? 0), 0) ?? null
 
-      domain.ticket.complete(db)(ticketData.id, { ...(result.text ? { notes: result.text } : {}), agentName: agentDef.name, sessionId })
+      // Store final reasoning if present
+      if (result.reasoningText) {
+        domain.session.message(db)(sessionId, 'reasoning', result.reasoningText)
+      }
+
+      // Use final text as completion notes; fall back to last non-empty assistant text
+      const summary = result.text || undefined
+      domain.ticket.complete(db)(ticketData.id, { ...(summary ? { notes: summary } : {}), agentName: agentDef.name, sessionId })
       db.session.update(sessionId, {
         status: 'done', ended_at: now(),
         tokens_in: result.usage?.inputTokens ?? null,

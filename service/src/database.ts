@@ -44,6 +44,7 @@ export interface SessionRow {
   agent_name: string | null; status: string; model: string
   error: string | null; tokens_in: number | null; tokens_out: number | null
   cost_usd: number | null; duration_ms: number | null
+  step_count: number | null; tool_calls: number | null; finish_reason: string | null
   started_at: string; ended_at: string | null
 }
 
@@ -169,19 +170,22 @@ const wrap = (d: Drizzle): Db => ({
     remove: (id) => removeRow(d, session, session.id, id),
     byTicket: (ticketId: string) =>
       d.select({
-        id:         session.id,
-        ticket_id:  session.ticket_id,
-        agent_id:   session.agent_id,
-        agent_name: agent.name,
-        status:     session.status,
-        model:      session.model,
-        error:      session.error,
-        tokens_in:  session.tokens_in,
-        tokens_out: session.tokens_out,
-        cost_usd:   session.cost_usd,
-        duration_ms: session.duration_ms,
-        started_at: session.started_at,
-        ended_at:   session.ended_at,
+        id:            session.id,
+        ticket_id:     session.ticket_id,
+        agent_id:      session.agent_id,
+        agent_name:    agent.name,
+        status:        session.status,
+        model:         session.model,
+        error:         session.error,
+        tokens_in:     session.tokens_in,
+        tokens_out:    session.tokens_out,
+        cost_usd:      session.cost_usd,
+        duration_ms:   session.duration_ms,
+        step_count:    session.step_count,
+        tool_calls:    session.tool_calls,
+        finish_reason: session.finish_reason,
+        started_at:    session.started_at,
+        ended_at:      session.ended_at,
       })
       .from(session)
       .leftJoin(agent, eq(session.agent_id, agent.id))
@@ -190,19 +194,22 @@ const wrap = (d: Drizzle): Db => ({
       .all() as SessionRow[],
     listWithAgent: () =>
       d.select({
-        id:         session.id,
-        ticket_id:  session.ticket_id,
-        agent_id:   session.agent_id,
-        agent_name: agent.name,
-        status:     session.status,
-        model:      session.model,
-        error:      session.error,
-        tokens_in:  session.tokens_in,
-        tokens_out: session.tokens_out,
-        cost_usd:   session.cost_usd,
-        duration_ms: session.duration_ms,
-        started_at: session.started_at,
-        ended_at:   session.ended_at,
+        id:            session.id,
+        ticket_id:     session.ticket_id,
+        agent_id:      session.agent_id,
+        agent_name:    agent.name,
+        status:        session.status,
+        model:         session.model,
+        error:         session.error,
+        tokens_in:     session.tokens_in,
+        tokens_out:    session.tokens_out,
+        cost_usd:      session.cost_usd,
+        duration_ms:   session.duration_ms,
+        step_count:    session.step_count,
+        tool_calls:    session.tool_calls,
+        finish_reason: session.finish_reason,
+        started_at:    session.started_at,
+        ended_at:      session.ended_at,
       })
       .from(session)
       .leftJoin(agent, eq(session.agent_id, agent.id))

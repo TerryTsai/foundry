@@ -103,13 +103,14 @@ export const router = createBrowserRouter([
                         index: true,
                         element: <TicketSessionDetailPage />,
                         loader: async ({ params }) => {
-                          const [session, agents, executions] = await Promise.all([
+                          const [session, agents, executions, messages] = await Promise.all([
                             sessionApi.get(params.sessionId!),
                             agentApi.list(pid(params)),
                             sessionApi.executions(params.sessionId!),
+                            sessionApi.messages(params.sessionId!),
                           ])
                           const agentName = agents.find(a => a.id === session.agent_id)?.name ?? null
-                          return { session: { ...session, agent_name: agentName }, executions }
+                          return { session: { ...session, agent_name: agentName }, executions, messages }
                         },
                       },
                       {

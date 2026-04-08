@@ -68,6 +68,7 @@ export interface Session {
   step_count: number | null
   tool_calls: number | null
   finish_reason: string | null
+  system_prompt: string | null
   started_at: string
   ended_at: string | null
 }
@@ -90,4 +91,14 @@ export interface Execution {
   net_tx_bytes: number | null
   started_at: string
   ended_at: string | null
+}
+
+export interface Message {
+  id: string
+  session_id: string
+  role: string
+  content: string
+  tokens: number | null
+  tokens_in: number | null
+  created_at: string
 }

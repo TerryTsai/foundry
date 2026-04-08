@@ -74,6 +74,7 @@ export const session = (db: Db) => {
   const r = Router()
   r.get('/',                run(() => domain.session.listAll(db)()),                          send())
   r.get('/:id',            run(req => domain.session.get(db)(req.params.id)),                 send())
+  r.get('/:id/message',    run(req => domain.session.messages(db)(req.params.id)),           send())
   r.get('/:id/execution',  run(req => domain.execution.bySession(db)(req.params.id)),        send())
   return r
 }

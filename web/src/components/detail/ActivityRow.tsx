@@ -11,9 +11,10 @@ interface ActivityRowProps {
   meta?: string
   body: string
   mono?: boolean
+  footer?: React.ReactNode
 }
 
-export function ActivityRow({ label, labelHref, status, meta, body, mono }: ActivityRowProps) {
+export function ActivityRow({ label, labelHref, status, meta, body, mono, footer }: ActivityRowProps) {
   const [expanded, setExpanded] = useState(false)
 
   const row = (
@@ -58,6 +59,7 @@ export function ActivityRow({ label, labelHref, status, meta, body, mono }: Acti
           ) : (
             <div className="text-xs text-zinc-400 dark:text-zinc-500 italic">no content</div>
           )}
+          {footer}
         </div>
       )}
     </div>

@@ -255,11 +255,11 @@ export const session = {
     return { ok: true }
   },
 
-  message: (db: Db) => (sessionId: string, role: string, content: string, tokens?: number): Message => {
+  message: (db: Db) => (sessionId: string, role: string, content: string, tokens?: number, tokensIn?: number): Message => {
     require(db.session.get(sessionId))
     return db.message.insert({
       session_id: sessionId, role, content,
-      tokens: tokens ?? null, created_at: now(),
+      tokens: tokens ?? null, tokens_in: tokensIn ?? null, created_at: now(),
     })
   },
 

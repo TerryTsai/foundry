@@ -80,6 +80,7 @@ export const commentApi = {
 export const sessionApi = {
   get: (id: string) => get<Session>(`/session/${id}`),
   byTicket: (ticketId: string) => get<Session[]>(`/ticket/${ticketId}/session`),
+  messages: (sessionId: string) => get<import('./types.js').Message[]>(`/session/${sessionId}/message`),
   executions: (sessionId: string) => get<Execution[]>(`/session/${sessionId}/execution`),
 }
 
