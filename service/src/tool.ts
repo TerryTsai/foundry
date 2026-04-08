@@ -1,8 +1,7 @@
 import { tool } from 'ai'
 import { z } from 'zod'
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs'
+import { writeFileSync, mkdirSync } from 'fs'
 import { join, dirname } from 'path'
-import { execFileSync } from 'child_process'
 import { nanoid } from 'nanoid'
 import type { Db } from './database.js'
 import type { Config } from './config.js'
@@ -33,6 +32,12 @@ export const makeTools = (db: Db, config: Config, sessionId: string, projectId: 
   return filtered
 }
 
+// ── Helpers ──
+
+function esc(s: string): string {
+  return "'" + s.replace(/'/g, "'\\''") + "'"
+}
+
 const _makeAllTools = (db: Db, config: Config, sessionId: string, projectId: string, ticketId: string, agentName: string, workspace: string) => {
   const api = `http://host.containers.internal:${config.port}`
 
@@ -55,56 +60,60 @@ const _makeAllTools = (db: Db, config: Config, sessionId: string, projectId: str
     }
   }
 
+  function run(command: string, toolName: string, network = false): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+    const { emitter } = domain.execution.create(db, config)({
+      command, session_id: sessionId, tool_name: toolName, network, workspace,
+    })
+    const stdout: string[] = []
+    const stderr: string[] = []
+    return new Promise(resolve => {
+      emitter.on('stdout', (line: string) => stdout.push(line))
+      emitter.on('stderr', (line: string) => stderr.push(line))
+      emitter.once('exit', (code: number) => {
+        resolve({ stdout: stdout.join('\n'), stderr: stderr.join('\n'), exitCode: code })
+      })
+    })
+  }
+
   function runApi(command: string, toolName: string): Promise<{ content: string; outputFile?: string; totalLines?: number; totalBytes?: number; error?: string }> {
-    try {
-      const { emitter } = domain.execution.create(db, config)({
-        command, session_id: sessionId, tool_name: toolName, network: true, workspace,
-      })
-      const stdout: string[] = []
-      return new Promise(resolve => {
-        emitter.on('stdout', (line: string) => stdout.push(line))
-        emitter.once('exit', (code: number) => {
-          if (code === 0) {
-            resolve(bounded(stdout.join('\n')))
-          } else {
-            resolve({ content: '', error: `request failed (exit ${code})` })
-          }
-        })
-      })
-    } catch (err) {
-      return Promise.resolve({ content: '', error: err instanceof Error ? err.message : String(err) })
-    }
+    return run(command, toolName, true).then(r => {
+      if (r.exitCode === 0) return bounded(r.stdout)
+      return { content: '', error: `request failed (exit ${r.exitCode})` }
+    }).catch(err => ({ content: '', error: err instanceof Error ? err.message : String(err) }))
+  }
+
+  /** Write a temp file into the workspace (visible to container via bind mount). */
+  function writeTmp(content: string, ext = 'txt'): string {
+    const relPath = `.foundry/.tmp/${nanoid(8)}.${ext}`
+    const absPath = join(workspace, relPath)
+    mkdirSync(dirname(absPath), { recursive: true })
+    writeFileSync(absPath, content, 'utf-8')
+    return relPath
   }
 
   return ({
+
+  // ── exec ──
 
   exec: tool({
     description: 'Run a shell command in a sandboxed container with the project repo at /work. Large stdout is written to a file; use the read tool to paginate.',
     inputSchema: v.tool.exec,
     outputSchema: boundedOutput.extend({ stderr: z.string(), exitCode: z.number() }),
     execute: async (args) => {
-      const command = args.cwd ? `cd ${args.cwd} && ${args.command}` : args.command
+      const command = args.cwd ? `cd ${esc(args.cwd)} && ${args.command}` : args.command
       try {
-        const { emitter } = domain.execution.create(db, config)({
-          command, session_id: sessionId, tool_name: 'exec', network: args.network ?? false, workspace,
-        })
-        const stdout: string[] = []
-        const stderr: string[] = []
-        return await new Promise<{ content: string; outputFile?: string; totalLines?: number; totalBytes?: number; stderr: string; exitCode: number }>(resolve => {
-          emitter.on('stdout', (line: string) => stdout.push(line))
-          emitter.on('stderr', (line: string) => stderr.push(line))
-          emitter.once('exit', (code: number) => {
-            resolve({ ...bounded(stdout.join('\n')), stderr: stderr.join('\n'), exitCode: code })
-          })
-        })
+        const r = await run(command, 'exec', args.network ?? false)
+        return { ...bounded(r.stdout), stderr: r.stderr, exitCode: r.exitCode }
       } catch (err) {
         return { content: '', stderr: '', exitCode: -1, error: err instanceof Error ? err.message : String(err) }
       }
     },
   }),
 
+  // ── read (pager — does NOT go through bounded) ──
+
   read: tool({
-    description: 'Read the contents of a file from the workspace. Returns up to 500 lines by default. Use offset and limit to paginate through larger files.',
+    description: 'Read the contents of a file from the workspace. Returns up to 500 lines. Use offset and limit to paginate larger files.',
     inputSchema: v.tool.read,
     outputSchema: z.object({
       content: z.string(),
@@ -113,85 +122,101 @@ const _makeAllTools = (db: Db, config: Config, sessionId: string, projectId: str
       error: z.string().optional(),
     }),
     execute: async (args) => {
+      const limit = Math.min(args.limit ?? 500, 500)
+      const start = args.offset ?? 0
+      // First line of stdout = total line count, rest = file content
+      const path = esc(`/work/${args.path}`)
+      const command = `total=$(wc -l < ${path}) && echo "$total" && sed -n '${start + 1},${start + limit}p' ${path}`
       try {
-        const fullPath = join(workspace, args.path)
-        const content = readFileSync(fullPath, 'utf-8')
-        const lines = content.split('\n')
-        const start = args.offset ?? 0
-        const limit = Math.min(args.limit ?? 500, 500)
-        const end = start + limit
-        const truncated = end < lines.length
-        return {
-          content: lines.slice(start, end).join('\n'),
-          ...(truncated ? { truncated: true, totalLines: lines.length } : {}),
-        }
+        const r = await run(command, 'read')
+        if (r.exitCode !== 0) return { content: '', error: r.stderr || 'file not found or unreadable' }
+        const lines = r.stdout.split('\n')
+        const totalLines = parseInt(lines[0], 10)
+        const content = lines.slice(1).join('\n')
+        const truncated = (start + limit) < totalLines
+        return { content, ...(truncated ? { truncated: true, totalLines } : {}) }
       } catch (err) {
         return { content: '', error: err instanceof Error ? err.message : String(err) }
       }
     },
   }),
 
+  // ── write ──
+
   write: tool({
     description: 'Create or overwrite a file in the workspace.',
     inputSchema: v.tool.write,
-    outputSchema: z.object({
-      ok: z.boolean(),
-      error: z.string().optional(),
-    }),
+    outputSchema: z.object({ ok: z.boolean(), error: z.string().optional() }),
     execute: async (args) => {
+      const tmpRel = writeTmp(args.content)
+      const dest = esc(`/work/${args.path}`)
+      const command = `mkdir -p "$(dirname ${dest})" && mv /work/${esc(tmpRel)} ${dest}`
       try {
-        const fullPath = join(workspace, args.path)
-        mkdirSync(dirname(fullPath), { recursive: true })
-        writeFileSync(fullPath, args.content, 'utf-8')
-        return { ok: true }
+        const r = await run(command, 'write')
+        return r.exitCode === 0 ? { ok: true } : { ok: false, error: r.stderr || 'write failed' }
       } catch (err) {
         return { ok: false, error: err instanceof Error ? err.message : String(err) }
       }
     },
   }),
 
+  // ── patch ──
+
   patch: tool({
     description: 'Apply a targeted edit to a file by replacing an exact string match.',
     inputSchema: v.tool.patch,
-    outputSchema: z.object({
-      ok: z.boolean(),
-      error: z.string().optional(),
-    }),
+    outputSchema: z.object({ ok: z.boolean(), error: z.string().optional() }),
     execute: async (args) => {
+      const meta = writeTmp(JSON.stringify({
+        path: `/work/${args.path}`,
+        old: args.old_string,
+        new: args.new_string,
+      }), 'json')
+      const command = `python3 -c '
+import json, os, sys
+m = json.load(open("/work/${meta}"))
+os.unlink("/work/${meta}")
+c = open(m["path"]).read()
+if m["old"] not in c:
+    print("old_string not found in file", file=sys.stderr); sys.exit(1)
+open(m["path"],"w").write(c.replace(m["old"],m["new"],1))
+print("ok")
+'`
       try {
-        const fullPath = join(workspace, args.path)
-        const content = readFileSync(fullPath, 'utf-8')
-        if (!content.includes(args.old_string)) {
-          return { ok: false, error: 'old_string not found in file' }
-        }
-        const updated = content.replace(args.old_string, args.new_string)
-        writeFileSync(fullPath, updated, 'utf-8')
-        return { ok: true }
+        const r = await run(command, 'patch')
+        return r.exitCode === 0 ? { ok: true } : { ok: false, error: r.stderr || r.stdout || 'patch failed' }
       } catch (err) {
         return { ok: false, error: err instanceof Error ? err.message : String(err) }
       }
     },
   }),
+
+  // ── search ──
 
   search: tool({
     description: 'Search file contents using grep with regex support. Large results are written to a file; use the read tool to paginate.',
     inputSchema: v.tool.search,
     outputSchema: boundedOutput,
     execute: async (args) => {
+      const searchPath = args.path ? `/work/${args.path}` : '/work'
+      const parts = ['grep', '-rn', '--color=never']
+      if (!args.no_exclude) parts.push('--exclude-dir=.git', '--exclude-dir=node_modules', '--exclude-dir=__pycache__', '--exclude-dir=.venv', '--exclude-dir=.foundry')
+      if (args.glob) parts.push('--include', esc(args.glob))
+      parts.push('-e', esc(args.pattern), esc(searchPath))
+      // || true so exit 1 (no matches) doesn't mark execution as failed
+      const command = `${parts.join(' ')} | sed 's|/work/||g' || true`
       try {
-        const searchPath = args.path ? join(workspace, args.path) : workspace
-        const grepArgs = ['-rn', '--color=never']
-        if (!args.no_exclude) grepArgs.push('--exclude-dir=.git', '--exclude-dir=node_modules', '--exclude-dir=__pycache__', '--exclude-dir=.venv', '--exclude-dir=.foundry')
-        if (args.glob) grepArgs.push('--include', args.glob)
-        grepArgs.push(args.pattern, searchPath)
-        const result = execFileSync('grep', grepArgs, { encoding: 'utf-8', maxBuffer: 1024 * 1024 })
-        return bounded(result.replaceAll(workspace + '/', '').trimEnd())
-      } catch (err: any) {
-        if (err.status === 1) return { content: '' } // no matches
+        const r = await run(command, 'search')
+        const output = r.stdout.trimEnd()
+        if (!output) return { content: '' }
+        return bounded(output)
+      } catch (err) {
         return { content: '', error: err instanceof Error ? err.message : String(err) }
       }
     },
   }),
+
+  // ── find ──
 
   find: tool({
     description: 'List files matching a glob pattern in the workspace. Large results are written to a file; use the read tool to paginate.',
@@ -199,78 +224,66 @@ const _makeAllTools = (db: Db, config: Config, sessionId: string, projectId: str
     outputSchema: boundedOutput,
     execute: async (args) => {
       const depth = args.max_depth ?? 3
+      const searchPath = args.path ? `/work/${args.path}` : '/work'
+      const parts = ['find', esc(searchPath), '-maxdepth', String(depth)]
+      if (!args.no_exclude) parts.push('\\(', '-name', '.git', '-o', '-name', 'node_modules', '-o', '-name', '__pycache__', '-o', '-name', '.venv', '-o', '-name', '.foundry', '\\)', '-prune', '-o')
+      parts.push('-type', 'f', '-name', esc(args.pattern), '-print')
+      const command = `${parts.join(' ')} | sed 's|/work/||g'`
       try {
-        const searchPath = args.path ? join(workspace, args.path) : workspace
-        const findArgs = [searchPath, '-maxdepth', String(depth)]
-        if (!args.no_exclude) findArgs.push('(', '-name', '.git', '-o', '-name', 'node_modules', '-o', '-name', '__pycache__', '-o', '-name', '.venv', '-o', '-name', '.foundry', ')', '-prune', '-o')
-        findArgs.push('-type', 'f', '-name', args.pattern, '-print')
-        const result = execFileSync('find', findArgs, {
-          encoding: 'utf-8', maxBuffer: 1024 * 1024,
-        })
-        return bounded(result.replaceAll(workspace + '/', '').trim())
+        const r = await run(command, 'find')
+        const output = r.stdout.trim()
+        if (!output) return { content: '' }
+        return bounded(output)
       } catch (err) {
         return { content: '', error: err instanceof Error ? err.message : String(err) }
       }
     },
   }),
+
+  // ── fetch ──
 
   fetch: tool({
     description: 'Make an HTTP request and return the response. Large responses are written to a file; use the read tool to paginate.',
     inputSchema: v.tool.fetch,
     outputSchema: boundedOutput.extend({ status: z.number() }),
     execute: async (args) => {
-      const curlArgs = ['-s', '-w', '\n%{http_code}', '-X', args.method ?? 'GET']
+      const curlArgs = ['-s', '-w', '\\n%{http_code}', '-X', args.method ?? 'GET']
       if (args.headers) {
-        for (const [k, val] of Object.entries(args.headers)) {
-          curlArgs.push('-H', `${k}: ${val}`)
-        }
+        for (const [k, val] of Object.entries(args.headers)) curlArgs.push('-H', `${k}: ${val}`)
       }
       if (args.body) curlArgs.push('-d', args.body)
       curlArgs.push(args.url)
-      const command = `curl ${curlArgs.map(a => `'${a.replace(/'/g, "'\\''")}'`).join(' ')}`
+      const command = `curl ${curlArgs.map(a => esc(a)).join(' ')}`
       try {
-        const { emitter } = domain.execution.create(db, config)({
-          command, session_id: sessionId, tool_name: 'fetch', network: true, workspace,
-        })
-        const stdout: string[] = []
-        return await new Promise<{ content: string; outputFile?: string; totalLines?: number; totalBytes?: number; status: number }>(resolve => {
-          emitter.on('stdout', (line: string) => stdout.push(line))
-          emitter.once('exit', () => {
-            const lines = stdout.join('\n').trimEnd().split('\n')
-            const statusCode = parseInt(lines.pop() ?? '0', 10)
-            resolve({ ...bounded(lines.join('\n')), status: statusCode })
-          })
-        })
+        const r = await run(command, 'fetch', true)
+        const lines = r.stdout.trimEnd().split('\n')
+        const statusCode = parseInt(lines.pop() ?? '0', 10)
+        return { ...bounded(lines.join('\n')), status: statusCode }
       } catch (err) {
         return { content: '', status: 0, error: err instanceof Error ? err.message : String(err) }
       }
     },
   }),
 
+  // ── scrape ──
+
   scrape: tool({
-    description: 'Extract clean readable text from a web page, stripping navigation, ads, and markup. Large output is written to a file; use the read tool to paginate.',
+    description: 'Extract clean readable text from a web page. Large output is written to a file; use the read tool to paginate.',
     inputSchema: v.tool.scrape,
     outputSchema: boundedOutput,
     execute: async (args) => {
-      const command = `lynx -dump -nolist -width=120 '${args.url.replace(/'/g, "'\\''")}'` +
-        ` 2>/dev/null || curl -sL '${args.url.replace(/'/g, "'\\''")}'` +
-        ` | sed 's/<[^>]*>//g' | sed '/^$/d' | head -500`
+      const url = esc(args.url)
+      const command = `lynx -dump -nolist -width=120 ${url} 2>/dev/null || curl -sL ${url} | sed 's/<[^>]*>//g' | sed '/^$/d' | head -500`
       try {
-        const { emitter } = domain.execution.create(db, config)({
-          command, session_id: sessionId, tool_name: 'scrape', network: true, workspace,
-        })
-        const stdout: string[] = []
-        return await new Promise<{ content: string; outputFile?: string; totalLines?: number; totalBytes?: number }>(resolve => {
-          emitter.on('stdout', (line: string) => stdout.push(line))
-          emitter.once('exit', () => {
-            resolve(bounded(stdout.join('\n').trim()))
-          })
-        })
+        const r = await run(command, 'scrape', true)
+        return bounded(r.stdout.trim())
       } catch (err) {
         return { content: '', error: err instanceof Error ? err.message : String(err) }
       }
     },
   }),
+
+  // ── think ──
 
   think: tool({
     description: 'Use this tool to reason, plan, or analyze before taking action. No side effects.',
@@ -278,6 +291,8 @@ const _makeAllTools = (db: Db, config: Config, sessionId: string, projectId: str
     outputSchema: z.object({ ok: z.boolean() }),
     execute: async () => ({ ok: true }),
   }),
+
+  // ── agents ──
 
   agents: tool({
     description: 'List all agents in the current project. Useful for targeting sub-tickets at a specific agent.',
@@ -288,6 +303,8 @@ const _makeAllTools = (db: Db, config: Config, sessionId: string, projectId: str
       return runApi(command, 'agents')
     },
   }),
+
+  // ── ticket ──
 
   ticket: tool({
     description: 'Create, read, or list tickets in the current project. Use create to spawn sub-tasks, optionally assigning to an agent by ID. Use the agents tool first to discover agent IDs.',
@@ -307,7 +324,7 @@ const _makeAllTools = (db: Db, config: Config, sessionId: string, projectId: str
           priority: 0, parent_id: ticketId, created_by: agentName,
           ...(args.agent_id ? { agent_id: args.agent_id } : {}),
         })
-        command = `curl -sf -X POST -H 'Content-Type: application/json' -d '${payload.replace(/'/g, "'\\''")}' '${api}/ticket'`
+        command = `curl -sf -X POST -H 'Content-Type: application/json' -d ${esc(payload)} '${api}/ticket'`
       } else {
         return { content: '', error: 'unknown action' }
       }
