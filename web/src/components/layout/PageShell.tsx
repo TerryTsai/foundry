@@ -13,18 +13,20 @@ interface PageShellProps {
 export function PageShell({ action, composer, onRefresh, children }: PageShellProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const startY = useRef(0)
+  const wasAtTop = useRef(false)
   const [refreshing, setRefreshing] = useState(false)
   const [composing, setComposing] = useState(false)
   const [draft, setDraft] = useState('')
 
   const handleTouchStart = (e: React.TouchEvent) => {
     startY.current = e.touches[0].clientY
+    wasAtTop.current = (scrollRef.current?.scrollTop ?? 0) === 0
   }
 
   const handleTouchEnd = async (e: React.TouchEvent) => {
-    if (!onRefresh) return
+    if (!onRefresh || !wasAtTop.current) return
     const delta = e.changedTouches[0].clientY - startY.current
-    if (delta > 70 && (scrollRef.current?.scrollTop ?? 0) === 0) {
+    if (delta > 70) {
       setRefreshing(true)
       try { await onRefresh() } finally { setRefreshing(false) }
     }
@@ -52,7 +54,7 @@ export function PageShell({ action, composer, onRefresh, children }: PageShellPr
         onTouchEnd={onRefresh ? handleTouchEnd : undefined}
       >
         {refreshing && (
-          <div className="text-center py-2 text-xs text-zinc-400 dark:text-zinc-600">...</div>
+          <div className="text-center py-2 text-xs text-zinc-500 dark:text-zinc-600">...</div>
         )}
         {children}
       </div>
@@ -64,7 +66,7 @@ export function PageShell({ action, composer, onRefresh, children }: PageShellPr
             onChange={e => setDraft(e.target.value)}
             placeholder={composer.placeholder}
             autoFocus
-            className="bg-transparent text-base text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 dark:placeholder-zinc-500 outline-none flex-1 min-w-0"
+            className="bg-transparent text-base text-zinc-900 dark:text-zinc-100 placeholder-zinc-500 dark:placeholder-zinc-500 outline-none flex-1 min-w-0"
           />
           <button type="submit" disabled={!draft.trim()} className="text-sky-500 text-sm font-medium disabled:opacity-30">
             add

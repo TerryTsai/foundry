@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate, useLoaderData } from 'react-router-dom'
 import { agentApi } from '../../api.js'
 import type { Agent } from '../../types.js'
@@ -8,6 +8,7 @@ import { Field } from '../../components/form/Field.js'
 import { TextInput } from '../../components/form/TextInput.js'
 import { TextArea } from '../../components/form/TextArea.js'
 import { ActionButton } from '../../components/form/ActionButton.js'
+import { ToolPicker } from '../../components/form/ToolPicker.js'
 import { useBreadcrumbLabel } from '../../Breadcrumb.js'
 
 export function AgentDetailPage() {
@@ -20,7 +21,11 @@ export function AgentDetailPage() {
   const [maxTokens, setMaxTokens] = useState(String(agent.max_tokens))
   const [maxSteps, setMaxSteps] = useState(String(agent.max_steps))
   const [temperature, setTemperature] = useState(agent.temperature !== null ? String(agent.temperature) : '')
+  const [availableTools, setAvailableTools] = useState<string[]>([])
+  const [selectedTools, setSelectedTools] = useState<Set<string>>(agent.tools ? new Set(JSON.parse(agent.tools) as string[]) : new Set())
   const [error, setError] = useState('')
+
+  useEffect(() => { agentApi.tools().then(setAvailableTools).catch(() => {}) }, [])
 
   useBreadcrumbLabel(agent.name)
 
@@ -28,10 +33,12 @@ export function AgentDetailPage() {
     e.preventDefault()
     setError('')
     try {
+      const tools = selectedTools.size > 0 ? [...selectedTools] : undefined
       await agentApi.update(agent.id, {
         model, prompt,
         max_tokens: +maxTokens, max_steps: +maxSteps,
         temperature: temperature ? +temperature : undefined,
+        tools,
       })
       setEditing(false)
       navigate(`/p/${projectId}/agents`)
@@ -60,6 +67,7 @@ export function AgentDetailPage() {
       ) : undefined}
       infoRows={!editing ? [
         { label: 'model',       value: agent.model },
+        { label: 'tools',       value: agent.tools ? (JSON.parse(agent.tools) as string[]).join(', ') : 'all' },
         { label: 'temperature', value: agent.temperature !== null ? String(agent.temperature) : 'default' },
         { label: 'max steps',   value: String(agent.max_steps) },
         { label: 'max tokens',  value: String(agent.max_tokens) },
@@ -87,6 +95,7 @@ export function AgentDetailPage() {
               <TextInput type="number" value={temperature} onChange={e => setTemperature(e.target.value)} min="0" max="2" step="0.1" placeholder="default" />
             </Field>
           </div>
+          <ToolPicker available={availableTools} selected={selectedTools} onChange={setSelectedTools} />
           <div className="flex gap-2 pt-2">
             <ActionButton label="cancel" variant="secondary" onClick={() => setEditing(false)} className="flex-1" />
             <ActionButton label="save" type="submit" className="flex-1" />

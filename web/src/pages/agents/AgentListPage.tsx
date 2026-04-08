@@ -14,17 +14,19 @@ export function AgentListPage() {
       action={{ label: 'Agent', onPress: `/p/${projectId}/agents/new` }}
       onRefresh={async () => { revalidate() }}
     >
-      <Link to={`/p/${projectId}/agents/providers`} className="block">
-        <ListRow title="Providers" subtitle="API keys and model access" />
-      </Link>
-      {agents.length === 0
-        ? <EmptyState message="no agents" />
-        : agents.map(a => (
-          <Link key={a.id} to={`/p/${projectId}/agents/${a.id}`} className="block">
-            <ListRow title={a.name} subtitle={a.model} />
-          </Link>
-        ))
-      }
+      <div className="[&>:last-child>*]:border-b-0">
+        <Link to={`/p/${projectId}/agents/providers`} className="block">
+          <ListRow title="Providers" subtitle="API keys and model access" />
+        </Link>
+        {agents.length === 0
+          ? <EmptyState message="no agents" />
+          : agents.map(a => (
+            <Link key={a.id} to={`/p/${projectId}/agents/${a.id}`} className="block">
+              <ListRow title={a.name} subtitle={a.model} />
+            </Link>
+          ))
+        }
+      </div>
     </PageShell>
   )
 }

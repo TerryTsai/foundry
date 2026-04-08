@@ -16,11 +16,11 @@ export function ProviderListPage() {
     >
       {providers.length === 0
         ? <EmptyState message="no providers configured" />
-        : providers.map(p => (
+        : <div className="[&>:last-child>*]:border-b-0">{providers.map(p => (
           <Link key={p.id} to={`/p/${projectId}/agents/providers/${p.id}`} className="block">
             <ListRow title={p.name} subtitle={p.api_key_preview} />
           </Link>
-        ))
+        ))}</div>
       }
     </PageShell>
   )

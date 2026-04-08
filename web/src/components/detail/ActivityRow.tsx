@@ -21,24 +21,24 @@ export function ActivityRow({ label, icon, detailHref, detailLabel, status, meta
 
   const row = (
     <div className="flex items-center gap-3">
-      {icon && <div className="shrink-0 text-zinc-400 dark:text-zinc-500">{icon}</div>}
+      {icon && <div className="shrink-0 text-zinc-600 dark:text-zinc-500">{icon}</div>}
       <div className="flex-1 min-w-0">
         <div className={`truncate leading-snug ${mono ? 'font-mono text-xs text-zinc-900 dark:text-zinc-100' : 'text-sm text-zinc-900 dark:text-zinc-100'}`}>
           {label}
         </div>
-        {meta && <div className="text-xs text-zinc-400 dark:text-zinc-500 mt-0.5 truncate">{meta}</div>}
+        {meta && <div className="text-xs text-zinc-600 dark:text-zinc-500 mt-0.5 truncate">{meta}</div>}
       </div>
       {status && <div className="shrink-0"><StatusBadge status={status} /></div>}
       <ChevronRight
         size={14}
         strokeWidth={2}
-        className={`text-zinc-300 dark:text-zinc-700 shrink-0 -mr-1 transition-transform ${expanded ? 'rotate-90' : ''}`}
+        className={`text-zinc-400 dark:text-zinc-700 shrink-0 -mr-1 transition-transform ${expanded ? 'rotate-90' : ''}`}
       />
     </div>
   )
 
   return (
-    <div className="border-b border-zinc-100 dark:border-zinc-800/50 last:border-b-0">
+    <div className="border-b border-zinc-200 dark:border-zinc-800/30 last:border-b-0">
       <button
         onClick={() => setExpanded(e => !e)}
         className="w-full text-left px-4 py-3 active:bg-zinc-100 dark:active:bg-zinc-900/70"
@@ -63,7 +63,7 @@ export function ActivityRow({ label, icon, detailHref, detailLabel, status, meta
               <div className="prose-zinc text-sm" dangerouslySetInnerHTML={{ __html: marked.parse(body) as string }} />
             )
           ) : (
-            <div className="text-xs text-zinc-400 dark:text-zinc-500 italic">no content</div>
+            <div className="text-xs text-zinc-500 dark:text-zinc-500 italic">no content</div>
           )}
           {footer}
         </div>

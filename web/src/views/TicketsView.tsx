@@ -407,7 +407,7 @@ export function TicketsView({ projectId }: { projectId: string }) {
               <EmptyState message="loading..." />
             ) : filtered.length === 0 ? (
               <EmptyState message="no tickets" />
-            ) : filtered.map(t => (
+            ) : <div className="[&>:last-child]:border-b-0">{filtered.map(t => (
               <ListRow
                 key={t.id}
                 title={t.title}
@@ -416,7 +416,7 @@ export function TicketsView({ projectId }: { projectId: string }) {
                 active={selected?.id === t.id}
                 onPress={() => setSelected(t)}
               />
-            ))}
+            ))}</div>}
             </PageShell>
           </div>
 

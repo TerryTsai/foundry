@@ -95,7 +95,8 @@ export const runAgentSession = (db: Db, config: Config) =>
 
       const system = buildSystemPrompt(agentDef.prompt, agentMd, chain, ticketData)
       db.session.update(sessionId, { system_prompt: system })
-      const tools = makeTools(db, config, sessionId, ticketData.project_id, ticketData.id, agentDef.name, workDir)
+      const enabledTools = agentDef.tools ? JSON.parse(agentDef.tools) as string[] : undefined
+      const tools = makeTools(db, config, sessionId, ticketData.project_id, ticketData.id, agentDef.name, workDir, enabledTools)
 
       // Log session start as a comment on the ticket
       domain.comment.create(db)(ticketData.id, { author: agentDef.name, body: 'Session started', session_id: sessionId })

@@ -4,7 +4,7 @@ const schema = z.object({
   port:            z.coerce.number().int().default(3000),
   dbPath:          z.string().default('./foundry.db'),
   repoBase:        z.string().default('/home/terry/repos'),
-  sandboxImage:    z.string().default('node:20-alpine'),
+  sandboxImage:    z.string().default('foundry-sandbox'),
   sandboxTimeout:  z.coerce.number().int().default(300000),
 })
 

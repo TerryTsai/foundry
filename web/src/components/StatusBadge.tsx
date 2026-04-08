@@ -15,7 +15,7 @@ export function StatusBadge({ status }: { status: string }) {
   return (
     <span className="flex items-center gap-1.5 shrink-0">
       <span className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 ${dotColor[status] ?? 'bg-zinc-400'}`} />
-      <span className="text-[11px] text-zinc-500 dark:text-zinc-400 capitalize">{status}</span>
+      <span className="text-[11px] text-zinc-600 dark:text-zinc-400 capitalize">{status}</span>
     </span>
   )
 }

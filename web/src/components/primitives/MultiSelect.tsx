@@ -50,7 +50,7 @@ export function MultiSelect({ label, options, selected, onChange }: MultiSelectP
     <div
       id="multiselect-portal"
       style={{ position: 'fixed', top: pos.top, left: pos.left, minWidth: Math.max(pos.width, 140), zIndex: 9999 }}
-      className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700/60 rounded-lg shadow-xl overflow-hidden"
+      className="bg-white dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700/60 rounded-lg shadow-xl overflow-hidden"
     >
       {options.map(opt => (
         <button
@@ -59,7 +59,7 @@ export function MultiSelect({ label, options, selected, onChange }: MultiSelectP
           className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-left hover:bg-zinc-50 dark:hover:bg-zinc-800/50 active:bg-zinc-100 dark:active:bg-zinc-800/80 transition-colors"
         >
           <span className={`w-3.5 h-3.5 rounded border flex items-center justify-center shrink-0 transition-colors ${
-            selected.has(opt) ? 'bg-zinc-300 border-zinc-300' : 'border-zinc-600'
+            selected.has(opt) ? 'bg-zinc-500 border-zinc-500' : 'border-zinc-400 dark:border-zinc-600'
           }`}>
             {selected.has(opt) && <Check size={9} strokeWidth={3} className="text-white dark:text-zinc-900" />}
           </span>
@@ -68,7 +68,7 @@ export function MultiSelect({ label, options, selected, onChange }: MultiSelectP
       ))}
       {active && (
         <>
-          <div className="border-t border-zinc-800 mx-2" />
+          <div className="border-t border-zinc-200 dark:border-zinc-700 mx-2" />
           <button
             onClick={() => { onChange(new Set()); setOpen(false) }}
             className="w-full px-3 py-2 text-xs text-zinc-600 text-left hover:text-zinc-400 transition-colors"
@@ -88,13 +88,13 @@ export function MultiSelect({ label, options, selected, onChange }: MultiSelectP
         onClick={handleOpen}
         className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs transition-colors shrink-0 ${
           active
-            ? 'border-sky-500/60 bg-sky-500/10 text-sky-300'
-            : 'border-zinc-800 text-zinc-500 active:border-zinc-600'
+            ? 'border-sky-500/60 bg-sky-500/10 text-sky-600 dark:text-sky-300'
+            : 'border-zinc-300 dark:border-zinc-700 text-zinc-500 active:border-zinc-400 dark:active:border-zinc-600'
         }`}
       >
         <span>{label}</span>
         {active && (
-          <span className="bg-sky-500/30 text-sky-200 text-[10px] font-medium rounded-full w-4 h-4 flex items-center justify-center leading-none">
+          <span className="bg-sky-500/30 text-sky-700 dark:text-sky-200 text-[10px] font-medium rounded-full w-4 h-4 flex items-center justify-center leading-none">
             {count}
           </span>
         )}

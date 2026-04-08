@@ -111,7 +111,7 @@ export function ProjectsView() {
       <div className="overflow-y-auto flex-1">
         {projects.length === 0
           ? <EmptyState message="no projects" />
-          : projects.map(p => (
+          : <div className="[&>:last-child]:border-b-0">{projects.map(p => (
             <ListRow
               key={p.id}
               title={p.name}
@@ -119,7 +119,7 @@ export function ProjectsView() {
               status={p.status}
               onPress={() => openProject(p)}
             />
-          ))
+          ))}</div>
         }
       </div>
 

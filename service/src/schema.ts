@@ -24,6 +24,7 @@ export const agent = sqliteTable('agent', {
   max_tokens:  integer('max_tokens').notNull().default(8192),
   max_steps:   integer('max_steps').notNull().default(20),
   temperature: real('temperature'),
+  tools:       text('tools'),
   created_at:  text('created_at').notNull(),
   updated_at:  text('updated_at').notNull(),
 })

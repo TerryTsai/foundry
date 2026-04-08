@@ -52,9 +52,9 @@ export function Breadcrumb() {
     <nav className="hidden lg:flex items-center gap-1 px-6 h-10 shrink-0 border-b border-zinc-200 dark:border-zinc-800/60">
       {crumbs.map((c, i) => (
         <span key={c.path} className="flex items-center gap-1 shrink-0">
-          {i > 0 && <ChevronRight size={12} className="text-zinc-300 dark:text-zinc-700" />}
+          {i > 0 && <ChevronRight size={12} className="text-zinc-400 dark:text-zinc-700" />}
           {i < crumbs.length - 1 ? (
-            <Link to={c.path} className="text-xs text-zinc-400 dark:text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 transition-colors">
+            <Link to={c.path} className="text-xs text-zinc-600 dark:text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 transition-colors">
               {c.label}
             </Link>
           ) : (

@@ -49,6 +49,7 @@ export interface Agent {
   max_tokens: number
   max_steps: number
   temperature: number | null
+  tools: string | null
   created_at: string
   updated_at: string
 }

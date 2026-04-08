@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { PageShell } from './PageShell.js'
 import { DetailHeader } from '../detail/DetailHeader.js'
 import { InfoGroup } from '../detail/InfoGroup.js'
@@ -27,15 +28,31 @@ export function DetailShell({
   infoRows, primaryCount = 4,
   composer, children,
 }: DetailShellProps) {
+  const [copied, setCopied] = useState(false)
+  function handleCopy() {
+    if (!id) return
+    const ta = document.createElement('textarea')
+    ta.value = id
+    ta.style.position = 'fixed'
+    ta.style.opacity = '0'
+    document.body.appendChild(ta)
+    ta.focus()
+    ta.select()
+    document.execCommand('copy')
+    document.body.removeChild(ta)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1500)
+  }
   const copyId = id ? (
     <button
-      onClick={() => navigator.clipboard.writeText(id)}
-      className="inline-flex items-center gap-1.5 font-mono text-xs leading-5 text-amber-500 dark:text-amber-400 active:opacity-60"
+      onClick={handleCopy}
+      className="inline-flex items-center gap-1.5 font-mono text-xs leading-5 text-amber-500 dark:text-amber-400 active:opacity-60 select-none"
     >
       {id}
       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 opacity-50">
         <rect x="9" y="9" width="13" height="13" rx="2" ry="2" /><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
       </svg>
+      {copied && <span className="text-emerald-500 text-[10px]">copied</span>}
     </button>
   ) : null
   const allRows = id ? [{ label: 'id', value: copyId }, ...infoRows] : infoRows

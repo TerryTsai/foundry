@@ -71,7 +71,7 @@ export function TicketListPage() {
         >
           {filtered.length === 0 ? (
             <EmptyState message="no tickets" />
-          ) : filtered.map(t => {
+          ) : <div className="[&>:last-child>*]:border-b-0">{filtered.map(t => {
             const date = new Date(t.created_at).toLocaleString(undefined, {
               month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
             })
@@ -80,7 +80,7 @@ export function TicketListPage() {
                 <ListRow title={t.title} subtitle={date} status={t.status} />
               </Link>
             )
-          })}
+          })}</div>}
         </PageShell>
       </div>
     </div>

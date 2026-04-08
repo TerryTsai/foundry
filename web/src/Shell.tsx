@@ -55,7 +55,7 @@ function Sidebar({
   const ThemeIcon = mode === 'light' ? Sun : mode === 'dark' ? Moon : Monitor
 
   return (
-    <aside className="hidden lg:flex flex-col w-56 shrink-0 border-r border-zinc-200 dark:border-zinc-800/60 bg-white dark:bg-zinc-950">
+    <aside className="hidden lg:flex flex-col w-56 shrink-0 border-r border-zinc-300 dark:border-zinc-800/60 bg-white dark:bg-zinc-950">
       <div className="flex items-center gap-2.5 px-4 h-12 shrink-0">
         <FoundryMark />
         <span className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 font-display">Foundry</span>
@@ -78,7 +78,7 @@ function Sidebar({
         ))}
       </nav>
 
-      <div className="shrink-0 border-t border-zinc-200 dark:border-zinc-800/60 p-2 space-y-1">
+      <div className="shrink-0 border-t border-zinc-300 dark:border-zinc-800/60 p-2 space-y-1">
         <div className="flex items-center gap-1">
           <NavLink
             to={`/p/${projectId}/settings`}
@@ -125,13 +125,13 @@ function Sidebar({
 
 function MobileTabBar({ projectId }: { projectId: string }) {
   return (
-    <nav className="flex lg:hidden border-t border-zinc-200 dark:border-zinc-800/60 bg-white dark:bg-zinc-950 shrink-0">
+    <nav className="flex lg:hidden border-t border-zinc-300 dark:border-zinc-800/60 bg-white dark:bg-zinc-950 shrink-0">
       {navItems.map(t => (
         <NavLink
           key={t.to}
           to={`/p/${projectId}/${t.to}`}
           className={({ isActive }) => `flex-1 flex flex-col items-center justify-center py-2.5 gap-1 transition-colors relative ${
-            isActive ? 'text-amber-400' : 'text-zinc-400 dark:text-zinc-500'
+            isActive ? 'text-amber-400' : 'text-zinc-500 dark:text-zinc-500'
           }`}
         >
           {({ isActive }) => (
@@ -173,7 +173,7 @@ function MobileHeader({
   const ThemeIcon = mode === 'light' ? Sun : mode === 'dark' ? Moon : Monitor
 
   return (
-    <div className="flex lg:hidden items-center gap-2 px-3 h-11 shrink-0 border-b border-zinc-200 dark:border-zinc-800/60">
+    <div className="flex lg:hidden items-center gap-2 px-3 h-11 shrink-0 border-b border-zinc-300 dark:border-zinc-800/60">
       <MobileBreadcrumb fallback={<FoundryMark />} />
       <div className="flex items-center gap-0.5 ml-auto shrink-0">
         <button onClick={cycleTheme} className="flex items-center justify-center w-7 h-7 text-zinc-400 dark:text-zinc-500">
@@ -187,7 +187,7 @@ function MobileHeader({
             }
           </button>
         )}
-        <NavLink to={`/p/${projectId}/settings`} className="text-xs text-zinc-400 dark:text-zinc-500 truncate max-w-[100px] pl-1">
+        <NavLink to={`/p/${projectId}/settings`} className="text-xs text-zinc-500 dark:text-zinc-500 truncate max-w-[100px] pl-1">
           {project?.name ?? '...'}
         </NavLink>
       </div>

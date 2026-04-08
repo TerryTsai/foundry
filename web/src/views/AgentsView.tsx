@@ -9,6 +9,7 @@ import { Field } from '../components/form/Field.js'
 import { TextInput } from '../components/form/TextInput.js'
 import { TextArea } from '../components/form/TextArea.js'
 import { ActionButton } from '../components/form/ActionButton.js'
+import { ToolPicker } from '../components/form/ToolPicker.js'
 
 type SubTab = 'agents' | 'providers'
 
@@ -31,8 +32,14 @@ function AgentSheet({
   const [maxTokens, setMaxTokens] = useState('8192')
   const [maxSteps, setMaxSteps] = useState('20')
   const [temperature, setTemperature] = useState('')
+  const [availableTools, setAvailableTools] = useState<string[]>([])
+  const [selectedTools, setSelectedTools] = useState<Set<string>>(new Set())
   const [error, setError] = useState('')
   const isNew = agent === null
+
+  useEffect(() => {
+    agentApi.tools().then(setAvailableTools).catch(() => {})
+  }, [])
 
   useEffect(() => {
     if (agent) {
@@ -42,9 +49,11 @@ function AgentSheet({
       setMaxTokens(String(agent.max_tokens))
       setMaxSteps(String(agent.max_steps))
       setTemperature(agent.temperature !== null ? String(agent.temperature) : '')
+      setSelectedTools(agent.tools ? new Set(JSON.parse(agent.tools) as string[]) : new Set())
     } else {
       setName(''); setModel('anthropic:claude-sonnet-4-20250514'); setPrompt('')
       setMaxTokens('8192'); setMaxSteps('20'); setTemperature('')
+      setSelectedTools(new Set())
     }
     setError('')
   }, [agent])
@@ -53,10 +62,12 @@ function AgentSheet({
     e.preventDefault()
     setError('')
     try {
+      const tools = selectedTools.size > 0 ? [...selectedTools] : undefined
       const shared = {
         model, prompt,
         max_tokens: +maxTokens, max_steps: +maxSteps,
         temperature: temperature ? +temperature : undefined,
+        tools,
       }
       if (isNew) {
         await agentApi.create({ project_id: projectId, name, ...shared })
@@ -95,6 +106,7 @@ function AgentSheet({
             <TextInput type="number" value={temperature} onChange={e => setTemperature(e.target.value)} min="0" max="2" step="0.1" placeholder="default" />
           </Field>
         </div>
+        <ToolPicker available={availableTools} selected={selectedTools} onChange={setSelectedTools} />
         <Field label="prompt">
           <TextArea label="prompt" value={prompt} onChange={e => setPrompt(e.target.value)} required rows={8} />
         </Field>
@@ -230,7 +242,7 @@ function AgentsList({ projectId }: { projectId: string }) {
           >
             {agents.length === 0
               ? <EmptyState message="no agents" />
-              : agents.map(a => (
+              : <div className="[&>:last-child]:border-b-0">{agents.map(a => (
                 <ListRow
                   key={a.id}
                   title={a.name}
@@ -238,7 +250,7 @@ function AgentsList({ projectId }: { projectId: string }) {
                   active={open && selected?.id === a.id}
                   onPress={() => openAgent(a)}
                 />
-              ))
+              ))}</div>
             }
           </PageShell>
         </div>
@@ -299,7 +311,7 @@ function ProvidersList() {
           >
             {providers.length === 0
               ? <EmptyState message="no providers configured" />
-              : providers.map(p => (
+              : <div className="[&>:last-child]:border-b-0">{providers.map(p => (
                 <ListRow
                   key={p.id}
                   title={p.name}
@@ -307,7 +319,7 @@ function ProvidersList() {
                   active={open && selected?.id === p.id}
                   onPress={() => openProvider(p)}
                 />
-              ))
+              ))}</div>
             }
           </PageShell>
         </div>

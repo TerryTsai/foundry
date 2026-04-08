@@ -7,6 +7,7 @@ import domain from './domain.js'
 import * as v from './validate.js'
 import { slugify } from './functional.js'
 import { parse, run, send, sendText } from './middleware.js'
+import { TOOL_NAMES } from './tool.js'
 
 // ── Tickets ──
 
@@ -54,6 +55,7 @@ export const provider = (db: Db) => {
 
 export const agent = (db: Db, config: Config) => {
   const r = Router()
+  r.get   ('/tools',                                                   run(() => [...TOOL_NAMES]),                                                        send())
   r.get   ('/',                         parse(v.agent.list, 'query'),  run(req => domain.agent.list(db)(req.data)),                                       send())
   r.post  ('/',                         parse(v.agent.create),         run(req => domain.agent.create(db)(req.data)),                                     send(201))
   r.get   ('/:id',                                                     run(req => domain.agent.get(db)(req.params.id)),                                   send())

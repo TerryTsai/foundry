@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { agentApi } from '../../api.js'
 import { useShell } from '../../Shell.js'
@@ -6,6 +6,7 @@ import { Field } from '../../components/form/Field.js'
 import { TextInput } from '../../components/form/TextInput.js'
 import { TextArea } from '../../components/form/TextArea.js'
 import { ActionButton } from '../../components/form/ActionButton.js'
+import { ToolPicker } from '../../components/form/ToolPicker.js'
 
 export function AgentNewPage() {
   const { projectId } = useShell()
@@ -16,16 +17,22 @@ export function AgentNewPage() {
   const [maxTokens, setMaxTokens] = useState('8192')
   const [maxSteps, setMaxSteps] = useState('20')
   const [temperature, setTemperature] = useState('')
+  const [availableTools, setAvailableTools] = useState<string[]>([])
+  const [selectedTools, setSelectedTools] = useState<Set<string>>(new Set())
   const [error, setError] = useState('')
+
+  useEffect(() => { agentApi.tools().then(setAvailableTools).catch(() => {}) }, [])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError('')
     try {
+      const tools = selectedTools.size > 0 ? [...selectedTools] : undefined
       await agentApi.create({
         project_id: projectId, name, model, prompt,
         max_tokens: +maxTokens, max_steps: +maxSteps,
         temperature: temperature ? +temperature : undefined,
+        tools,
       })
       navigate(`/p/${projectId}/agents`)
     } catch (err) { setError(err instanceof Error ? err.message : 'failed') }
@@ -52,6 +59,7 @@ export function AgentNewPage() {
             <TextInput type="number" value={temperature} onChange={e => setTemperature(e.target.value)} min="0" max="2" step="0.1" placeholder="default" />
           </Field>
         </div>
+        <ToolPicker available={availableTools} selected={selectedTools} onChange={setSelectedTools} />
         <Field label="prompt">
           <TextArea label="prompt" value={prompt} onChange={e => setPrompt(e.target.value)} required rows={8} />
         </Field>

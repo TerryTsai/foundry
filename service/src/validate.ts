@@ -85,6 +85,7 @@ export const agent = {
     max_tokens:  z.number().int().positive().optional(),
     max_steps:   z.number().int().positive().optional(),
     temperature: z.number().min(0).max(2).optional(),
+    tools:       z.array(z.string()).optional(),
   }),
   update: z.object({
     model:       modelString.optional(),
@@ -92,6 +93,7 @@ export const agent = {
     max_tokens:  z.number().int().positive().optional(),
     max_steps:   z.number().int().positive().optional(),
     temperature: z.number().min(0).max(2).nullable().optional(),
+    tools:       z.array(z.string()).optional(),
   }),
 }
 
@@ -134,7 +136,7 @@ export const tool = {
   read: z.object({
     path:   z.string().describe('File path relative to /work'),
     offset: z.number().int().min(0).optional().describe('Start reading from this line number (0-based)'),
-    limit:  z.number().int().positive().optional().describe('Maximum number of lines to read'),
+    limit:  z.number().int().positive().max(500).optional().describe('Maximum number of lines to read (default: 500, max: 500)'),
   }),
   write: z.object({
     path:    z.string().describe('File path relative to /work'),
@@ -146,13 +148,16 @@ export const tool = {
     new_string: z.string().describe('Replacement string'),
   }),
   search: z.object({
-    pattern: z.string().describe('Regex pattern to search for'),
-    path:    z.string().optional().describe('Directory or file to search in, relative to /work (default: /work)'),
-    glob:    z.string().optional().describe('File glob filter (e.g. "*.ts")'),
+    pattern:     z.string().describe('Regex pattern to search for'),
+    path:        z.string().optional().describe('Directory or file to search in, relative to /work (default: /work)'),
+    glob:        z.string().optional().describe('File glob filter (e.g. "*.ts")'),
+    no_exclude:  z.boolean().optional().describe('Include .git, node_modules, etc. in search (default: false)'),
   }),
   find: z.object({
-    pattern: z.string().describe('Glob pattern to match file names (e.g. "**/*.ts")'),
-    path:    z.string().optional().describe('Directory to search in, relative to /work (default: /work)'),
+    pattern:     z.string().describe('Glob pattern to match file names (e.g. "**/*.ts")'),
+    path:        z.string().optional().describe('Directory to search in, relative to /work (default: /work)'),
+    max_depth:   z.number().int().positive().max(10).optional().describe('Maximum directory depth to search (default: 3, max: 10)'),
+    no_exclude:  z.boolean().optional().describe('Include .git, node_modules, etc. in results (default: false)'),
   }),
   fetch: z.object({
     url:     z.string().describe('URL to fetch'),
@@ -165,5 +170,12 @@ export const tool = {
   }),
   think: z.object({
     thought: z.string().describe('Your reasoning, analysis, or planning notes'),
+  }),
+  ticket: z.object({
+    action:   z.enum(['create', 'read', 'list']).describe('Action to perform'),
+    id:       z.string().optional().describe('Ticket ID (required for read)'),
+    title:    z.string().optional().describe('Ticket title (required for create)'),
+    body:     z.string().optional().describe('Ticket body (required for create)'),
+    agent_id: z.string().optional().describe('Agent ID to assign the ticket to (for create). Use the agents tool to get agent IDs.'),
   }),
 }

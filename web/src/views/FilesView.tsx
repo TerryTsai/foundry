@@ -105,7 +105,7 @@ function getFileIcon(name: string): FileIconSpec {
   if (lower === 'yarn.lock' || lower === 'pnpm-lock.yaml')        return { icon: FileLock,        color: 'text-zinc-500'   }
   if (lower === 'dockerfile' || lower.startsWith('dockerfile.'))  return { icon: FileCog,         color: 'text-sky-400'    }
   if (lower === 'makefile')                                       return { icon: FileTerminal,    color: 'text-green-400'  }
-  if (lower === 'readme.md' || lower === 'readme')                return { icon: FileText,        color: 'text-zinc-300'   }
+  if (lower === 'readme.md' || lower === 'readme')                return { icon: FileText,        color: 'text-zinc-500'   }
 
   const map: Record<string, FileIconSpec> = {
     ts:    { icon: FileCode,        color: 'text-blue-400'   },
@@ -160,12 +160,12 @@ function TreeNodeRow({
       <button
         onClick={() => onFileClick(node.path)}
         className={`w-full text-left flex items-center gap-1.5 py-1 pr-3 transition-colors ${
-          active ? 'text-zinc-900 dark:text-zinc-100' : 'text-zinc-400 dark:text-zinc-500 active:text-zinc-700 dark:active:text-zinc-300'
+          active ? 'text-zinc-900 dark:text-zinc-100' : 'text-zinc-600 dark:text-zinc-500 active:text-zinc-700 dark:active:text-zinc-300'
         }`}
         style={{ paddingLeft: `${12 + indent}px` }}
       >
         {active && <span className="absolute left-0 w-0.5 h-4 bg-zinc-400 dark:bg-zinc-400 rounded-full" />}
-        <Icon size={12} strokeWidth={1.5} className={`shrink-0 ${active ? color : 'text-zinc-300 dark:text-zinc-600'}`} />
+        <Icon size={12} strokeWidth={1.5} className={`shrink-0 ${active ? color : 'text-zinc-400 dark:text-zinc-600'}`} />
         <span className="font-mono text-xs truncate">{node.name}</span>
       </button>
     )
@@ -180,11 +180,11 @@ function TreeNodeRow({
       >
         <ChevronRight
           size={11} strokeWidth={2}
-          className={`shrink-0 text-zinc-300 dark:text-zinc-600 transition-transform duration-150 ${open ? 'rotate-90' : ''}`}
+          className={`shrink-0 text-zinc-400 dark:text-zinc-600 transition-transform duration-150 ${open ? 'rotate-90' : ''}`}
         />
         {open
           ? <FolderOpen size={12} strokeWidth={1.5} className="text-zinc-400 dark:text-zinc-500 shrink-0" />
-          : <Folder     size={12} strokeWidth={1.5} className="text-zinc-300 dark:text-zinc-600 shrink-0" />
+          : <Folder     size={12} strokeWidth={1.5} className="text-zinc-400 dark:text-zinc-600 shrink-0" />
         }
         <span className="font-mono text-xs text-zinc-500 dark:text-zinc-400">{node.name}</span>
       </button>
@@ -248,10 +248,10 @@ export function FilesView({ projectId }: { projectId: string }) {
     <div className="flex flex-col h-full">
 
       {/* Header */}
-      <div className="shrink-0 border-b border-zinc-200 dark:border-zinc-800/60 h-11 flex items-center gap-2 min-w-0">
+      <div className="shrink-0 border-b border-zinc-300 dark:border-zinc-800/60 h-11 flex items-center gap-2 min-w-0">
         <button
           onClick={() => setSidebarOpen(o => !o)}
-          className="shrink-0 h-full px-3 flex items-center text-zinc-400 dark:text-zinc-600 active:text-zinc-700 dark:active:text-zinc-300 transition-colors border-r border-zinc-200 dark:border-zinc-800/60 lg:hidden"
+          className="shrink-0 h-full px-3 flex items-center text-zinc-500 dark:text-zinc-600 active:text-zinc-700 dark:active:text-zinc-300 transition-colors border-r border-zinc-300 dark:border-zinc-800/60 lg:hidden"
           title={sidebarOpen ? 'hide sidebar' : 'show sidebar'}
         >
           {sidebarOpen
@@ -277,7 +277,7 @@ export function FilesView({ projectId }: { projectId: string }) {
               )}
             </>
           ) : (
-            <span className="text-xs text-zinc-400 dark:text-zinc-600">files</span>
+            <span className="text-xs text-zinc-500 dark:text-zinc-600">files</span>
           )}
         </div>
       </div>
@@ -285,7 +285,7 @@ export function FilesView({ projectId }: { projectId: string }) {
       <div className="relative flex-1 overflow-hidden lg:flex lg:flex-row">
 
         {/* Sidebar — desktop: always visible inline; mobile: overlay drawer */}
-        <div className={`absolute top-0 left-0 bottom-0 z-20 w-56 bg-white dark:bg-zinc-950 border-r border-zinc-200 dark:border-zinc-800/60 overflow-y-auto py-2 shadow-xl lg:relative lg:z-0 lg:shadow-none lg:w-64 lg:shrink-0 lg:block ${sidebarOpen ? '' : 'hidden lg:block'}`}>
+        <div className={`absolute top-0 left-0 bottom-0 z-20 w-56 bg-white dark:bg-zinc-950 border-r border-zinc-300 dark:border-zinc-800/60 overflow-y-auto py-2 shadow-xl lg:relative lg:z-0 lg:shadow-none lg:w-64 lg:shrink-0 lg:block ${sidebarOpen ? '' : 'hidden lg:block'}`}>
           {loadingFiles ? (
             <EmptyState message="loading…" />
           ) : tree.length === 0 ? (

@@ -14,7 +14,7 @@ export function DetailHeader({ type, title, subtitle, status, mono, actions }: D
   return (
     <div>
       <div className="flex items-center justify-between">
-        <div className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
+        <div className="text-[10px] font-semibold uppercase tracking-wider text-zinc-600 dark:text-zinc-500">
           {type}
         </div>
         {actions}
@@ -26,7 +26,7 @@ export function DetailHeader({ type, title, subtitle, status, mono, actions }: D
         {status && <div className="shrink-0"><StatusBadge status={status} /></div>}
       </div>
       {subtitle && (
-        <div className="prose-zinc text-sm text-zinc-500 dark:text-zinc-400 mt-1" dangerouslySetInnerHTML={{ __html: marked.parse(subtitle) as string }} />
+        <div className="prose-zinc text-sm text-zinc-700 dark:text-zinc-400 mt-1" dangerouslySetInnerHTML={{ __html: marked.parse(subtitle) as string }} />
       )}
     </div>
   )

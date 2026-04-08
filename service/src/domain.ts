@@ -217,20 +217,24 @@ export const agent = {
     require(db.agent.get(id)),
 
   create: (db: Db) => (input: z.infer<typeof v.agent.create>): Agent => {
-    const { project_id, name, model, prompt, max_tokens, max_steps, temperature } = input
+    const { project_id, name, model, prompt, max_tokens, max_steps, temperature, tools } = input
     if (db.agent.all([db.eq(db.col.agent.project_id, project_id), db.eq(db.col.agent.name, name)]).length > 0) {
       throw conflict(`agent '${name}' already exists in project '${project_id}'`)
     }
     return db.agent.insert({
       project_id, name, model, prompt,
       max_tokens: max_tokens ?? 8192, max_steps: max_steps ?? 20,
-      temperature: temperature ?? null, ...ts(),
+      temperature: temperature ?? null,
+      tools: tools ? JSON.stringify(tools) : null,
+      ...ts(),
     })
   },
 
   update: (db: Db) => (id: string, input: z.infer<typeof v.agent.update>): Agent => {
     require(db.agent.get(id))
-    return db.agent.update(id, { ...pick(input, 'model', 'prompt', 'max_tokens', 'max_steps', 'temperature'), updated_at: now() })
+    const data: Record<string, unknown> = { ...pick(input, 'model', 'prompt', 'max_tokens', 'max_steps', 'temperature'), updated_at: now() }
+    if (input.tools !== undefined) data.tools = JSON.stringify(input.tools)
+    return db.agent.update(id, data)
   },
 
   remove: (db: Db) => (id: string): { ok: true } => {

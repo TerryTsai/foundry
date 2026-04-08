@@ -1,0 +1,34 @@
+FROM node:20-alpine
+
+RUN apk add --no-cache \
+    # core utilities
+    coreutils \
+    bash \
+    # search & file tools
+    grep \
+    findutils \
+    sed \
+    gawk \
+    # network tools
+    curl \
+    wget \
+    # web scraping
+    lynx \
+    # version control
+    git \
+    # build tools
+    make \
+    gcc \
+    g++ \
+    musl-dev \
+    # python
+    python3 \
+    py3-pip \
+    # common utilities
+    jq \
+    tar \
+    gzip \
+    unzip \
+    openssh-client
+
+WORKDIR /work

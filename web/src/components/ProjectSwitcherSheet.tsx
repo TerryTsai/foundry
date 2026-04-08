@@ -109,7 +109,7 @@ function ProjectList({
         {projects.length === 0
           ? <EmptyState message="no projects" />
           : projects.map(p => (
-            <div key={p.id} className="flex items-center border-b border-zinc-100 dark:border-zinc-800/50">
+            <div key={p.id} className="flex items-center border-b border-zinc-200 dark:border-zinc-800/50">
               <button
                 onClick={() => onSelect(p)}
                 className="flex-1 text-left py-2.5 min-w-0 active:opacity-75 transition-opacity"
@@ -120,7 +120,7 @@ function ProjectList({
                     <span className="font-mono text-[10px] text-zinc-400 dark:text-zinc-600 shrink-0">✓</span>
                   )}
                 </div>
-                <div className="font-mono text-[10px] text-zinc-400 dark:text-zinc-600 truncate">
+                <div className="font-mono text-[10px] text-zinc-500 dark:text-zinc-600 truncate">
                   {p.schedule_interval}s interval · {p.concurrency_limit} {p.concurrency_limit === 1 ? 'agent' : 'agents'}
                 </div>
               </button>
@@ -128,7 +128,7 @@ function ProjectList({
                 <StatusBadge status={p.status} />
                 <button
                   onClick={() => onEdit(p)}
-                  className="font-mono text-[10px] text-zinc-400 dark:text-zinc-600 active:text-zinc-900 dark:active:text-zinc-100 py-2.5"
+                  className="font-mono text-[10px] text-zinc-500 dark:text-zinc-600 active:text-zinc-900 dark:active:text-zinc-100 py-2.5"
                 >
                   edit
                 </button>
