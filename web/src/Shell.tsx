@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Outlet, NavLink, Link, useParams, useLoaderData, useRevalidator } from 'react-router-dom'
+import { Outlet, NavLink, Link, ScrollRestoration, useParams, useLoaderData, useRevalidator } from 'react-router-dom'
 import { Ticket, Bot, FolderOpen, ChevronDown, Pause, Play, Sun, Moon, Monitor, type LucideIcon } from 'lucide-react'
 import { projectApi } from './api.js'
 import type { Project } from './types.js'
@@ -221,6 +221,7 @@ export function Shell() {
         <Breadcrumb />
 
         <main className="flex-1 min-h-0 overflow-y-auto">
+          <ScrollRestoration />
           <Outlet context={{ project, projectId: projectId!, revalidate }} />
         </main>
 

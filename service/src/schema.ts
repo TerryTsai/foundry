@@ -49,6 +49,7 @@ export type Comment = typeof comment.$inferSelect
 export const execution = sqliteTable('execution', {
   id:              text('id').primaryKey(),
   session_id:      text('session_id'),
+  tool_name:       text('tool_name'),
   command:         text('command').notNull(),
   status:          text('status').notNull().default('running'),
   exit_code:       integer('exit_code'),

@@ -411,7 +411,7 @@ export function TicketsView({ projectId }: { projectId: string }) {
               <ListRow
                 key={t.id}
                 title={t.title}
-                subtitle={[agentName(t), t.parent_id ? '↳ child' : '', fmt(t.created_at)].filter(Boolean).join(' · ')}
+                subtitle={fmt(t.created_at)}
                 status={t.status}
                 active={selected?.id === t.id}
                 onPress={() => setSelected(t)}

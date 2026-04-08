@@ -126,15 +126,44 @@ export const file = {
 // ── Tool Params ──
 
 export const tool = {
-  runCommand: z.object({
+  exec: z.object({
     command: z.string().describe('Shell command to run'),
     cwd:     z.string().optional().describe('Working directory relative to /work (default: /work)'),
     network: z.boolean().optional().describe('Enable network access (default: false)'),
   }),
-  createTicket: z.object({
-    title: z.string().describe('Ticket title'),
-    body:  z.string().describe('Ticket body in markdown'),
-    agent: z.string().describe('Agent name that should handle this ticket'),
-    block: z.boolean().describe('If true, suspend the current ticket until this child ticket is done'),
+  read: z.object({
+    path:   z.string().describe('File path relative to /work'),
+    offset: z.number().int().min(0).optional().describe('Start reading from this line number (0-based)'),
+    limit:  z.number().int().positive().optional().describe('Maximum number of lines to read'),
+  }),
+  write: z.object({
+    path:    z.string().describe('File path relative to /work'),
+    content: z.string().describe('Full file content to write'),
+  }),
+  patch: z.object({
+    path:       z.string().describe('File path relative to /work'),
+    old_string: z.string().describe('Exact string to find in the file'),
+    new_string: z.string().describe('Replacement string'),
+  }),
+  search: z.object({
+    pattern: z.string().describe('Regex pattern to search for'),
+    path:    z.string().optional().describe('Directory or file to search in, relative to /work (default: /work)'),
+    glob:    z.string().optional().describe('File glob filter (e.g. "*.ts")'),
+  }),
+  find: z.object({
+    pattern: z.string().describe('Glob pattern to match file names (e.g. "**/*.ts")'),
+    path:    z.string().optional().describe('Directory to search in, relative to /work (default: /work)'),
+  }),
+  fetch: z.object({
+    url:     z.string().describe('URL to fetch'),
+    method:  z.enum(['GET', 'POST', 'PUT', 'DELETE']).optional().describe('HTTP method (default: GET)'),
+    headers: z.record(z.string()).optional().describe('HTTP headers'),
+    body:    z.string().optional().describe('Request body'),
+  }),
+  scrape: z.object({
+    url: z.string().describe('URL of web page to scrape'),
+  }),
+  think: z.object({
+    thought: z.string().describe('Your reasoning, analysis, or planning notes'),
   }),
 }

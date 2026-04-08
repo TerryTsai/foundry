@@ -1,10 +1,9 @@
-import { useState } from 'react'
-import { useLoaderData, useParams, Link } from 'react-router-dom'
-import { ChevronRight } from 'lucide-react'
+import { useLoaderData, useParams } from 'react-router-dom'
+import { Terminal, MessageSquare, Brain, FileText } from 'lucide-react'
 import type { Session, Execution, Message } from '../../types.js'
-import { InfoGroup } from '../../components/detail/InfoGroup.js'
 import { SectionLabel } from '../../components/detail/SectionLabel.js'
 import { ActivityRow } from '../../components/detail/ActivityRow.js'
+import { DetailShell } from '../../components/layout/DetailShell.js'
 import { EmptyState } from '../../components/list/EmptyState.js'
 import { useBreadcrumbLabel } from '../../Breadcrumb.js'
 import { useShell } from '../../Shell.js'
@@ -17,19 +16,17 @@ interface SessionLoaderData {
 
 // ── Context bar ──
 
-const CTX_LIMIT = 200_000
 const fmtTokens = (n: number): string => n >= 1000 ? `${(n / 1000).toFixed(0)}k` : String(n)
 
-function ContextBar({ tokensIn }: { tokensIn: number }) {
-  const pct = Math.min((tokensIn / CTX_LIMIT) * 100, 100)
-  const color = pct >= 75 ? 'bg-red-500' : 'bg-amber-500'
+function ContextBar({ tokensIn, total }: { tokensIn: number; total: number }) {
+  const pct = total > 0 ? Math.min((tokensIn / total) * 100, 100) : 0
   return (
     <div className="flex items-center gap-2 mt-2">
       <div className="flex-1 h-0.5 rounded-full bg-zinc-200 dark:bg-zinc-800 overflow-hidden">
-        <div className={`h-full rounded-full ${color}`} style={{ width: `${pct}%` }} />
+        <div className="h-full rounded-full bg-amber-500" style={{ width: `${pct}%` }} />
       </div>
       <span className="text-[10px] text-zinc-400 dark:text-zinc-500 shrink-0 font-mono">
-        {fmtTokens(tokensIn)} / {fmtTokens(CTX_LIMIT)}
+        {fmtTokens(tokensIn)} / {fmtTokens(total)}
       </span>
     </div>
   )
@@ -37,7 +34,7 @@ function ContextBar({ tokensIn }: { tokensIn: number }) {
 
 // ── Execution body (shown when expanded) ──
 
-function ExecutionBody({ e, href }: { e: Execution; href: string }) {
+function ExecutionBody({ e }: { e: Execution }) {
   const stats = [
     e.exit_code !== null ? `exit ${e.exit_code}` : null,
     e.duration_ms !== null ? `${(e.duration_ms / 1000).toFixed(1)}s` : null,
@@ -55,9 +52,6 @@ function ExecutionBody({ e, href }: { e: Execution; href: string }) {
       {e.stderr && (
         <pre className="font-mono text-xs text-red-500 dark:text-red-400 whitespace-pre-wrap break-all leading-relaxed select-text max-h-32 overflow-auto mt-1">{e.stderr}</pre>
       )}
-      <Link to={href} className="inline-block font-mono text-[10px] text-amber-500 dark:text-amber-400 mt-2 hover:underline">
-        details →
-      </Link>
     </>
   )
 }
@@ -76,8 +70,12 @@ type TimelineEntry =
 function buildTimeline(messages: Message[], executions: Execution[]): TimelineEntry[] {
   const entries: TimelineEntry[] = []
 
+  let firstUser = true
   for (const m of messages) {
-    if (m.role === 'user') continue
+    if (m.role === 'user') {
+      if (firstUser) { firstUser = false }
+      else { continue }
+    }
     if (isJsonContent(m.content)) continue
     entries.push({ kind: 'message', data: m, at: m.created_at })
   }
@@ -87,12 +85,26 @@ function buildTimeline(messages: Message[], executions: Execution[]): TimelineEn
   }
 
   entries.sort((a, b) => a.at.localeCompare(b.at))
-  return entries
-}
 
-const roleStatus: Record<string, string> = {
-  assistant: 'assistant',
-  reasoning: 'thinking',
+  for (let i = 1; i < entries.length; i++) {
+    if (entries[i].kind !== 'message') continue
+    let j = i - 1
+    while (j >= 0 && entries[j].kind === 'execution') j--
+    const prevMsgAt = j >= 0 && entries[j].kind === 'message' ? entries[j].at : ''
+    let insertAt = i
+    for (let k = j + 1; k < i; k++) {
+      if (entries[k].kind === 'execution' && entries[k].at > prevMsgAt) {
+        insertAt = k
+        break
+      }
+    }
+    if (insertAt < i) {
+      const msg = entries.splice(i, 1)[0]
+      entries.splice(insertAt, 0, msg)
+    }
+  }
+
+  return entries
 }
 
 // ── Page ──
@@ -101,8 +113,6 @@ export function TicketSessionDetailPage() {
   const { session, executions, messages } = useLoaderData() as SessionLoaderData
   const { projectId } = useShell()
   const { ticketId, sessionId } = useParams()
-  const [promptOpen, setPromptOpen] = useState(false)
-
   const agentName = session.agent_name ?? session.agent_id
   useBreadcrumbLabel(agentName)
 
@@ -111,53 +121,27 @@ export function TicketSessionDetailPage() {
   })
   const duration = session.duration_ms !== null ? `${(session.duration_ms / 1000).toFixed(1)}s` : null
   const timeline = buildTimeline(messages, executions)
+  const peakTokensIn = messages.reduce((max, m) => m.tokens_in !== null && m.tokens_in > max ? m.tokens_in : max, 0)
   const execPath = (eId: string) => `/p/${projectId}/tickets/${ticketId}/sessions/${sessionId}/executions/${eId}`
 
   return (
-    <div className="max-w-2xl mx-auto px-4 lg:px-6 py-5 space-y-4">
-      <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{agentName}</h2>
-
-      <InfoGroup rows={[
-        { label: 'status',      value: session.status },
-        { label: 'reason',      value: session.finish_reason },
+    <DetailShell
+      type="session" id={session.id} title={agentName} status={session.status}
+      infoRows={[
         { label: 'model',       value: session.model },
+        { label: 'duration',    value: duration },
+        { label: 'cost',        value: session.cost_usd !== null ? `$${session.cost_usd.toFixed(4)}` : null },
+        { label: 'reason',      value: session.finish_reason },
         { label: 'steps',       value: session.step_count !== null ? String(session.step_count) : null },
         { label: 'tool calls',  value: session.tool_calls !== null ? String(session.tool_calls) : null },
         { label: 'tokens in',   value: session.tokens_in !== null ? session.tokens_in.toLocaleString() : null },
         { label: 'tokens out',  value: session.tokens_out !== null ? session.tokens_out.toLocaleString() : null },
-        { label: 'cost',        value: session.cost_usd !== null ? `$${session.cost_usd.toFixed(4)}` : null },
         { label: 'started',     value: ts(session.started_at) },
         { label: 'ended',       value: session.ended_at ? ts(session.ended_at) : null },
-        { label: 'duration',    value: duration },
-      ]} />
-
-      {session.system_prompt && (
-        <div>
-          <button
-            onClick={() => setPromptOpen(o => !o)}
-            className="flex items-center gap-1 w-full"
-          >
-            <ChevronRight
-              size={12} strokeWidth={2}
-              className={`text-zinc-400 dark:text-zinc-500 transition-transform ${promptOpen ? 'rotate-90' : ''}`}
-            />
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
-              system prompt
-            </span>
-            <span className="text-[10px] text-zinc-300 dark:text-zinc-600 ml-1">
-              {(session.system_prompt.length / 1000).toFixed(1)}k chars
-            </span>
-          </button>
-          {promptOpen && (
-            <pre className="font-mono text-xs text-zinc-600 dark:text-zinc-400 whitespace-pre-wrap break-words leading-relaxed select-text bg-zinc-50 dark:bg-zinc-900/50 rounded p-3 mt-2 max-h-96 overflow-auto">
-              {session.system_prompt}
-            </pre>
-          )}
-        </div>
-      )}
-
+      ]}
+    >
       {session.error && (
-        <div className="space-y-1">
+        <div>
           <SectionLabel label="error" />
           <pre className="font-mono text-xs text-red-500 dark:text-red-400 whitespace-pre-wrap break-all leading-relaxed px-4">{session.error}</pre>
         </div>
@@ -167,37 +151,50 @@ export function TicketSessionDetailPage() {
         <SectionLabel label={`activity (${timeline.length})`} />
         {timeline.length === 0
           ? <EmptyState message="no activity" />
-          : timeline.map(entry => {
-            if (entry.kind === 'execution') {
-              const e = entry.data
+          : (() => {
+            let lastTokensIn: number | null = null
+            return timeline.map(entry => {
+              if (entry.kind === 'message') {
+                lastTokensIn = entry.data.tokens_in
+              }
+              const tokensIn = entry.kind === 'message' ? entry.data.tokens_in : lastTokensIn
+              const bar = tokensIn !== null && peakTokensIn > 0 ? <ContextBar tokensIn={tokensIn} total={peakTokensIn} /> : undefined
+
+              if (entry.kind === 'execution') {
+                const e = entry.data
+                return (
+                  <ActivityRow
+                    key={`e-${e.id}`}
+                    icon={<Terminal size={14} />}
+                    label={e.tool_name ?? 'exec'}
+                    status={e.status}
+                    meta={ts(e.started_at)}
+                    body=""
+                    footer={<>{<ExecutionBody e={e} />}{bar}</>}
+                    detailHref={execPath(e.id)}
+                    detailLabel="view execution"
+                  />
+                )
+              }
+
+              const m = entry.data
+              const icon = m.role === 'reasoning' ? <Brain size={14} /> : m.role === 'user' ? <FileText size={14} /> : <MessageSquare size={14} />
+              const label = m.role === 'reasoning' ? 'thinking' : m.role === 'user' ? 'prompt' : 'message'
               return (
                 <ActivityRow
-                  key={`e-${e.id}`}
-                  label="Tool Call: run_command"
-                  status={e.status}
-                  meta={ts(e.started_at)}
-                  body=""
-                  mono
-                  footer={<ExecutionBody e={e} href={execPath(e.id)} />}
+                  key={`m-${m.id}`}
+                  icon={icon}
+                  label={label}
+                  status="done"
+                  meta={ts(m.created_at)}
+                  body={m.content}
+                  footer={bar}
                 />
               )
-            }
-
-            const m = entry.data
-            const firstLine = m.content.split('\n')[0].slice(0, 80)
-            return (
-              <ActivityRow
-                key={`m-${m.id}`}
-                label={firstLine}
-                status={roleStatus[m.role] ?? m.role}
-                meta={ts(m.created_at)}
-                body={m.content}
-                footer={m.tokens_in !== null ? <ContextBar tokensIn={m.tokens_in} /> : undefined}
-              />
-            )
-          })
+            })
+          })()
         }
       </div>
-    </div>
+    </DetailShell>
   )
 }

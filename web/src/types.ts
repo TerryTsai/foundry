@@ -76,6 +76,7 @@ export interface Session {
 export interface Execution {
   id: string
   session_id: string | null
+  tool_name: string | null
   command: string
   status: 'running' | 'done' | 'failed'
   exit_code: number | null

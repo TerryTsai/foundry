@@ -3,7 +3,7 @@ import { useNavigate, useLoaderData } from 'react-router-dom'
 import { providerApi } from '../../api.js'
 import type { Provider } from '../../types.js'
 import { useShell } from '../../Shell.js'
-import { InfoGroup } from '../../components/detail/InfoGroup.js'
+import { DetailShell } from '../../components/layout/DetailShell.js'
 import { Field } from '../../components/form/Field.js'
 import { TextInput } from '../../components/form/TextInput.js'
 import { ActionButton } from '../../components/form/ActionButton.js'
@@ -38,15 +38,14 @@ export function ProviderDetailPage() {
   })
 
   return (
-    <div className="max-w-2xl mx-auto px-4 lg:px-6 py-5 space-y-4">
-      <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{provider.name}</h2>
-
-      <InfoGroup rows={[
+    <DetailShell
+      type="provider" id={provider.id} title={provider.name}
+      infoRows={[
         { label: 'key', value: provider.api_key_preview },
         { label: 'added', value: ts(provider.created_at) },
         { label: 'updated', value: provider.updated_at !== provider.created_at ? ts(provider.updated_at) : null },
-      ]} />
-
+      ]}
+    >
       <form onSubmit={handleSave} className="space-y-4">
         {error && <div className="text-sm text-red-400">{error}</div>}
         <Field label="new api key">
@@ -58,6 +57,6 @@ export function ProviderDetailPage() {
         </div>
       </form>
       <ActionButton label="remove provider" variant="destructive" onClick={handleDelete} className="w-full" />
-    </div>
+    </DetailShell>
   )
 }

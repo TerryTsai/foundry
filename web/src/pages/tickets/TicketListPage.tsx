@@ -71,11 +71,16 @@ export function TicketListPage() {
         >
           {filtered.length === 0 ? (
             <EmptyState message="no tickets" />
-          ) : filtered.map(t => (
-            <Link key={t.id} to={`/p/${projectId}/tickets/${t.id}`} className="block">
-              <ListRow title={t.title} status={t.status} />
-            </Link>
-          ))}
+          ) : filtered.map(t => {
+            const date = new Date(t.created_at).toLocaleString(undefined, {
+              month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+            })
+            return (
+              <Link key={t.id} to={`/p/${projectId}/tickets/${t.id}`} className="block">
+                <ListRow title={t.title} subtitle={date} status={t.status} />
+              </Link>
+            )
+          })}
         </PageShell>
       </div>
     </div>

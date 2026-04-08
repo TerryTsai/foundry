@@ -1,12 +1,22 @@
 import type { Provider, Project, Ticket, Comment, Agent, Session, Execution } from './types.js'
 
+const cache = new Map<string, { data: unknown; at: number }>()
+const CACHE_TTL = 30_000 // 30 seconds
+
 async function get<T>(url: string): Promise<T> {
+  const cached = cache.get(url)
+  if (cached && Date.now() - cached.at < CACHE_TTL) return cached.data as T
   const res = await fetch(url)
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
-  return res.json() as Promise<T>
+  const data = await res.json() as T
+  cache.set(url, { data, at: Date.now() })
+  return data
 }
 
+function bustCache() { cache.clear() }
+
 async function post<T>(url: string, body?: unknown): Promise<T> {
+  bustCache()
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -17,6 +27,7 @@ async function post<T>(url: string, body?: unknown): Promise<T> {
 }
 
 async function put<T>(url: string, body: unknown): Promise<T> {
+  bustCache()
   const res = await fetch(url, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
@@ -27,6 +38,7 @@ async function put<T>(url: string, body: unknown): Promise<T> {
 }
 
 async function del<T>(url: string): Promise<T> {
+  bustCache()
   const res = await fetch(url, { method: 'DELETE' })
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
   return res.json() as Promise<T>

@@ -73,7 +73,7 @@ export const ticket = {
       const row = assertStatus(require(tx.ticket.get(id)), 'claimed')
       tx.ticket.update(id, { status: 'done', updated_at: now() })
       const author = opts?.agentName ?? 'system'
-      const body = opts?.notes ?? 'Session completed'
+      const body = opts?.notes ? `Session completed\n${opts.notes}` : 'Session completed'
       tx.comment.insert({ ticket_id: id, session_id: opts?.sessionId ?? null, author, body, created_at: now() })
       if (row.parent_id && tx.ticket.get(row.parent_id)?.status === 'blocked') {
         tx.ticket.update(row.parent_id, { status: 'open', updated_at: now() })
@@ -85,7 +85,7 @@ export const ticket = {
     assertStatus(require(db.ticket.get(id)), 'claimed')
     const row = db.ticket.update(id, { status: 'failed', updated_at: now() })
     const author = opts?.agentName ?? 'system'
-    const body = opts?.notes ?? 'Session failed'
+    const body = opts?.notes ? `Session failed\n${opts.notes}` : 'Session failed'
     db.comment.insert({ ticket_id: id, session_id: opts?.sessionId ?? null, author, body, created_at: now() })
     return row
   },
@@ -362,10 +362,10 @@ export const execution = {
   },
 
   create: (db: Db, config: Config) =>
-    (input: { command: string; session_id?: string | undefined; timeout_ms?: number | undefined; memory_mb?: number | undefined; network?: boolean | undefined; workspace?: string | undefined }) => {
-      const { command, session_id, timeout_ms = config.sandboxTimeout, memory_mb, network = false } = input
+    (input: { command: string; session_id?: string | undefined; tool_name?: string | undefined; timeout_ms?: number | undefined; memory_mb?: number | undefined; network?: boolean | undefined; workspace?: string | undefined }) => {
+      const { command, session_id, tool_name, timeout_ms = config.sandboxTimeout, memory_mb, network = false } = input
       const row = db.execution.insert({
-        session_id: session_id ?? null, command,
+        session_id: session_id ?? null, tool_name: tool_name ?? null, command,
         status: 'running', timeout_ms, memory_mb: memory_mb ?? null,
         started_at: now(),
       })

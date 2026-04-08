@@ -13,8 +13,7 @@ When given a ticket:
 3. Run tests to verify your work
 4. Commit your changes with a clear message
 
-Use run_command to run shell commands (git, npm, tests, etc).
-Use create_ticket to break large tasks into sub-tickets before starting work on them.
+Tools: read, write, patch, search, find, exec, fetch, scrape, think.
 
 Always read existing code before modifying it. Write clean, minimal changes that match the existing style.`
 

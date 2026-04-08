@@ -6,7 +6,9 @@ import { StatusBadge } from '../StatusBadge.js'
 
 interface ActivityRowProps {
   label: string
-  labelHref?: string
+  icon?: React.ReactNode
+  detailHref?: string
+  detailLabel?: string
   status?: string
   meta?: string
   body: string
@@ -14,11 +16,12 @@ interface ActivityRowProps {
   footer?: React.ReactNode
 }
 
-export function ActivityRow({ label, labelHref, status, meta, body, mono, footer }: ActivityRowProps) {
+export function ActivityRow({ label, icon, detailHref, detailLabel, status, meta, body, mono, footer }: ActivityRowProps) {
   const [expanded, setExpanded] = useState(false)
 
   const row = (
     <div className="flex items-center gap-3">
+      {icon && <div className="shrink-0 text-zinc-400 dark:text-zinc-500">{icon}</div>}
       <div className="flex-1 min-w-0">
         <div className={`truncate leading-snug ${mono ? 'font-mono text-xs text-zinc-900 dark:text-zinc-100' : 'text-sm text-zinc-900 dark:text-zinc-100'}`}>
           {label}
@@ -35,7 +38,7 @@ export function ActivityRow({ label, labelHref, status, meta, body, mono, footer
   )
 
   return (
-    <div className="border-b border-zinc-100 dark:border-zinc-800/50">
+    <div className="border-b border-zinc-100 dark:border-zinc-800/50 last:border-b-0">
       <button
         onClick={() => setExpanded(e => !e)}
         className="w-full text-left px-4 py-3 active:bg-zinc-100 dark:active:bg-zinc-900/70"
@@ -45,9 +48,12 @@ export function ActivityRow({ label, labelHref, status, meta, body, mono, footer
 
       {expanded && (
         <div className="px-4 pb-3 -mt-1">
-          {labelHref && (
-            <Link to={labelHref} className="inline-block font-mono text-[10px] text-amber-500 dark:text-amber-400 mb-2 hover:underline">
-              view session →
+          {detailHref && (
+            <Link
+              to={detailHref}
+              className="inline-block font-mono text-[10px] text-amber-500 dark:text-amber-400 mb-2 hover:underline"
+            >
+              {detailLabel ?? 'details'} →
             </Link>
           )}
           {body ? (

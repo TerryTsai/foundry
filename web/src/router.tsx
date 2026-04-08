@@ -15,7 +15,6 @@ import { ProjectEditPage } from './pages/projects/ProjectEditPage.js'
 import { TicketListPage } from './pages/tickets/TicketListPage.js'
 import { TicketNewPage } from './pages/tickets/TicketNewPage.js'
 import { TicketDetailPage } from './pages/tickets/TicketDetailPage.js'
-import { TicketSessionsPage } from './pages/tickets/TicketSessionsPage.js'
 import { TicketSessionDetailPage } from './pages/tickets/TicketSessionDetailPage.js'
 import { ExecutionDetailPage } from './pages/tickets/ExecutionDetailPage.js'
 import { AgentListPage } from './pages/agents/AgentListPage.js'
@@ -80,8 +79,7 @@ export const router = createBrowserRouter([
                     agentApi.list(pid(params)),
                     commentApi.list(params.ticketId!),
                   ])
-                  const chain = await ticketApi.chain(params.ticketId!).catch(() => [])
-                  return { ticket, agents, comments, chain }
+                  return { ticket, agents, comments }
                 },
               },
               {
@@ -89,11 +87,6 @@ export const router = createBrowserRouter([
                 element: <Passthrough />,
                 handle: { crumb: 'Sessions' },
                 children: [
-                  {
-                    index: true,
-                    element: <TicketSessionsPage />,
-                    loader: ({ params }) => sessionApi.byTicket(params.ticketId!),
-                  },
                   {
                     path: ':sessionId',
                     element: <Passthrough />,

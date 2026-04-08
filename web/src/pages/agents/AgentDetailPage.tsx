@@ -3,7 +3,7 @@ import { useNavigate, useLoaderData } from 'react-router-dom'
 import { agentApi } from '../../api.js'
 import type { Agent } from '../../types.js'
 import { useShell } from '../../Shell.js'
-import { InfoGroup } from '../../components/detail/InfoGroup.js'
+import { DetailShell } from '../../components/layout/DetailShell.js'
 import { Field } from '../../components/form/Field.js'
 import { TextInput } from '../../components/form/TextInput.js'
 import { TextArea } from '../../components/form/TextArea.js'
@@ -49,18 +49,25 @@ export function AgentDetailPage() {
   })
 
   return (
-    <div className="max-w-2xl mx-auto px-4 lg:px-6 py-5 space-y-4">
-      <div className="flex items-start justify-between gap-2">
-        <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{agent.name}</h2>
-        {!editing && (
-          <button onClick={() => setEditing(true)}
-            className="text-xs text-zinc-400 dark:text-zinc-500 active:text-zinc-900 dark:active:text-zinc-100 shrink-0">
-            edit
-          </button>
-        )}
-      </div>
-
-      {editing ? (
+    <DetailShell
+      type="agent" id={agent.id} title={agent.name}
+      subtitle={!editing ? agent.prompt : undefined}
+      actions={!editing ? (
+        <button onClick={() => setEditing(true)}
+          className="text-xs text-zinc-400 dark:text-zinc-500 active:text-zinc-900 dark:active:text-zinc-100 shrink-0">
+          edit
+        </button>
+      ) : undefined}
+      infoRows={!editing ? [
+        { label: 'model',       value: agent.model },
+        { label: 'temperature', value: agent.temperature !== null ? String(agent.temperature) : 'default' },
+        { label: 'max steps',   value: String(agent.max_steps) },
+        { label: 'max tokens',  value: String(agent.max_tokens) },
+        { label: 'created',     value: ts(agent.created_at) },
+        { label: 'updated',     value: agent.updated_at !== agent.created_at ? ts(agent.updated_at) : null },
+      ] : []}
+    >
+      {editing && (
         <form onSubmit={handleSave} className="space-y-4">
           {error && <div className="text-sm text-red-400">{error}</div>}
           <Field label="model">
@@ -85,24 +92,11 @@ export function AgentDetailPage() {
             <ActionButton label="save" type="submit" className="flex-1" />
           </div>
         </form>
-      ) : (
-        <>
-          <InfoGroup rows={[
-            { label: 'model',       value: agent.model },
-            { label: 'temperature', value: agent.temperature !== null ? String(agent.temperature) : 'default' },
-            { label: 'max tokens',  value: String(agent.max_tokens) },
-            { label: 'max steps',   value: String(agent.max_steps) },
-            { label: 'created',     value: ts(agent.created_at) },
-            { label: 'updated',     value: agent.updated_at !== agent.created_at ? ts(agent.updated_at) : null },
-          ]} />
-
-          {agent.prompt && (
-            <div className="text-sm text-zinc-700 dark:text-zinc-300 whitespace-pre-wrap">{agent.prompt}</div>
-          )}
-
-          <ActionButton label="delete agent" variant="destructive" onClick={handleDelete} className="w-full" />
-        </>
       )}
-    </div>
+
+      {!editing && (
+        <ActionButton label="delete agent" variant="destructive" onClick={handleDelete} className="w-full" />
+      )}
+    </DetailShell>
   )
 }
