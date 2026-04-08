@@ -89,10 +89,11 @@ export function AgentDetailPage() {
         <>
           <InfoGroup rows={[
             { label: 'model',       value: agent.model },
+            { label: 'temperature', value: agent.temperature !== null ? String(agent.temperature) : 'default' },
             { label: 'max tokens',  value: String(agent.max_tokens) },
             { label: 'max steps',   value: String(agent.max_steps) },
-            { label: 'temperature', value: agent.temperature !== null ? String(agent.temperature) : 'default' },
             { label: 'created',     value: ts(agent.created_at) },
+            { label: 'updated',     value: agent.updated_at !== agent.created_at ? ts(agent.updated_at) : null },
           ]} />
 
           {agent.prompt && (

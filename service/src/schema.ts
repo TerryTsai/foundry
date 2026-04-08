@@ -47,18 +47,23 @@ export type Comment = typeof comment.$inferSelect
 // ── Execution ──
 
 export const execution = sqliteTable('execution', {
-  id:          text('id').primaryKey(),
-  session_id:  text('session_id'),
-  command:     text('command').notNull(),
-  status:      text('status').notNull().default('running'),
-  exit_code:   integer('exit_code'),
-  stdout:      text('stdout'),
-  stderr:      text('stderr'),
-  duration_ms: integer('duration_ms'),
-  timeout_ms:  integer('timeout_ms').notNull(),
-  memory_mb:   integer('memory_mb'),
-  started_at:  text('started_at').notNull(),
-  ended_at:    text('ended_at'),
+  id:              text('id').primaryKey(),
+  session_id:      text('session_id'),
+  command:         text('command').notNull(),
+  status:          text('status').notNull().default('running'),
+  exit_code:       integer('exit_code'),
+  exit_signal:     text('exit_signal'),
+  stdout:          text('stdout'),
+  stderr:          text('stderr'),
+  duration_ms:     integer('duration_ms'),
+  timeout_ms:      integer('timeout_ms').notNull(),
+  memory_mb:       integer('memory_mb'),
+  peak_memory_mb:  real('peak_memory_mb'),
+  cpu_ms:          integer('cpu_ms'),
+  net_rx_bytes:    integer('net_rx_bytes'),
+  net_tx_bytes:    integer('net_tx_bytes'),
+  started_at:      text('started_at').notNull(),
+  ended_at:        text('ended_at'),
 })
 
 export type Execution = typeof execution.$inferSelect
@@ -94,18 +99,21 @@ export type NewProject = typeof project.$inferInsert
 // ── Session ──
 
 export const session = sqliteTable('session', {
-  id:          text('id').primaryKey(),
-  ticket_id:   text('ticket_id').notNull(),
-  agent_id:    text('agent_id').notNull().references(() => agent.id),
-  status:      text('status').notNull().default('running'),
-  model:       text('model').notNull(),
-  error:       text('error'),
-  tokens_in:   integer('tokens_in'),
-  tokens_out:  integer('tokens_out'),
-  cost_usd:    real('cost_usd'),
-  duration_ms: integer('duration_ms'),
-  started_at:  text('started_at').notNull(),
-  ended_at:    text('ended_at'),
+  id:            text('id').primaryKey(),
+  ticket_id:     text('ticket_id').notNull(),
+  agent_id:      text('agent_id').notNull().references(() => agent.id),
+  status:        text('status').notNull().default('running'),
+  model:         text('model').notNull(),
+  error:         text('error'),
+  tokens_in:     integer('tokens_in'),
+  tokens_out:    integer('tokens_out'),
+  cost_usd:      real('cost_usd'),
+  duration_ms:   integer('duration_ms'),
+  step_count:    integer('step_count'),
+  tool_calls:    integer('tool_calls'),
+  finish_reason: text('finish_reason'),
+  started_at:    text('started_at').notNull(),
+  ended_at:      text('ended_at'),
 })
 
 export type Session = typeof session.$inferSelect

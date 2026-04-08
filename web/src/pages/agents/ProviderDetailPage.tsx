@@ -44,6 +44,7 @@ export function ProviderDetailPage() {
       <InfoGroup rows={[
         { label: 'key', value: provider.api_key_preview },
         { label: 'added', value: ts(provider.created_at) },
+        { label: 'updated', value: provider.updated_at !== provider.created_at ? ts(provider.updated_at) : null },
       ]} />
 
       <form onSubmit={handleSave} className="space-y-4">

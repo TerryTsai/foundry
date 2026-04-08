@@ -127,12 +127,18 @@ export const runAgentSession = (db: Db, config: Config) =>
         console.error(`session ${sessionId}: push failed:`, err)
       }
 
+      const stepCount = result.steps?.length ?? null
+      const toolCallCount = result.steps?.reduce((sum, s) => sum + (s.toolCalls?.length ?? 0), 0) ?? null
+
       domain.ticket.complete(db)(ticketData.id, { ...(result.text ? { notes: result.text } : {}), agentName: agentDef.name, sessionId })
       db.session.update(sessionId, {
         status: 'done', ended_at: now(),
         tokens_in: result.usage?.inputTokens ?? null,
         tokens_out: result.usage?.outputTokens ?? null,
         duration_ms: Date.now() - startTime,
+        step_count: stepCount,
+        tool_calls: toolCallCount,
+        finish_reason: result.finishReason ?? null,
       })
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)

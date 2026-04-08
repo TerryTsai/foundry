@@ -129,12 +129,17 @@ export function TicketDetailPage() {
 
       <InfoGroup rows={[
         { label: 'status',   value: ticket.status },
-        { label: 'agent',    value: agentName },
-        { label: 'created',  value: ts(ticket.created_at) },
         { label: 'priority', value: ticket.priority > 0 ? String(ticket.priority) : null },
+        { label: 'agent',    value: agentName },
         ...(sessionCount !== null && sessionCount > 0
           ? [{ label: 'sessions', value: sessionCount, href: `/p/${projectId}/tickets/${ticket.id}/sessions` }]
           : []),
+        ...(ticket.parent_id
+          ? [{ label: 'parent', value: 'view parent →', href: `/p/${projectId}/tickets/${ticket.parent_id}` }]
+          : []),
+        { label: 'created',  value: `${ticket.created_by} · ${ts(ticket.created_at)}` },
+        { label: 'claimed',  value: ticket.claimed_at ? ts(ticket.claimed_at) : null },
+        { label: 'updated',  value: ticket.updated_at !== ticket.created_at ? ts(ticket.updated_at) : null },
       ]} />
 
       <CommentsSection projectId={projectId} ticketId={ticket.id} initial={comments} />

@@ -39,11 +39,7 @@ export function ActivityRow({ label, labelHref, status, meta, body, mono }: Acti
         onClick={() => setExpanded(e => !e)}
         className="w-full text-left px-4 py-3 active:bg-zinc-100 dark:active:bg-zinc-900/70"
       >
-        {labelHref ? (
-          <div onClick={e => e.stopPropagation()}>
-            {row}
-          </div>
-        ) : row}
+        {row}
       </button>
 
       {expanded && (

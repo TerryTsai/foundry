@@ -33,10 +33,17 @@ export function TicketSessionDetailPage() {
       <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{agentName}</h2>
 
       <InfoGroup rows={[
-        { label: 'status',   value: session.status },
-        { label: 'model',    value: session.model },
-        { label: 'started',  value: ts(session.started_at) },
-        { label: 'duration', value: duration },
+        { label: 'status',      value: session.status },
+        { label: 'reason',      value: session.finish_reason },
+        { label: 'model',       value: session.model },
+        { label: 'steps',       value: session.step_count !== null ? String(session.step_count) : null },
+        { label: 'tool calls',  value: session.tool_calls !== null ? String(session.tool_calls) : null },
+        { label: 'tokens in',   value: session.tokens_in !== null ? session.tokens_in.toLocaleString() : null },
+        { label: 'tokens out',  value: session.tokens_out !== null ? session.tokens_out.toLocaleString() : null },
+        { label: 'cost',        value: session.cost_usd !== null ? `$${session.cost_usd.toFixed(4)}` : null },
+        { label: 'started',     value: ts(session.started_at) },
+        { label: 'ended',       value: session.ended_at ? ts(session.ended_at) : null },
+        { label: 'duration',    value: duration },
       ]} />
 
       {session.error && (

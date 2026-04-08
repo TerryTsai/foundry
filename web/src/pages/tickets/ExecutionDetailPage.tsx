@@ -6,6 +6,12 @@ import { useBreadcrumbLabel } from '../../Breadcrumb.js'
 
 const codeCls = 'font-mono text-xs text-zinc-600 dark:text-zinc-400 whitespace-pre-wrap break-all leading-relaxed select-text bg-zinc-50 dark:bg-zinc-900/50 rounded p-3 mx-4 max-h-96 overflow-auto'
 
+const fmtBytes = (b: number): string =>
+  b >= 1e9 ? `${(b / 1e9).toFixed(1)} GB`
+  : b >= 1e6 ? `${(b / 1e6).toFixed(1)} MB`
+  : b >= 1024 ? `${(b / 1024).toFixed(1)} KB`
+  : `${b} B`
+
 export function ExecutionDetailPage() {
   const execution = useLoaderData() as Execution
 
@@ -24,8 +30,14 @@ export function ExecutionDetailPage() {
       <InfoGroup rows={[
         { label: 'status',    value: execution.status },
         { label: 'exit code', value: execution.exit_code !== null ? String(execution.exit_code) : null },
-        { label: 'started',   value: ts(execution.started_at) },
+        { label: 'signal',    value: execution.exit_signal },
         { label: 'duration',  value: duration },
+        { label: 'cpu',       value: execution.cpu_ms !== null ? `${(execution.cpu_ms / 1000).toFixed(2)}s` : null },
+        { label: 'memory',    value: execution.peak_memory_mb !== null ? `${execution.peak_memory_mb.toFixed(1)} MB` : execution.memory_mb !== null ? `${execution.memory_mb} MB limit` : null },
+        { label: 'timeout',   value: `${(execution.timeout_ms / 1000).toFixed(0)}s` },
+        { label: 'net in',    value: execution.net_rx_bytes !== null ? fmtBytes(execution.net_rx_bytes) : null },
+        { label: 'net out',   value: execution.net_tx_bytes !== null ? fmtBytes(execution.net_tx_bytes) : null },
+        { label: 'started',   value: ts(execution.started_at) },
       ]} />
 
       {execution.command.includes('\n') && (

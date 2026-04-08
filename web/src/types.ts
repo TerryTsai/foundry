@@ -65,6 +65,9 @@ export interface Session {
   tokens_out: number | null
   cost_usd: number | null
   duration_ms: number | null
+  step_count: number | null
+  tool_calls: number | null
+  finish_reason: string | null
   started_at: string
   ended_at: string | null
 }
@@ -75,11 +78,16 @@ export interface Execution {
   command: string
   status: 'running' | 'done' | 'failed'
   exit_code: number | null
+  exit_signal: string | null
   stdout: string | null
   stderr: string | null
   duration_ms: number | null
   timeout_ms: number
   memory_mb: number | null
+  peak_memory_mb: number | null
+  cpu_ms: number | null
+  net_rx_bytes: number | null
+  net_tx_bytes: number | null
   started_at: string
   ended_at: string | null
 }

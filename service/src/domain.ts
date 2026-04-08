@@ -382,13 +382,18 @@ export const execution = {
       const stderrBuf: string[] = []
       handle.emitter.on('stdout', (line: string) => stdoutBuf.push(line))
       handle.emitter.on('stderr', (line: string) => stderrBuf.push(line))
-      handle.emitter.on('exit', (code: number) => {
+      handle.emitter.on('exit', (code: number, stats: import('./runner.js').ContainerStats | null) => {
         db.execution.update(row.id, {
           status: code === 0 ? 'done' : 'failed',
           exit_code: code, ended_at: now(),
           duration_ms: Date.now() - startTime,
           stdout: stdoutBuf.join('\n') || null,
           stderr: stderrBuf.join('\n') || null,
+          exit_signal: stats?.exitSignal ?? null,
+          peak_memory_mb: stats?.peakMemoryMb ?? null,
+          cpu_ms: stats?.cpuMs ?? null,
+          net_rx_bytes: stats?.netRxBytes ?? null,
+          net_tx_bytes: stats?.netTxBytes ?? null,
         })
         activeRuns.delete(row.id)
       })
@@ -448,10 +453,10 @@ export const scheduler = {
 
     if (claimed.length >= proj.concurrency_limit) return
 
-    for (const t of open.slice(0, proj.concurrency_limit - claimed.length)) {
-      if (!t.agent_id) continue
-      const def = agents.find(a => a.id === t.agent_id)
-      if (!def) continue
+    const eligible = open.filter(t => t.agent_id && agents.find(a => a.id === t.agent_id))
+
+    for (const t of eligible.slice(0, proj.concurrency_limit - claimed.length)) {
+      const def = agents.find(a => a.id === t.agent_id)!
       try { ticket.claim(db)(t.id) } catch { continue }
 
       const row = db.session.insert({
