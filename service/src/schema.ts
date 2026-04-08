@@ -36,6 +36,7 @@ export type NewAgent = typeof agent.$inferInsert
 export const comment = sqliteTable('comment', {
   id:         text('id').primaryKey(),
   ticket_id:  text('ticket_id').notNull().references(() => ticket.id),
+  session_id: text('session_id'),
   author:     text('author').notNull(),
   body:       text('body').notNull(),
   created_at: text('created_at').notNull(),

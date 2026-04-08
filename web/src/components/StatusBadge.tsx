@@ -7,6 +7,8 @@ const dotColor: Record<string, string> = {
   active:  'bg-emerald-400',
   archived: 'bg-zinc-400',
   running: 'bg-sky-400',
+  agent:   'bg-amber-400',
+  founder: 'bg-sky-400',
 }
 
 export function StatusBadge({ status }: { status: string }) {

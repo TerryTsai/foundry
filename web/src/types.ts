@@ -34,6 +34,7 @@ export interface Ticket {
 export interface Comment {
   id: string
   ticket_id: string
+  session_id: string | null
   author: string
   body: string
   created_at: string

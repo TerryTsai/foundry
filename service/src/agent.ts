@@ -96,6 +96,9 @@ export const runAgentSession = (db: Db, config: Config) =>
       const system = buildSystemPrompt(agentDef.prompt, agentMd, chain, ticketData)
       const tools = makeTools(db, config, sessionId, ticketData.project_id, ticketData.id, agentDef.name, workDir)
 
+      // Log session start as a comment on the ticket
+      domain.comment.create(db)(ticketData.id, { author: agentDef.name, body: 'Session started', session_id: sessionId })
+
       domain.session.message(db)(sessionId, 'user', ticketData.body)
 
       const result = await generateText({
@@ -124,7 +127,7 @@ export const runAgentSession = (db: Db, config: Config) =>
         console.error(`session ${sessionId}: push failed:`, err)
       }
 
-      domain.ticket.complete(db)(ticketData.id, result.text || undefined)
+      domain.ticket.complete(db)(ticketData.id, { ...(result.text ? { notes: result.text } : {}), agentName: agentDef.name, sessionId })
       db.session.update(sessionId, {
         status: 'done', ended_at: now(),
         tokens_in: result.usage?.inputTokens ?? null,
@@ -133,7 +136,7 @@ export const runAgentSession = (db: Db, config: Config) =>
       })
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
-      try { domain.ticket.fail(db)(ticketData.id, msg) } catch { /* ticket may already be done */ }
+      try { domain.ticket.fail(db)(ticketData.id, { notes: msg, agentName: agentDef.name, sessionId }) } catch { /* ticket may already be done */ }
       db.session.update(sessionId, {
         status: 'failed', error: msg, ended_at: now(),
         duration_ms: Date.now() - startTime,

@@ -68,25 +68,25 @@ export const ticket = {
       return tx.ticket.update(id, { status: 'claimed', claimed_at: now(), updated_at: now() })
     }),
 
-  complete: (db: Db) => (id: string, notes?: string): Ticket =>
+  complete: (db: Db) => (id: string, opts?: { notes?: string; agentName?: string; sessionId?: string }): Ticket =>
     db.tx(tx => {
       const row = assertStatus(require(tx.ticket.get(id)), 'claimed')
       tx.ticket.update(id, { status: 'done', updated_at: now() })
-      if (notes) {
-        tx.comment.insert({ ticket_id: id, author: 'system', body: notes, created_at: now() })
-      }
+      const author = opts?.agentName ?? 'system'
+      const body = opts?.notes ?? 'Session completed'
+      tx.comment.insert({ ticket_id: id, session_id: opts?.sessionId ?? null, author, body, created_at: now() })
       if (row.parent_id && tx.ticket.get(row.parent_id)?.status === 'blocked') {
         tx.ticket.update(row.parent_id, { status: 'open', updated_at: now() })
       }
       return require(tx.ticket.get(id))
     }),
 
-  fail: (db: Db) => (id: string, notes?: string): Ticket => {
+  fail: (db: Db) => (id: string, opts?: { notes?: string; agentName?: string; sessionId?: string }): Ticket => {
     assertStatus(require(db.ticket.get(id)), 'claimed')
     const row = db.ticket.update(id, { status: 'failed', updated_at: now() })
-    if (notes) {
-      db.comment.insert({ ticket_id: id, author: 'system', body: notes, created_at: now() })
-    }
+    const author = opts?.agentName ?? 'system'
+    const body = opts?.notes ?? 'Session failed'
+    db.comment.insert({ ticket_id: id, session_id: opts?.sessionId ?? null, author, body, created_at: now() })
     return row
   },
 
@@ -121,9 +121,9 @@ export const comment = {
     return db.comment.byTicket(ticketId)
   },
 
-  create: (db: Db) => (ticketId: string, input: z.infer<typeof v.comment.create>): Comment => {
+  create: (db: Db) => (ticketId: string, input: { author: string; body: string; session_id?: string }): Comment => {
     require(db.ticket.get(ticketId))
-    return db.comment.insert({ ticket_id: ticketId, author: input.author, body: input.body, created_at: now() })
+    return db.comment.insert({ ticket_id: ticketId, session_id: input.session_id ?? null, author: input.author, body: input.body, created_at: now() })
   },
 }
 
@@ -376,11 +376,19 @@ export const execution = {
         image: config.sandboxImage, env: {},
         network, timeoutMs: timeout_ms,
       })
+      const startTime = Date.now()
       activeRuns.set(row.id, handle)
+      const stdoutBuf: string[] = []
+      const stderrBuf: string[] = []
+      handle.emitter.on('stdout', (line: string) => stdoutBuf.push(line))
+      handle.emitter.on('stderr', (line: string) => stderrBuf.push(line))
       handle.emitter.on('exit', (code: number) => {
         db.execution.update(row.id, {
           status: code === 0 ? 'done' : 'failed',
           exit_code: code, ended_at: now(),
+          duration_ms: Date.now() - startTime,
+          stdout: stdoutBuf.join('\n') || null,
+          stderr: stderrBuf.join('\n') || null,
         })
         activeRuns.delete(row.id)
       })

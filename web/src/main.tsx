@@ -1,15 +1,17 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
+import { RouterProvider } from 'react-router-dom'
 import './index.css'
-import { App } from './App.js'
-
-const root = document.getElementById('root')!
+import { router } from './router.js'
 import { ThemeProvider } from './theme.js'
+import { BreadcrumbProvider } from './Breadcrumb.js'
 
-createRoot(root).render(
+createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ThemeProvider>
-      <App />
+      <BreadcrumbProvider>
+        <RouterProvider router={router} />
+      </BreadcrumbProvider>
     </ThemeProvider>
   </StrictMode>
 )

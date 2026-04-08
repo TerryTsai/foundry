@@ -78,6 +78,7 @@ export const commentApi = {
 
 // Sessions
 export const sessionApi = {
+  get: (id: string) => get<Session>(`/session/${id}`),
   byTicket: (ticketId: string) => get<Session[]>(`/ticket/${ticketId}/session`),
   executions: (sessionId: string) => get<Execution[]>(`/session/${sessionId}/execution`),
 }
@@ -91,6 +92,11 @@ export const agentApi = {
   update: (id: string, data: { model?: string; prompt?: string; max_tokens?: number; max_steps?: number; temperature?: number }) =>
     put<Agent>(`/agent/${id}`, data),
   delete: (id: string) => del<{ ok: boolean }>(`/agent/${id}`),
+}
+
+// Executions
+export const executionApi = {
+  get: (id: string) => get<Execution>(`/execution/${id}`),
 }
 
 // Logs

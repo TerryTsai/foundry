@@ -65,7 +65,7 @@
   line-height: 1.3;
 }
 .prose-zinc h1 { font-size: 1.5rem; }
-.prose-zinc h2 { font-size: 1.2rem; border-bottom: 1px solid #27272a; padding-bottom: 0.3em; }
+.prose-zinc h2 { font-size: 1.2rem; }
 .prose-zinc h3 { font-size: 1rem; }
 
 .prose-zinc p  { margin: 0.75em 0; }
@@ -167,7 +167,6 @@
 :root:not(.dark) .prose-zinc h1,
 :root:not(.dark) .prose-zinc h2,
 :root:not(.dark) .prose-zinc h3                    { color: #18181b; }
-:root:not(.dark) .prose-zinc h2                    { border-color: #e4e4e7; }
 :root:not(.dark) .prose-zinc strong                { color: #18181b; }
 :root:not(.dark) .prose-zinc em                    { color: #3f3f46; }
 :root:not(.dark) .prose-zinc code                  { color: #0891b2; background: #f4f4f5; border-color: #e4e4e7; }
