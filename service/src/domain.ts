@@ -21,7 +21,7 @@ const ts = () => { const t = now(); return { created_at: t, updated_at: t } }
 // PROJECT
 // ════════════════════════════════════════════════════════════════════════════
 
-export const project = {
+const project = {
   list: (db: Db) => (filters: z.infer<typeof v.project.list>): Project[] => {
     const conditions = filters.status ? [db.eq(db.col.project.status, filters.status)] : []
     return db.project.all(conditions)
@@ -71,7 +71,7 @@ const maskKey = (key: string): string => {
   return key.slice(0, 4) + '...' + key.slice(-4)
 }
 
-export const provider = {
+const provider = {
   list: (db: Db) => (): (Omit<Provider, 'api_key'> & { api_key_preview: string })[] =>
     db.provider.all().map(({ api_key, ...rest }) => ({ ...rest, api_key_preview: maskKey(api_key) })),
 
@@ -97,7 +97,7 @@ export const provider = {
 
 const intervals = new Map<string, ReturnType<typeof setInterval>>()
 
-export const scheduler = {
+const scheduler = {
   dispatch: (db: Db) => async (projectId: string): Promise<void> => {
     const proj = db.project.get(projectId)
     if (!proj || proj.status !== 'active') return
@@ -167,12 +167,7 @@ export const scheduler = {
 // TICKETING
 // ════════════════════════════════════════════════════════════════════════════
 
-export interface TicketChainEntry {
-  id: string; title: string; body: string
-  agent_id: string | null; status: string
-}
-
-export const ticket = {
+const ticket = {
   list: (db: Db) => (filters: z.infer<typeof v.ticket.list>): Ticket[] => {
     const { eq, isNull, col } = db
     const conditions = [
@@ -261,7 +256,7 @@ export const ticket = {
   },
 }
 
-export const comment = {
+const comment = {
   list: (db: Db) => (ticketId: string): Comment[] => {
     require(db.ticket.get(ticketId))
     return db.comment.byTicket(ticketId)
@@ -277,7 +272,7 @@ export const comment = {
 // AGENT
 // ════════════════════════════════════════════════════════════════════════════
 
-export const agent = {
+const agent = {
   list: (db: Db) => (filters: z.infer<typeof v.agent.list>): Agent[] => {
     const conditions = filters.projectId ? [db.eq(db.col.agent.project_id, filters.projectId)] : []
     return db.agent.all(conditions)
@@ -314,7 +309,7 @@ export const agent = {
   },
 }
 
-export const session = {
+const session = {
   get: (db: Db) => (id: string): Session =>
     require(db.session.get(id)),
 
@@ -368,7 +363,7 @@ export const session = {
 
 const activeRuns = new Map<string, RunHandle>()
 
-export const execution = {
+const execution = {
   list: (db: Db) => (): Execution[] =>
     db.execution.all().reverse().slice(0, 200),
 
@@ -469,7 +464,7 @@ const gitExec = async (args: string[], cwd: string): Promise<string> => {
 const bareDir = (repoBase: string, slug: string): string =>
   join(repoBase, `${slug}.git`)
 
-export const file = {
+const file = {
   list: (repoBase: string) => async (slug: string): Promise<string[]> => {
     try {
       const out = await gitExec(['ls-tree', '-r', 'HEAD', '--name-only'], bareDir(repoBase, slug))
@@ -511,5 +506,15 @@ export const file = {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
+// TYPES
+// ════════════════════════════════════════════════════════════════════════════
 
-export default { ticket, comment, project, provider, agent, session, file, execution, scheduler }
+export interface TicketChainEntry {
+  id: string; title: string; body: string
+  agent_id: string | null; status: string
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+
+const domain = { ticket, comment, project, provider, agent, session, file, execution, scheduler }
+export default domain
