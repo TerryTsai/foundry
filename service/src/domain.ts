@@ -397,6 +397,12 @@ const execution = {
         command, workspace,
         image: config.sandboxImage, env: {},
         network, timeoutMs: timeout_ms,
+        memoryMb:   memory_mb ?? config.sandboxMemoryMb,
+        cpus:       config.sandboxCpus,
+        pidsLimit:  config.sandboxPidsLimit,
+        nofileSoft: config.sandboxNofileSoft,
+        nofileHard: config.sandboxNofileHard,
+        tmpfsMb:    config.sandboxTmpfsMb,
       })
       const startTime = Date.now()
       activeRuns.set(row.id, handle)

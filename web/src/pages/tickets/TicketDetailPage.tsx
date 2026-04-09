@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate, useLoaderData, useRevalidator } from 'react-router-dom'
 import { User, Bot, Info } from 'lucide-react'
-import { ticketApi, commentApi } from '../../api.js'
+import { ticketApi, commentApi, bustCache } from '../../api.js'
 import { ActivityRow } from '../../components/detail/ActivityRow.js'
 import { SectionLabel } from '../../components/detail/SectionLabel.js'
 import { DetailShell } from '../../components/layout/DetailShell.js'
@@ -14,14 +14,14 @@ import { useBreadcrumbLabel } from '../../Breadcrumb.js'
 
 // ── Comments Section ──
 
-function CommentsSection({ projectId, ticketId, comments }: { projectId: string; ticketId: string; comments: Comment[] }) {
+function CommentsSection({ projectId, ticketId, comments, onRefresh }: { projectId: string; ticketId: string; comments: Comment[]; onRefresh: () => Promise<void> }) {
   const ts = (s: string) => new Date(s).toLocaleString(undefined, {
     month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
   })
 
   return (
     <div>
-      <SectionLabel label={`comments (${comments.length})`} />
+      <SectionLabel label={`comments (${comments.length})`} onRefresh={onRefresh} />
       <div>
         {comments.map(c => {
           const firstLine = c.body.split('\n')[0].slice(0, 80)
@@ -69,6 +69,11 @@ export function TicketDetailPage() {
 
   const handleAddComment = useCallback(async (text: string) => {
     await commentApi.create(ticket.id, { author: 'founder', body: text })
+    setComments(await commentApi.list(ticket.id))
+  }, [ticket.id])
+
+  const refreshComments = useCallback(async () => {
+    bustCache()
     setComments(await commentApi.list(ticket.id))
   }, [ticket.id])
 
@@ -121,7 +126,7 @@ export function TicketDetailPage() {
         </div>
       )}
 
-      <CommentsSection projectId={projectId} ticketId={ticket.id} comments={comments} />
+      <CommentsSection projectId={projectId} ticketId={ticket.id} comments={comments} onRefresh={refreshComments} />
 
       {!editing && (ticket.status === 'failed' || ticket.status === 'done') && (
         <div className="pt-2">

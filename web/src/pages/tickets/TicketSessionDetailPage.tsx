@@ -1,4 +1,4 @@
-import { useLoaderData, useParams } from 'react-router-dom'
+import { useLoaderData, useParams, useRevalidator } from 'react-router-dom'
 import { Terminal, MessageSquare, Brain, FileText } from 'lucide-react'
 import type { Session, Execution, Message } from '../../types.js'
 import { SectionLabel } from '../../components/detail/SectionLabel.js'
@@ -7,6 +7,7 @@ import { DetailShell } from '../../components/layout/DetailShell.js'
 import { EmptyState } from '../../components/list/EmptyState.js'
 import { useBreadcrumbLabel } from '../../Breadcrumb.js'
 import { useShell } from '../../Shell.js'
+import { bustCache } from '../../api.js'
 
 interface SessionLoaderData {
   session: Session
@@ -138,8 +139,11 @@ export function TicketSessionDetailPage() {
   const { session, executions, messages } = useLoaderData() as SessionLoaderData
   const { projectId } = useShell()
   const { ticketId, sessionId } = useParams()
+  const { revalidate } = useRevalidator()
   const agentName = session.agent_name ?? session.agent_id
   useBreadcrumbLabel(agentName)
+
+  const refreshActivity = async () => { bustCache(); revalidate() }
 
   const ts = (s: string) => new Date(s).toLocaleString(undefined, {
     month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
@@ -173,7 +177,7 @@ export function TicketSessionDetailPage() {
       )}
 
       <div>
-        <SectionLabel label={`activity (${timeline.length})`} />
+        <SectionLabel label={`activity (${timeline.length})`} onRefresh={refreshActivity} />
         {timeline.length === 0
           ? <EmptyState message="no activity" />
           : (() => {

@@ -13,7 +13,7 @@ async function get<T>(url: string): Promise<T> {
   return data
 }
 
-function bustCache() { cache.clear() }
+export function bustCache() { cache.clear() }
 
 async function post<T>(url: string, body?: unknown): Promise<T> {
   bustCache()

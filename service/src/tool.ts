@@ -113,29 +113,18 @@ const _makeAllTools = (db: Db, config: Config, sessionId: string, projectId: str
   // ── read (pager — does NOT go through bounded) ──
 
   read: tool({
-    description: 'Read the contents of a file from the workspace. Returns up to 500 lines. Use offset and limit to paginate larger files.',
+    description: 'Read the contents of a file from the workspace. Use offset and limit to paginate. Large output is written to a file you can read with offset/limit.',
     inputSchema: validate.tool.read,
-    outputSchema: z.object({
-      content: z.string(),
-      truncated: z.boolean(),
-      totalLines: z.number(),
-      error: z.string(),
-    }).partial().required({ content: true }),
+    outputSchema: boundedOutput,
     execute: async (args: { path: string; offset?: number; limit?: number }) => {
-      const limit = Math.min(args.limit ?? 500, 500)
-      const start = args.offset ?? 0
       const path = esc(`/work/${args.path}`)
-      const command = `total=$(wc -l < ${path}) && echo "$total" && sed -n '${start + 1},${start + limit}p' ${path}`
+      const command = (args.offset !== undefined || args.limit !== undefined)
+        ? `sed -n '${(args.offset ?? 0) + 1},${(args.offset ?? 0) + (args.limit ?? 1_000_000)}p' ${path}`
+        : `cat ${path}`
       try {
         const r = await run(command, 'read', args)
         if (r.exitCode !== 0) return { content: '', error: r.stderr || 'file not found or unreadable' }
-        const lines = r.stdout.split('\n')
-        const totalLines = parseInt(lines[0], 10)
-        const content = lines.slice(1).join('\n')
-        const truncated = (start + limit) < totalLines
-        return truncated
-          ? { content, truncated: true, totalLines }
-          : { content }
+        return bounded(r.stdout)
       } catch (err) {
         return { content: '', error: err instanceof Error ? err.message : String(err) }
       }
@@ -195,13 +184,12 @@ print("ok")
   // ── search ──
 
   search: tool({
-    description: 'Search file contents using grep with regex support. Large results are written to a file; use the read tool to paginate.',
+    description: 'Search file contents using grep with regex support. Large output is written to a file you can read with offset/limit.',
     inputSchema: validate.tool.search,
     outputSchema: boundedOutput,
     execute: async (args) => {
       const searchPath = args.path ? `/work/${args.path}` : '/work'
       const parts = ['grep', '-rn', '--color=never']
-      if (!args.no_exclude) parts.push('--exclude-dir=.git', '--exclude-dir=node_modules', '--exclude-dir=__pycache__', '--exclude-dir=.venv', '--exclude-dir=.foundry')
       if (args.glob) parts.push('--include', esc(args.glob))
       parts.push('-e', esc(args.pattern), esc(searchPath))
       // || true so exit 1 (no matches) doesn't mark execution as failed
@@ -220,15 +208,13 @@ print("ok")
   // ── find ──
 
   find: tool({
-    description: 'List files matching a glob pattern in the workspace. Large results are written to a file; use the read tool to paginate.',
+    description: 'List files matching a glob pattern in the workspace. Defaults to max_depth 3 for performance — increase or omit to scan deeper. If a deep scan times out, narrow the path or pattern. Large output is written to a file you can read with offset/limit.',
     inputSchema: validate.tool.find,
     outputSchema: boundedOutput,
     execute: async (args) => {
       const depth = args.max_depth ?? 3
       const searchPath = args.path ? `/work/${args.path}` : '/work'
-      const parts = ['find', esc(searchPath), '-maxdepth', String(depth)]
-      if (!args.no_exclude) parts.push('\\(', '-name', '.git', '-o', '-name', 'node_modules', '-o', '-name', '__pycache__', '-o', '-name', '.venv', '-o', '-name', '.foundry', '\\)', '-prune', '-o')
-      parts.push('-type', 'f', '-name', esc(args.pattern), '-print')
+      const parts = ['find', esc(searchPath), '-maxdepth', String(depth), '-type', 'f', '-name', esc(args.pattern), '-print']
       const command = `${parts.join(' ')} | sed 's|/work/||g'`
       try {
         const r = await run(command, 'find', args)
@@ -269,12 +255,12 @@ print("ok")
   // ── scrape ──
 
   scrape: tool({
-    description: 'Extract clean readable text from a web page. Large output is written to a file; use the read tool to paginate.',
+    description: 'Extract clean readable text from a web page. Large output is written to a file you can read with offset/limit.',
     inputSchema: validate.tool.scrape,
     outputSchema: boundedOutput,
     execute: async (args) => {
       const url = esc(args.url)
-      const command = `lynx -dump -nolist -width=120 ${url} 2>/dev/null || curl -sL ${url} | sed 's/<[^>]*>//g' | sed '/^$/d' | head -500`
+      const command = `lynx -dump -nolist -width=120 ${url} 2>/dev/null || curl -sL ${url} | sed 's/<[^>]*>//g' | sed '/^$/d'`
       try {
         const r = await run(command, 'scrape', args, true)
         return bounded(r.stdout.trim())

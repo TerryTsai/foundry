@@ -124,8 +124,8 @@ const tool = {
   }),
   read: z.object({
     path:   z.string().describe('File path relative to /work'),
-    offset: z.number().int().min(0).optional().describe('Start reading from this line number (0-based)'),
-    limit:  z.number().int().positive().max(500).optional().describe('Maximum number of lines to read (default: 500, max: 500)'),
+    offset: z.number().int().min(0).optional().describe('Start reading from this line number (0-based). Use with limit to paginate large files.'),
+    limit:  z.number().int().positive().optional().describe('Maximum number of lines to read. Omit to read entire file (large files are written to a tmp file you can re-read with offset/limit).'),
   }),
   write: z.object({
     path:    z.string().describe('File path relative to /work'),
@@ -137,16 +137,14 @@ const tool = {
     new_string: z.string().describe('Replacement string'),
   }),
   search: z.object({
-    pattern:     z.string().describe('Regex pattern to search for'),
-    path:        z.string().optional().describe('Directory or file to search in, relative to /work (default: /work)'),
-    glob:        z.string().optional().describe('File glob filter (e.g. "*.ts")'),
-    no_exclude:  z.boolean().optional().describe('Include .git, node_modules, etc. in search (default: false)'),
+    pattern: z.string().describe('Regex pattern to search for'),
+    path:    z.string().optional().describe('Directory or file to search in, relative to /work (default: /work)'),
+    glob:    z.string().optional().describe('File glob filter (e.g. "*.ts")'),
   }),
   find: z.object({
-    pattern:     z.string().describe('Glob pattern to match file names (e.g. "**/*.ts")'),
-    path:        z.string().optional().describe('Directory to search in, relative to /work (default: /work)'),
-    max_depth:   z.number().int().positive().max(10).optional().describe('Maximum directory depth to search (default: 3, max: 10)'),
-    no_exclude:  z.boolean().optional().describe('Include .git, node_modules, etc. in results (default: false)'),
+    pattern:   z.string().describe('Glob pattern to match file names (e.g. "**/*.ts")'),
+    path:      z.string().optional().describe('Directory to search in, relative to /work (default: /work)'),
+    max_depth: z.number().int().positive().optional().describe('Maximum directory depth (default: 3). Increase for deeper scans, but very deep scans may time out — narrow path or pattern if so.'),
   }),
   fetch: z.object({
     url:     z.string().describe('URL to fetch'),

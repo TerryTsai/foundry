@@ -5,12 +5,18 @@ import { EventEmitter } from 'events'
 const execFileAsync = promisify(execFile)
 
 export interface RunOptions {
-  command:   string
-  workspace: string
-  image:     string
-  env:       Record<string, string>
-  network:   boolean
-  timeoutMs: number
+  command:    string
+  workspace:  string
+  image:      string
+  env:        Record<string, string>
+  network:    boolean
+  timeoutMs:  number
+  memoryMb:   number
+  cpus:       number
+  pidsLimit:  number
+  nofileSoft: number
+  nofileHard: number
+  tmpfsMb:    number
 }
 
 export interface ContainerStats {
@@ -51,14 +57,30 @@ function escapeShellArg(s: string): string {
 }
 
 export const spawnRun = (opts: RunOptions): RunHandle => {
-  const { command, workspace, image, env, network, timeoutMs } = opts
+  const { command, workspace, image, env, network, timeoutMs, memoryMb, cpus, pidsLimit, nofileSoft, nofileHard, tmpfsMb } = opts
 
-  const args = [
+  const args: string[] = [
     'run', '--rm',
-    network ? '' : '--network=none',
+    // Network: none unless explicitly enabled
+    ...(network ? [] : ['--network=none']),
+    // Memory: hard cap, no swap (so OOM kills, not slowly thrash)
+    '--memory', `${memoryMb}m`,
+    '--memory-swap', `${memoryMb}m`,
+    // CPU: cap to N cores (fractional ok)
+    '--cpus', String(cpus),
+    // PIDs: stop fork bombs
+    '--pids-limit', String(pidsLimit),
+    // FDs: stop FD-leak DoS
+    '--ulimit', `nofile=${nofileSoft}:${nofileHard}`,
+    // Capabilities: drop everything; rootless Podman doesn't need any
+    '--cap-drop', 'ALL',
+    // Read-only root filesystem; only /work and /tmp tmpfs are writable
+    '--read-only',
+    '--tmpfs', `/tmp:rw,size=${tmpfsMb}m`,
+    '--tmpfs', `/run:rw,size=8m`,
     '-v', `${workspace}:/work`,
     '-w', '/work',
-  ].filter(Boolean)
+  ]
 
   for (const [key, val] of Object.entries(env)) {
     args.push('-e', `${key}=${val}`)
