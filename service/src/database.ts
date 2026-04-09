@@ -49,19 +49,7 @@ export interface SessionRow {
 }
 
 export interface Db {
-  ticket: {
-    get:    (id: string) => Ticket | undefined
-    all:    (conditions?: SQL[]) => Ticket[]
-    insert: (data: Record<string, unknown>) => Ticket
-    update: (id: string, data: Record<string, unknown>) => Ticket
-    remove: (id: string) => void
-  }
-  comment: {
-    get:      (id: string) => Comment | undefined
-    all:      (conditions?: SQL[]) => Comment[]
-    insert:   (data: Record<string, unknown>) => Comment
-    byTicket: (ticketId: string) => Comment[]
-  }
+  // ── Project ──
   project: {
     get:    (id: string) => Project | undefined
     all:    (conditions?: SQL[]) => Project[]
@@ -77,6 +65,21 @@ export interface Db {
     remove:    (id: string) => void
     getByName: (name: string) => Provider | undefined
   }
+  // ── Ticketing ──
+  ticket: {
+    get:    (id: string) => Ticket | undefined
+    all:    (conditions?: SQL[]) => Ticket[]
+    insert: (data: Record<string, unknown>) => Ticket
+    update: (id: string, data: Record<string, unknown>) => Ticket
+    remove: (id: string) => void
+  }
+  comment: {
+    get:      (id: string) => Comment | undefined
+    all:      (conditions?: SQL[]) => Comment[]
+    insert:   (data: Record<string, unknown>) => Comment
+    byTicket: (ticketId: string) => Comment[]
+  }
+  // ── Agent ──
   agent: {
     get:    (id: string) => Agent | undefined
     all:    (conditions?: SQL[]) => Agent[]
@@ -107,6 +110,7 @@ export interface Db {
     remove:    (id: string) => void
     bySession: (sessionId: string) => Execution[]
   }
+  // ── Shared ──
   tx: <T>(fn: (db: Db) => T) => T
   eq:     typeof eq
   and:    typeof and
@@ -126,20 +130,7 @@ export interface Db {
 // ── Constructor ──
 
 const wrap = (d: Drizzle): Db => ({
-  ticket: {
-    get:    (id) => getById<Ticket>(d, ticket, ticket.id, id),
-    all:    (c)  => getAll<Ticket>(d, ticket, c),
-    insert: (data) => insertRow<Ticket>(d, ticket, ticket.id, data),
-    update: (id, data) => updateRow<Ticket>(d, ticket, ticket.id, id, data),
-    remove: (id) => removeRow(d, ticket, ticket.id, id),
-  },
-  comment: {
-    get:      (id) => getById<Comment>(d, comment, comment.id, id),
-    all:      (c)  => getAll<Comment>(d, comment, c),
-    insert:   (data) => insertRow<Comment>(d, comment, comment.id, data),
-    byTicket: (ticketId) =>
-      d.select().from(comment).where(eq(comment.ticket_id, ticketId)).all(),
-  },
+  // ── Project ──
   project: {
     get:    (id) => getById<Project>(d, project, project.id, id),
     all:    (c)  => getAll<Project>(d, project, c),
@@ -155,6 +146,22 @@ const wrap = (d: Drizzle): Db => ({
     remove:    (id) => removeRow(d, provider, provider.id, id),
     getByName: (name) => d.select().from(provider).where(eq(provider.name, name)).get() as Provider | undefined,
   },
+  // ── Ticketing ──
+  ticket: {
+    get:    (id) => getById<Ticket>(d, ticket, ticket.id, id),
+    all:    (c)  => getAll<Ticket>(d, ticket, c),
+    insert: (data) => insertRow<Ticket>(d, ticket, ticket.id, data),
+    update: (id, data) => updateRow<Ticket>(d, ticket, ticket.id, id, data),
+    remove: (id) => removeRow(d, ticket, ticket.id, id),
+  },
+  comment: {
+    get:      (id) => getById<Comment>(d, comment, comment.id, id),
+    all:      (c)  => getAll<Comment>(d, comment, c),
+    insert:   (data) => insertRow<Comment>(d, comment, comment.id, data),
+    byTicket: (ticketId) =>
+      d.select().from(comment).where(eq(comment.ticket_id, ticketId)).all(),
+  },
+  // ── Agent ──
   agent: {
     get:    (id) => getById<Agent>(d, agent, agent.id, id),
     all:    (c)  => getAll<Agent>(d, agent, c),

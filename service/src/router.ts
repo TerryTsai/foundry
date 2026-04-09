@@ -9,7 +9,32 @@ import { slugify } from './functional.js'
 import { parse, run, send, sendText } from './middleware.js'
 import { TOOL_NAMES } from './tool.js'
 
-// ── Tickets ──
+// ════════════════════════════════════════════════════════════════════════════
+// PROJECT
+// ════════════════════════════════════════════════════════════════════════════
+
+export const project = (db: Db, config: Config) => {
+  const r = Router()
+  r.get   ('/',         parse(v.project.list, 'query'), run(req => domain.project.list(db)(req.data)),                         send())
+  r.post  ('/',         parse(v.project.create),        run(req => domain.project.create(db, config)(req.data)),               send(201))
+  r.get   ('/:id',                                      run(req => domain.project.get(db)(req.params.id)),                     send())
+  r.put   ('/:id',      parse(v.project.update),        run(req => domain.project.update(db)(req.params.id, req.data)),        send())
+  r.post  ('/:id/run',                                  run(req => domain.project.run(db)(req.params.id)),                     send(202))
+  return r
+}
+
+export const provider = (db: Db) => {
+  const r = Router()
+  r.get   ('/',    run(() => domain.provider.list(db)()),                                          send())
+  r.post  ('/',    parse(v.provider.create), run(req => domain.provider.create(db)(req.data)),     send(201))
+  r.put   ('/:id', parse(v.provider.update), run(req => domain.provider.update(db)(req.params.id, req.data)), send())
+  r.delete('/:id',                           run(req => domain.provider.remove(db)(req.params.id)), send())
+  return r
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// TICKETING
+// ════════════════════════════════════════════════════════════════════════════
 
 export const ticket = (db: Db) => {
   const r = Router()
@@ -28,30 +53,9 @@ export const ticket = (db: Db) => {
   return r
 }
 
-// ── Projects ──
-
-export const project = (db: Db, config: Config) => {
-  const r = Router()
-  r.get   ('/',         parse(v.project.list, 'query'), run(req => domain.project.list(db)(req.data)),                         send())
-  r.post  ('/',         parse(v.project.create),        run(req => domain.project.create(db, config)(req.data)),               send(201))
-  r.get   ('/:id',                                      run(req => domain.project.get(db)(req.params.id)),                     send())
-  r.put   ('/:id',      parse(v.project.update),        run(req => domain.project.update(db)(req.params.id, req.data)),        send())
-  r.post  ('/:id/run',                                  run(req => domain.project.run(db)(req.params.id)),                     send(202))
-  return r
-}
-
-// ── Providers ──
-
-export const provider = (db: Db) => {
-  const r = Router()
-  r.get   ('/',    run(() => domain.provider.list(db)()),                                          send())
-  r.post  ('/',    parse(v.provider.create), run(req => domain.provider.create(db)(req.data)),     send(201))
-  r.put   ('/:id', parse(v.provider.update), run(req => domain.provider.update(db)(req.params.id, req.data)), send())
-  r.delete('/:id',                           run(req => domain.provider.remove(db)(req.params.id)), send())
-  return r
-}
-
-// ── Agents + Sessions ──
+// ════════════════════════════════════════════════════════════════════════════
+// AGENT
+// ════════════════════════════════════════════════════════════════════════════
 
 export const agent = (db: Db, config: Config) => {
   const r = Router()
@@ -70,8 +74,6 @@ export const agent = (db: Db, config: Config) => {
   return r
 }
 
-// ── Sessions (top-level) ──
-
 export const session = (db: Db) => {
   const r = Router()
   r.get('/',                run(() => domain.session.listAll(db)()),                          send())
@@ -81,7 +83,19 @@ export const session = (db: Db) => {
   return r
 }
 
-// ── Files ──
+export const execution = (db: Db, config: Config) => {
+  const r = Router()
+  r.get   ('/',           run(() => domain.execution.list(db)()),                                                                   send())
+  r.post  ('/',           parse(v.execution.create), run(req => { const { id } = domain.execution.create(db, config)(req.data); return { id } }), send(201))
+  r.get   ('/:id',        run(req => domain.execution.get(db)(req.params.id)),                                                      send())
+  r.delete('/:id',        run(req => domain.execution.kill(db)(req.params.id)),                                                     send())
+  r.get   ('/:id/output', (req, res, next) => { try { domain.execution.stream(db)(req.params.id, res) } catch (e) { next(e) } })
+  return r
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// FILES
+// ════════════════════════════════════════════════════════════════════════════
 
 export const file = (config: Config, db: Db) => {
   const r = Router({ mergeParams: true })
@@ -90,8 +104,6 @@ export const file = (config: Config, db: Db) => {
   r.post('/:id/*', parse(v.file.write), run(req => { const p = domain.project.get(db)(req.params.id); return domain.file.write(config.repoBase)(slugify(p.name), req.params[0], req.data.content, req.data.message ?? `update ${req.params[0]}`) }), send(201))
   return r
 }
-
-// ── Git Wire Protocol ──
 
 export const git = (config: Config) => {
   const repos = new Server(config.repoBase, { autoCreate: false })
@@ -104,17 +116,5 @@ export const git = (config: Config) => {
     req.url = req.url.replace(/^\/git/, '')
     repos.handle(req, res)
   })
-  return r
-}
-
-// ── Execution ──
-
-export const execution = (db: Db, config: Config) => {
-  const r = Router()
-  r.get   ('/',           run(() => domain.execution.list(db)()),                                                                   send())
-  r.post  ('/',           parse(v.execution.create), run(req => { const { id } = domain.execution.create(db, config)(req.data); return { id } }), send(201))
-  r.get   ('/:id',        run(req => domain.execution.get(db)(req.params.id)),                                                      send())
-  r.delete('/:id',        run(req => domain.execution.kill(db)(req.params.id)),                                                     send())
-  r.get   ('/:id/output', (req, res, next) => { try { domain.execution.stream(db)(req.params.id, res) } catch (e) { next(e) } })
   return r
 }

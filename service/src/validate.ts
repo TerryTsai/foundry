@@ -1,6 +1,39 @@
 import { z } from 'zod'
 
-// ── Tickets ──
+// ════════════════════════════════════════════════════════════════════════════
+// PROJECT
+// ════════════════════════════════════════════════════════════════════════════
+
+export const project = {
+  list: z.object({
+    status: z.string().optional(),
+  }),
+  create: z.object({
+    name:               z.string().min(1),
+    schedule_interval:  z.number().int().positive().optional(),
+    concurrency_limit:  z.number().int().positive().optional(),
+  }),
+  update: z.object({
+    name:               z.string().min(1).optional(),
+    status:             z.enum(['active', 'archived']).optional(),
+    schedule_interval:  z.number().int().positive().optional(),
+    concurrency_limit:  z.number().int().positive().optional(),
+  }),
+}
+
+export const provider = {
+  create: z.object({
+    name:    z.string().min(1),
+    api_key: z.string().min(1),
+  }),
+  update: z.object({
+    api_key: z.string().min(1),
+  }),
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// TICKETING
+// ════════════════════════════════════════════════════════════════════════════
 
 export const ticket = {
   list: z.object({
@@ -29,8 +62,6 @@ export const ticket = {
   fail: z.object({ notes: z.string().optional() }),
 }
 
-// ── Comments ──
-
 export const comment = {
   create: z.object({
     author: z.string(),
@@ -38,38 +69,9 @@ export const comment = {
   }),
 }
 
-// ── Projects ──
-
-export const project = {
-  list: z.object({
-    status: z.string().optional(),
-  }),
-  create: z.object({
-    name:               z.string().min(1),
-    schedule_interval:  z.number().int().positive().optional(),
-    concurrency_limit:  z.number().int().positive().optional(),
-  }),
-  update: z.object({
-    name:               z.string().min(1).optional(),
-    status:             z.enum(['active', 'archived']).optional(),
-    schedule_interval:  z.number().int().positive().optional(),
-    concurrency_limit:  z.number().int().positive().optional(),
-  }),
-}
-
-// ── Providers ──
-
-export const provider = {
-  create: z.object({
-    name:    z.string().min(1),
-    api_key: z.string().min(1),
-  }),
-  update: z.object({
-    api_key: z.string().min(1),
-  }),
-}
-
-// ── Agents ──
+// ════════════════════════════════════════════════════════════════════════════
+// AGENT
+// ════════════════════════════════════════════════════════════════════════════
 
 const modelString = z.string().min(1).refine(s => s.includes(':'), { message: 'model must be provider:model format' })
 
@@ -97,14 +99,10 @@ export const agent = {
   }),
 }
 
-// ── Sessions ──
-
 export const session = {
   start:   z.object({ ticket_id: z.string() }),
   message: z.object({ content: z.string().min(1) }),
 }
-
-// ── Executions ──
 
 export const execution = {
   create: z.object({
@@ -115,17 +113,6 @@ export const execution = {
     network:    z.boolean().optional(),
   }),
 }
-
-// ── Files ──
-
-export const file = {
-  write: z.object({
-    content: z.string(),
-    message: z.string().optional(),
-  }),
-}
-
-// ── Tool Params ──
 
 export const tool = {
   exec: z.object({
@@ -177,5 +164,16 @@ export const tool = {
     title:    z.string().optional().describe('Ticket title (required for create)'),
     body:     z.string().optional().describe('Ticket body (required for create)'),
     agent_id: z.string().optional().describe('Agent ID to assign the ticket to (for create). Use the agents tool to get agent IDs.'),
+  }),
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// FILES
+// ════════════════════════════════════════════════════════════════════════════
+
+export const file = {
+  write: z.object({
+    content: z.string(),
+    message: z.string().optional(),
   }),
 }

@@ -1,6 +1,21 @@
 import { sqliteTable, text, integer, real } from 'drizzle-orm/sqlite-core'
 
-// ── Provider ──
+// ════════════════════════════════════════════════════════════════════════════
+// PROJECT
+// ════════════════════════════════════════════════════════════════════════════
+
+export const project = sqliteTable('project', {
+  id:                text('id').primaryKey(),
+  name:              text('name').notNull(),
+  status:            text('status').notNull().default('active'),
+  schedule_interval: integer('schedule_interval').notNull().default(600),
+  concurrency_limit: integer('concurrency_limit').notNull().default(3),
+  created_at:        text('created_at').notNull(),
+  updated_at:        text('updated_at').notNull(),
+})
+
+export type Project = typeof project.$inferSelect
+export type NewProject = typeof project.$inferInsert
 
 export const provider = sqliteTable('provider', {
   id:         text('id').primaryKey(),
@@ -13,7 +28,42 @@ export const provider = sqliteTable('provider', {
 export type Provider = typeof provider.$inferSelect
 export type NewProvider = typeof provider.$inferInsert
 
-// ── Agent ──
+// ════════════════════════════════════════════════════════════════════════════
+// TICKETING
+// ════════════════════════════════════════════════════════════════════════════
+
+export const ticket = sqliteTable('ticket', {
+  id:         text('id').primaryKey(),
+  project_id: text('project_id').notNull(),
+  agent_id:   text('agent_id'),
+  title:      text('title').notNull(),
+  body:       text('body').notNull(),
+  status:     text('status').notNull().default('open'),
+  priority:   integer('priority').notNull().default(0),
+  parent_id:  text('parent_id'),
+  created_by: text('created_by').notNull(),
+  created_at: text('created_at').notNull(),
+  updated_at: text('updated_at').notNull(),
+  claimed_at: text('claimed_at'),
+})
+
+export type Ticket = typeof ticket.$inferSelect
+export type NewTicket = typeof ticket.$inferInsert
+
+export const comment = sqliteTable('comment', {
+  id:         text('id').primaryKey(),
+  ticket_id:  text('ticket_id').notNull().references(() => ticket.id),
+  session_id: text('session_id'),
+  author:     text('author').notNull(),
+  body:       text('body').notNull(),
+  created_at: text('created_at').notNull(),
+})
+
+export type Comment = typeof comment.$inferSelect
+
+// ════════════════════════════════════════════════════════════════════════════
+// AGENT
+// ════════════════════════════════════════════════════════════════════════════
 
 export const agent = sqliteTable('agent', {
   id:          text('id').primaryKey(),
@@ -32,20 +82,38 @@ export const agent = sqliteTable('agent', {
 export type Agent = typeof agent.$inferSelect
 export type NewAgent = typeof agent.$inferInsert
 
-// ── Comment ──
+export const session = sqliteTable('session', {
+  id:            text('id').primaryKey(),
+  ticket_id:     text('ticket_id').notNull(),
+  agent_id:      text('agent_id').notNull().references(() => agent.id),
+  status:        text('status').notNull().default('running'),
+  model:         text('model').notNull(),
+  system_prompt: text('system_prompt'),
+  error:         text('error'),
+  tokens_in:     integer('tokens_in'),
+  tokens_out:    integer('tokens_out'),
+  cost_usd:      real('cost_usd'),
+  duration_ms:   integer('duration_ms'),
+  step_count:    integer('step_count'),
+  tool_calls:    integer('tool_calls'),
+  finish_reason: text('finish_reason'),
+  started_at:    text('started_at').notNull(),
+  ended_at:      text('ended_at'),
+})
 
-export const comment = sqliteTable('comment', {
+export type Session = typeof session.$inferSelect
+
+export const message = sqliteTable('message', {
   id:         text('id').primaryKey(),
-  ticket_id:  text('ticket_id').notNull().references(() => ticket.id),
-  session_id: text('session_id'),
-  author:     text('author').notNull(),
-  body:       text('body').notNull(),
+  session_id: text('session_id').notNull().references(() => session.id),
+  role:       text('role').notNull(),
+  content:    text('content').notNull(),
+  tokens:     integer('tokens'),
+  tokens_in:  integer('tokens_in'),
   created_at: text('created_at').notNull(),
 })
 
-export type Comment = typeof comment.$inferSelect
-
-// ── Execution ──
+export type Message = typeof message.$inferSelect
 
 export const execution = sqliteTable('execution', {
   id:              text('id').primaryKey(),
@@ -70,74 +138,8 @@ export const execution = sqliteTable('execution', {
 
 export type Execution = typeof execution.$inferSelect
 
-// ── Message ──
+// ════════════════════════════════════════════════════════════════════════════
+// FILES
+// ════════════════════════════════════════════════════════════════════════════
 
-export const message = sqliteTable('message', {
-  id:         text('id').primaryKey(),
-  session_id: text('session_id').notNull().references(() => session.id),
-  role:       text('role').notNull(),
-  content:    text('content').notNull(),
-  tokens:     integer('tokens'),
-  tokens_in:  integer('tokens_in'),
-  created_at: text('created_at').notNull(),
-})
-
-export type Message = typeof message.$inferSelect
-
-// ── Project ──
-
-export const project = sqliteTable('project', {
-  id:                text('id').primaryKey(),
-  name:              text('name').notNull(),
-  status:            text('status').notNull().default('active'),
-  schedule_interval: integer('schedule_interval').notNull().default(600),
-  concurrency_limit: integer('concurrency_limit').notNull().default(3),
-  created_at:        text('created_at').notNull(),
-  updated_at:        text('updated_at').notNull(),
-})
-
-export type Project = typeof project.$inferSelect
-export type NewProject = typeof project.$inferInsert
-
-// ── Session ──
-
-export const session = sqliteTable('session', {
-  id:            text('id').primaryKey(),
-  ticket_id:     text('ticket_id').notNull(),
-  agent_id:      text('agent_id').notNull().references(() => agent.id),
-  status:        text('status').notNull().default('running'),
-  model:         text('model').notNull(),
-  system_prompt: text('system_prompt'),
-  error:         text('error'),
-  tokens_in:     integer('tokens_in'),
-  tokens_out:    integer('tokens_out'),
-  cost_usd:      real('cost_usd'),
-  duration_ms:   integer('duration_ms'),
-  step_count:    integer('step_count'),
-  tool_calls:    integer('tool_calls'),
-  finish_reason: text('finish_reason'),
-  started_at:    text('started_at').notNull(),
-  ended_at:      text('ended_at'),
-})
-
-export type Session = typeof session.$inferSelect
-
-// ── Ticket ──
-
-export const ticket = sqliteTable('ticket', {
-  id:         text('id').primaryKey(),
-  project_id: text('project_id').notNull(),
-  agent_id:   text('agent_id'),
-  title:      text('title').notNull(),
-  body:       text('body').notNull(),
-  status:     text('status').notNull().default('open'),
-  priority:   integer('priority').notNull().default(0),
-  parent_id:  text('parent_id'),
-  created_by: text('created_by').notNull(),
-  created_at: text('created_at').notNull(),
-  updated_at: text('updated_at').notNull(),
-  claimed_at: text('claimed_at'),
-})
-
-export type Ticket = typeof ticket.$inferSelect
-export type NewTicket = typeof ticket.$inferInsert
+// (No dedicated tables — files are served from bare git repos on disk)

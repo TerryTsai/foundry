@@ -10,14 +10,21 @@ const app = express()
 
 app.use(express.json())
 
-app.use('/ticket',    router.ticket(db))
+// ── Project ──
 app.use('/project',   router.project(db, config))
 app.use('/provider',  router.provider(db))
+
+// ── Ticketing ──
+app.use('/ticket',    router.ticket(db))
+
+// ── Agent ──
 app.use('/agent',     router.agent(db, config))
 app.use('/session',   router.session(db))
+app.use('/execution', router.execution(db, config))
+
+// ── Files ──
 app.use('/file',      router.file(config, db))
 app.use('/git',       router.git(config))
-app.use('/execution', router.execution(db, config))
 
 app.get('/health', (_req, res) => res.json({ ok: true }))
 
