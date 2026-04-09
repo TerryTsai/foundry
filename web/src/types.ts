@@ -31,6 +31,19 @@ export interface Ticket {
   claimed_at: string | null
 }
 
+export interface UsageRollup {
+  session_count: number
+  tokens_in: number
+  tokens_out: number
+  duration_ms: number
+  step_count: number
+  tool_calls: number
+  exec_count: number
+  cpu_ms: number
+  peak_memory_mb: number | null
+  net_bytes: number
+}
+
 export interface Comment {
   id: string
   ticket_id: string

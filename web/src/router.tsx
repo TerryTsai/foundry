@@ -74,12 +74,13 @@ export const router = createBrowserRouter([
                 index: true,
                 element: <TicketDetailPage />,
                 loader: async ({ params }) => {
-                  const [ticket, agents, comments] = await Promise.all([
+                  const [ticket, agents, comments, usage] = await Promise.all([
                     ticketApi.get(params.ticketId!),
                     agentApi.list(pid(params)),
                     commentApi.list(params.ticketId!),
+                    ticketApi.usage(params.ticketId!),
                   ])
-                  return { ticket, agents, comments }
+                  return { ticket, agents, comments, usage }
                 },
               },
               {
@@ -96,14 +97,15 @@ export const router = createBrowserRouter([
                         index: true,
                         element: <TicketSessionDetailPage />,
                         loader: async ({ params }) => {
-                          const [session, agents, executions, messages] = await Promise.all([
+                          const [session, agents, executions, messages, usage] = await Promise.all([
                             sessionApi.get(params.sessionId!),
                             agentApi.list(pid(params)),
                             sessionApi.executions(params.sessionId!),
                             sessionApi.messages(params.sessionId!),
+                            sessionApi.usage(params.sessionId!),
                           ])
                           const agentName = agents.find(a => a.id === session.agent_id)?.name ?? null
-                          return { session: { ...session, agent_name: agentName }, executions, messages }
+                          return { session: { ...session, agent_name: agentName }, executions, messages, usage }
                         },
                       },
                       {
@@ -141,7 +143,13 @@ export const router = createBrowserRouter([
             path: ':agentId',
             element: <AgentDetailPage />,
             handle: { crumb: 'Agent' },
-            loader: ({ params }) => agentApi.get(params.agentId!),
+            loader: async ({ params }) => {
+              const [agent, usage] = await Promise.all([
+                agentApi.get(params.agentId!),
+                agentApi.usage(params.agentId!),
+              ])
+              return { agent, usage }
+            },
           },
           {
             path: 'providers',

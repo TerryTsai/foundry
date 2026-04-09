@@ -1,6 +1,7 @@
 import { useLoaderData, useParams, useRevalidator } from 'react-router-dom'
 import { Terminal, MessageSquare, Brain, FileText } from 'lucide-react'
-import type { Session, Execution, Message } from '../../types.js'
+import type { Session, Execution, Message, UsageRollup } from '../../types.js'
+import { fmtDuration, fmtBytes } from '../../lib/format.js'
 import { SectionLabel } from '../../components/detail/SectionLabel.js'
 import { ActivityRow } from '../../components/detail/ActivityRow.js'
 import { DetailShell } from '../../components/layout/DetailShell.js'
@@ -13,6 +14,7 @@ interface SessionLoaderData {
   session: Session
   executions: Execution[]
   messages: Message[]
+  usage: UsageRollup
 }
 
 // ── Tool call formatter ──
@@ -136,7 +138,7 @@ function buildTimeline(messages: Message[], executions: Execution[]): TimelineEn
 // ── Page ──
 
 export function TicketSessionDetailPage() {
-  const { session, executions, messages } = useLoaderData() as SessionLoaderData
+  const { session, executions, messages, usage } = useLoaderData() as SessionLoaderData
   const { projectId } = useShell()
   const { ticketId, sessionId } = useParams()
   const { revalidate } = useRevalidator()
@@ -159,12 +161,14 @@ export function TicketSessionDetailPage() {
       infoRows={[
         { label: 'model',       value: session.model },
         { label: 'duration',    value: duration },
-        { label: 'cost',        value: session.cost_usd !== null ? `$${session.cost_usd.toFixed(4)}` : null },
         { label: 'reason',      value: session.finish_reason },
         { label: 'steps',       value: session.step_count !== null ? String(session.step_count) : null },
         { label: 'tool calls',  value: session.tool_calls !== null ? String(session.tool_calls) : null },
         { label: 'tokens in',   value: session.tokens_in !== null ? session.tokens_in.toLocaleString() : null },
         { label: 'tokens out',  value: session.tokens_out !== null ? session.tokens_out.toLocaleString() : null },
+        { label: 'cpu',         value: usage.cpu_ms > 0 ? fmtDuration(usage.cpu_ms) : null },
+        { label: 'memory',      value: usage.peak_memory_mb !== null ? `${usage.peak_memory_mb.toFixed(0)} MB peak` : null },
+        { label: 'network',     value: usage.net_bytes > 0 ? fmtBytes(usage.net_bytes) : null },
         { label: 'started',     value: ts(session.started_at) },
         { label: 'ended',       value: session.ended_at ? ts(session.ended_at) : null },
       ]}

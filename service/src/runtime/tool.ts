@@ -3,10 +3,10 @@ import { z } from 'zod'
 import { writeFileSync, mkdirSync } from 'fs'
 import { join, dirname } from 'path'
 import { nanoid } from 'nanoid'
-import type { Db } from './database.js'
-import type { Config } from './config.js'
-import validate from './validate.js'
-import domain from './domain.js'
+import type { Db } from '../database.js'
+import type { Config } from '../config.js'
+import validate from '../validate.js'
+import domain from '../domain.js'
 
 export const TOOL_NAMES = ['exec', 'read', 'write', 'patch', 'search', 'find', 'fetch', 'scrape', 'think', 'ticket', 'agents'] as const
 export type ToolName = typeof TOOL_NAMES[number]

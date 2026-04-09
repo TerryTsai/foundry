@@ -1,4 +1,4 @@
-import type { Provider, Project, Ticket, Comment, Agent, Session, Execution } from './types.js'
+import type { Provider, Project, Ticket, Comment, Agent, Session, Execution, UsageRollup } from './types.js'
 
 const cache = new Map<string, { data: unknown; at: number }>()
 const CACHE_TTL = 30_000 // 30 seconds
@@ -79,6 +79,7 @@ export const ticketApi = {
   update: (id: string, data: { title?: string; body?: string; agent_id?: string; priority?: number }) =>
     put<Ticket>(`/ticket/${id}`, data),
   reopen: (id: string) => post<Ticket>(`/ticket/${id}/reopen`),
+  usage: (id: string) => get<UsageRollup>(`/ticket/${id}/usage`),
 }
 
 // Comments
@@ -94,6 +95,7 @@ export const sessionApi = {
   byTicket: (ticketId: string) => get<Session[]>(`/ticket/${ticketId}/session`),
   messages: (sessionId: string) => get<import('./types.js').Message[]>(`/session/${sessionId}/message`),
   executions: (sessionId: string) => get<Execution[]>(`/session/${sessionId}/execution`),
+  usage: (id: string) => get<UsageRollup>(`/session/${id}/usage`),
 }
 
 // Agents
@@ -106,6 +108,7 @@ export const agentApi = {
   update: (id: string, data: { model?: string; prompt?: string; max_tokens?: number; max_steps?: number; temperature?: number; reasoning_budget?: number | null; tools?: string[] }) =>
     put<Agent>(`/agent/${id}`, data),
   delete: (id: string) => del<{ ok: boolean }>(`/agent/${id}`),
+  usage: (id: string) => get<UsageRollup>(`/agent/${id}/usage`),
 }
 
 // Executions

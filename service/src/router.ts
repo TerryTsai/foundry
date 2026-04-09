@@ -7,7 +7,7 @@ import domain from './domain.js'
 import validate from './validate.js'
 import { slugify } from './functional.js'
 import { parse, run, send, sendText } from './middleware.js'
-import { TOOL_NAMES } from './tool.js'
+import { TOOL_NAMES } from './runtime/tool.js'
 
 // ════════════════════════════════════════════════════════════════════════════
 // PROJECT
@@ -50,6 +50,7 @@ export const ticket = (db: Db) => {
   r.get   ('/:id/comment',                                run(req => domain.comment.list(db)(req.params.id)),                      send())
   r.post  ('/:id/comment', parse(validate.comment.create),       run(req => domain.comment.create(db)(req.params.id, req.data)),          send(201))
   r.get   ('/:id/session',                                run(req => domain.session.byTicket(db)(req.params.id)),                   send())
+  r.get   ('/:id/usage',                                  run(req => domain.usage.ticket(db)(req.params.id)),                      send())
   return r
 }
 
@@ -63,6 +64,7 @@ export const agent = (db: Db, config: Config) => {
   r.get   ('/',                         parse(validate.agent.list, 'query'),  run(req => domain.agent.list(db)(req.data)),                                       send())
   r.post  ('/',                         parse(validate.agent.create),         run(req => domain.agent.create(db)(req.data)),                                     send(201))
   r.get   ('/:id',                                                     run(req => domain.agent.get(db)(req.params.id)),                                   send())
+  r.get   ('/:id/usage',                                               run(req => domain.usage.agent(db)(req.params.id)),                                 send())
   r.put   ('/:id',                      parse(validate.agent.update),         run(req => domain.agent.update(db)(req.params.id, req.data)),                      send())
   r.delete('/:id',                                                     run(req => domain.agent.remove(db)(req.params.id)),                                send())
   r.post  ('/:id/session',              parse(validate.session.start),        run(req => domain.session.start(db, config)(req.params.id, req.data.ticket_id)),    send(201))
@@ -80,6 +82,7 @@ export const session = (db: Db) => {
   r.get('/:id',            run(req => domain.session.get(db)(req.params.id)),                 send())
   r.get('/:id/message',    run(req => domain.session.messages(db)(req.params.id)),           send())
   r.get('/:id/execution',  run(req => domain.execution.bySession(db)(req.params.id)),        send())
+  r.get('/:id/usage',      run(req => domain.usage.session(db)(req.params.id)),              send())
   return r
 }
 

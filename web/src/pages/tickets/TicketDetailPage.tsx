@@ -5,12 +5,13 @@ import { ticketApi, commentApi, bustCache } from '../../api.js'
 import { ActivityRow } from '../../components/detail/ActivityRow.js'
 import { SectionLabel } from '../../components/detail/SectionLabel.js'
 import { DetailShell } from '../../components/layout/DetailShell.js'
-import type { Ticket, Agent, Comment } from '../../types.js'
+import type { Ticket, Agent, Comment, UsageRollup } from '../../types.js'
 import { useShell } from '../../Shell.js'
 import { Field } from '../../components/form/Field.js'
 import { TextArea } from '../../components/form/TextArea.js'
 import { ActionButton } from '../../components/form/ActionButton.js'
 import { useBreadcrumbLabel } from '../../Breadcrumb.js'
+import { fmtTokens, fmtDuration, fmtBytes } from '../../lib/format.js'
 
 // ── Comments Section ──
 
@@ -49,13 +50,14 @@ interface TicketLoaderData {
   ticket: Ticket
   agents: Agent[]
   comments: Comment[]
+  usage: UsageRollup
 }
 
 // ── Ticket Detail Page ──
 
 export function TicketDetailPage() {
   const { projectId } = useShell()
-  const { ticket, agents, comments: initialComments } = useLoaderData() as TicketLoaderData
+  const { ticket, agents, comments: initialComments, usage } = useLoaderData() as TicketLoaderData
   const { revalidate } = useRevalidator()
   const navigate = useNavigate()
   const [editing, setEditing] = useState(false)
@@ -111,6 +113,13 @@ export function TicketDetailPage() {
         { label: 'priority', value: ticket.priority > 0 ? String(ticket.priority) : null },
         { label: 'claimed',  value: ticket.claimed_at ? ts(ticket.claimed_at) : null },
         { label: 'updated',  value: ticket.updated_at !== ticket.created_at ? ts(ticket.updated_at) : null },
+        { label: 'sessions', value: usage.session_count > 0 ? String(usage.session_count) : null },
+        { label: 'tokens',   value: usage.tokens_in + usage.tokens_out > 0 ? `${fmtTokens(usage.tokens_in)} in / ${fmtTokens(usage.tokens_out)} out` : null },
+        { label: 'tools',    value: usage.tool_calls > 0 ? `${usage.tool_calls} (${usage.exec_count} exec)` : null },
+        { label: 'cpu',      value: usage.cpu_ms > 0 ? fmtDuration(usage.cpu_ms) : null },
+        { label: 'memory',   value: usage.peak_memory_mb !== null ? `${usage.peak_memory_mb.toFixed(0)} MB peak` : null },
+        { label: 'network',  value: usage.net_bytes > 0 ? fmtBytes(usage.net_bytes) : null },
+        { label: 'duration', value: usage.duration_ms > 0 ? fmtDuration(usage.duration_ms) : null },
       ]}
       composer={{ placeholder: 'Comment', onSubmit: handleAddComment }}
     >

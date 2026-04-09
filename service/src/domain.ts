@@ -11,8 +11,8 @@ import { eq, isNull } from 'drizzle-orm'
 import schema, { type Ticket, type Comment, type Project, type Provider, type Agent, type Session, type Message, type Execution } from './schema.js'
 import type { Config } from './config.js'
 import { require, assertStatus, slugify, pick, now, AppError, conflict, badRequest } from './functional.js'
-import { supported } from './provider.js'
-import { spawnRun, type RunHandle } from './runner.js'
+import { supported } from './runtime/provider.js'
+import { spawnRun, type RunHandle } from './runtime/runner.js'
 import type { z } from 'zod'
 import type validate from './validate.js'
 
@@ -121,7 +121,7 @@ const scheduler = {
         status: 'running', model: def.model, started_at: now(),
       })
 
-      const { runAgentSession } = await import('./agent.js')
+      const { runAgentSession } = await import('./runtime/agent.js')
       const { config } = await import('./config.js')
       runAgentSession(db, config)(row.id, def, t).catch((err: unknown) =>
         console.error('dispatch session error:', err))
@@ -359,7 +359,7 @@ const session = {
       status: 'running', model: agentDef.model, started_at: now(),
     })
 
-    const { runAgentSession } = await import('./agent.js')
+    const { runAgentSession } = await import('./runtime/agent.js')
     runAgentSession(db, config)(row.id, agentDef, t).catch((err: unknown) =>
       console.error(`session ${row.id} crashed:`, err))
 
@@ -410,7 +410,7 @@ const execution = {
       const stderrBuf: string[] = []
       handle.emitter.on('stdout', (line: string) => stdoutBuf.push(line))
       handle.emitter.on('stderr', (line: string) => stderrBuf.push(line))
-      handle.emitter.on('exit', (code: number, stats: import('./runner.js').ContainerStats | null) => {
+      handle.emitter.on('exit', (code: number, stats: import('./runtime/runner.js').ContainerStats | null) => {
         database.execution.update(db, row.id, {
           status: code === 0 ? 'done' : 'failed',
           exit_code: code, ended_at: now(),
@@ -528,7 +528,75 @@ export interface TicketChainEntry {
   agent_id: string | null; status: string
 }
 
+export interface UsageRollup {
+  session_count: number
+  tokens_in: number
+  tokens_out: number
+  duration_ms: number
+  step_count: number
+  tool_calls: number
+  exec_count: number
+  cpu_ms: number
+  peak_memory_mb: number | null
+  net_bytes: number
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// USAGE ROLLUPS
 // ════════════════════════════════════════════════════════════════════════════
 
-const domain = { ticket, comment, project, provider, agent, session, file, execution, scheduler }
+function rollupExecutions(executions: Execution[]) {
+  let cpu_ms = 0, net_bytes = 0, peak = 0
+  for (const e of executions) {
+    cpu_ms += e.cpu_ms ?? 0
+    net_bytes += (e.net_rx_bytes ?? 0) + (e.net_tx_bytes ?? 0)
+    if ((e.peak_memory_mb ?? 0) > peak) peak = e.peak_memory_mb ?? 0
+  }
+  return { exec_count: executions.length, cpu_ms, peak_memory_mb: peak || null, net_bytes }
+}
+
+function rollupSessions(db: Db, sessions: Session[]): UsageRollup {
+  let tokens_in = 0, tokens_out = 0, duration_ms = 0, step_count = 0, tool_calls = 0
+  let cpu_ms = 0, net_bytes = 0, peak = 0, exec_count = 0
+  for (const s of sessions) {
+    tokens_in += s.tokens_in ?? 0
+    tokens_out += s.tokens_out ?? 0
+    duration_ms += s.duration_ms ?? 0
+    step_count += s.step_count ?? 0
+    tool_calls += s.tool_calls ?? 0
+    const e = rollupExecutions(database.execution.bySession(db, s.id))
+    cpu_ms += e.cpu_ms
+    net_bytes += e.net_bytes
+    exec_count += e.exec_count
+    if ((e.peak_memory_mb ?? 0) > peak) peak = e.peak_memory_mb ?? 0
+  }
+  return {
+    session_count: sessions.length,
+    tokens_in, tokens_out, duration_ms, step_count, tool_calls,
+    exec_count, cpu_ms, peak_memory_mb: peak || null, net_bytes,
+  }
+}
+
+const usage = {
+  ticket: (db: Db) => (id: string): UsageRollup => {
+    require(database.ticket.get(db, id))
+    const sessions = database.session.all(db, [eq(schema.session.ticket_id, id)])
+    return rollupSessions(db, sessions)
+  },
+
+  agent: (db: Db) => (id: string): UsageRollup => {
+    require(database.agent.get(db, id))
+    const sessions = database.session.all(db, [eq(schema.session.agent_id, id)])
+    return rollupSessions(db, sessions)
+  },
+
+  session: (db: Db) => (id: string): UsageRollup => {
+    const s = require(database.session.get(db, id))
+    return rollupSessions(db, [s])
+  },
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+
+const domain = { ticket, comment, project, provider, agent, session, file, execution, scheduler, usage }
 export default domain

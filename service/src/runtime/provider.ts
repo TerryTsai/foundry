@@ -1,9 +1,9 @@
 import { createAnthropic } from '@ai-sdk/anthropic'
 import { createOpenAI } from '@ai-sdk/openai'
 import type { LanguageModelV3 } from '@ai-sdk/provider'
-import { type Db } from './database.js'
-import database from './database.js'
-import { badRequest, notFound } from './functional.js'
+import { type Db } from '../database.js'
+import database from '../database.js'
+import { badRequest, notFound } from '../functional.js'
 
 type ProviderFactory = (apiKey: string) => { languageModel: (id: string) => LanguageModelV3 }
 
