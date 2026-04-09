@@ -11,8 +11,7 @@ import { eq, isNull } from 'drizzle-orm'
 import schema, { type Ticket, type Comment, type Project, type Provider, type Agent, type Session, type Message, type Execution } from './schema.js'
 import type { Config } from './config.js'
 import { require, assertStatus, slugify, pick, now, AppError, conflict, badRequest } from './functional.js'
-import { supported } from './runtime/provider.js'
-import { spawnRun, type RunHandle } from './runtime/runner.js'
+import { supported, spawnRun, type RunHandle } from './runtime/effect.js'
 import type { z } from 'zod'
 import type validate from './validate.js'
 
@@ -121,7 +120,7 @@ const scheduler = {
         status: 'running', model: def.model, started_at: now(),
       })
 
-      const { runAgentSession } = await import('./runtime/agent.js')
+      const { runAgentSession } = await import('./runtime/session.js')
       const { config } = await import('./config.js')
       runAgentSession(db, config, row.id, def, t).catch((err: unknown) =>
         console.error('dispatch session error:', err))
@@ -359,7 +358,7 @@ const session = {
       status: 'running', model: agentDef.model, started_at: now(),
     })
 
-    const { runAgentSession } = await import('./runtime/agent.js')
+    const { runAgentSession } = await import('./runtime/session.js')
     runAgentSession(db, config, row.id, agentDef, t).catch((err: unknown) =>
       console.error(`session ${row.id} crashed:`, err))
 
@@ -410,7 +409,7 @@ const execution = {
       const stderrBuf: string[] = []
       handle.emitter.on('stdout', (line: string) => stdoutBuf.push(line))
       handle.emitter.on('stderr', (line: string) => stderrBuf.push(line))
-      handle.emitter.on('exit', (code: number, stats: import('./runtime/runner.js').ContainerStats | null) => {
+      handle.emitter.on('exit', (code: number, stats: import('./runtime/effect.js').ContainerStats | null) => {
         database.execution.update(db, row.id, {
           status: code === 0 ? 'done' : 'failed',
           exit_code: code, ended_at: now(),
