@@ -23,60 +23,55 @@ export const createDatabase = (path: string): Db => {
 // PROJECT
 // ════════════════════════════════════════════════════════════════════════════
 
-export const project = {
+const project = {
   get:    (d: Db, id: string) => d.select().from(projectT).where(eq(projectT.id, id)).get() as Project | undefined,
   all:    (d: Db, conditions?: SQL[]) => (conditions?.length ? d.select().from(projectT).where(and(...conditions)).all() : d.select().from(projectT).all()) as Project[],
   insert: (d: Db, data: Record<string, unknown>) => { const id = nanoid(); d.insert(projectT).values({ ...data, id } as any).run(); return d.select().from(projectT).where(eq(projectT.id, id)).get() as Project },
   update: (d: Db, id: string, data: Record<string, unknown>) => { if (Object.keys(data).length > 0) d.update(projectT).set(data as any).where(eq(projectT.id, id)).run(); return d.select().from(projectT).where(eq(projectT.id, id)).get() as Project },
   remove: (d: Db, id: string) => { d.delete(projectT).where(eq(projectT.id, id)).run() },
-  col: projectT,
 }
 
-export const provider = {
+const provider = {
   get:       (d: Db, id: string) => d.select().from(providerT).where(eq(providerT.id, id)).get() as Provider | undefined,
   all:       (d: Db, conditions?: SQL[]) => (conditions?.length ? d.select().from(providerT).where(and(...conditions)).all() : d.select().from(providerT).all()) as Provider[],
   insert:    (d: Db, data: Record<string, unknown>) => { const id = nanoid(); d.insert(providerT).values({ ...data, id } as any).run(); return d.select().from(providerT).where(eq(providerT.id, id)).get() as Provider },
   update:    (d: Db, id: string, data: Record<string, unknown>) => { if (Object.keys(data).length > 0) d.update(providerT).set(data as any).where(eq(providerT.id, id)).run(); return d.select().from(providerT).where(eq(providerT.id, id)).get() as Provider },
   remove:    (d: Db, id: string) => { d.delete(providerT).where(eq(providerT.id, id)).run() },
   getByName: (d: Db, name: string) => d.select().from(providerT).where(eq(providerT.name, name)).get() as Provider | undefined,
-  col: providerT,
 }
 
 // ════════════════════════════════════════════════════════════════════════════
 // TICKETING
 // ════════════════════════════════════════════════════════════════════════════
 
-export const ticket = {
+const ticket = {
   get:    (d: Db, id: string) => d.select().from(ticketT).where(eq(ticketT.id, id)).get() as Ticket | undefined,
   all:    (d: Db, conditions?: SQL[]) => (conditions?.length ? d.select().from(ticketT).where(and(...conditions)).all() : d.select().from(ticketT).all()) as Ticket[],
   insert: (d: Db, data: Record<string, unknown>) => { const id = nanoid(); d.insert(ticketT).values({ ...data, id } as any).run(); return d.select().from(ticketT).where(eq(ticketT.id, id)).get() as Ticket },
   update: (d: Db, id: string, data: Record<string, unknown>) => { if (Object.keys(data).length > 0) d.update(ticketT).set(data as any).where(eq(ticketT.id, id)).run(); return d.select().from(ticketT).where(eq(ticketT.id, id)).get() as Ticket },
   remove: (d: Db, id: string) => { d.delete(ticketT).where(eq(ticketT.id, id)).run() },
-  col: ticketT,
 }
 
-export const comment = {
+const comment = {
   get:      (d: Db, id: string) => d.select().from(commentT).where(eq(commentT.id, id)).get() as Comment | undefined,
   all:      (d: Db, conditions?: SQL[]) => (conditions?.length ? d.select().from(commentT).where(and(...conditions)).all() : d.select().from(commentT).all()) as Comment[],
   insert:   (d: Db, data: Record<string, unknown>) => { const id = nanoid(); d.insert(commentT).values({ ...data, id } as any).run(); return d.select().from(commentT).where(eq(commentT.id, id)).get() as Comment },
   byTicket: (d: Db, ticketId: string) => d.select().from(commentT).where(eq(commentT.ticket_id, ticketId)).all(),
-  col: commentT,
 }
 
 // ════════════════════════════════════════════════════════════════════════════
 // AGENT
 // ════════════════════════════════════════════════════════════════════════════
 
-export const agent = {
+const agent = {
   get:    (d: Db, id: string) => d.select().from(agentT).where(eq(agentT.id, id)).get() as Agent | undefined,
   all:    (d: Db, conditions?: SQL[]) => (conditions?.length ? d.select().from(agentT).where(and(...conditions)).all() : d.select().from(agentT).all()) as Agent[],
   insert: (d: Db, data: Record<string, unknown>) => { const id = nanoid(); d.insert(agentT).values({ ...data, id } as any).run(); return d.select().from(agentT).where(eq(agentT.id, id)).get() as Agent },
   update: (d: Db, id: string, data: Record<string, unknown>) => { if (Object.keys(data).length > 0) d.update(agentT).set(data as any).where(eq(agentT.id, id)).run(); return d.select().from(agentT).where(eq(agentT.id, id)).get() as Agent },
   remove: (d: Db, id: string) => { d.delete(agentT).where(eq(agentT.id, id)).run() },
-  col: agentT,
 }
 
-export const session = {
+const session = {
   get:    (d: Db, id: string) => d.select().from(sessionT).where(eq(sessionT.id, id)).get() as Session | undefined,
   all:    (d: Db, conditions?: SQL[]) => (conditions?.length ? d.select().from(sessionT).where(and(...conditions)).all() : d.select().from(sessionT).all()) as Session[],
   insert: (d: Db, data: Record<string, unknown>) => { const id = nanoid(); d.insert(sessionT).values({ ...data, id } as any).run(); return d.select().from(sessionT).where(eq(sessionT.id, id)).get() as Session },
@@ -102,29 +97,25 @@ export const session = {
       started_at: sessionT.started_at, ended_at: sessionT.ended_at,
     }).from(sessionT).leftJoin(agentT, eq(sessionT.agent_id, agentT.id))
       .orderBy(sessionT.started_at).all().reverse().slice(0, 200),
-  col: sessionT,
 }
 
-export const message = {
+const message = {
   get:       (d: Db, id: string) => d.select().from(messageT).where(eq(messageT.id, id)).get() as Message | undefined,
   all:       (d: Db, conditions?: SQL[]) => (conditions?.length ? d.select().from(messageT).where(and(...conditions)).all() : d.select().from(messageT).all()) as Message[],
   insert:    (d: Db, data: Record<string, unknown>) => { const id = nanoid(); d.insert(messageT).values({ ...data, id } as any).run(); return d.select().from(messageT).where(eq(messageT.id, id)).get() as Message },
   bySession: (d: Db, sessionId: string) => d.select().from(messageT).where(eq(messageT.session_id, sessionId)).all(),
-  col: messageT,
 }
 
-export const execution = {
+const execution = {
   get:       (d: Db, id: string) => d.select().from(executionT).where(eq(executionT.id, id)).get() as Execution | undefined,
   all:       (d: Db, conditions?: SQL[]) => (conditions?.length ? d.select().from(executionT).where(and(...conditions)).all() : d.select().from(executionT).all()) as Execution[],
   insert:    (d: Db, data: Record<string, unknown>) => { const id = nanoid(); d.insert(executionT).values({ ...data, id } as any).run(); return d.select().from(executionT).where(eq(executionT.id, id)).get() as Execution },
   update:    (d: Db, id: string, data: Record<string, unknown>) => { if (Object.keys(data).length > 0) d.update(executionT).set(data as any).where(eq(executionT.id, id)).run(); return d.select().from(executionT).where(eq(executionT.id, id)).get() as Execution },
   remove:    (d: Db, id: string) => { d.delete(executionT).where(eq(executionT.id, id)).run() },
   bySession: (d: Db, sessionId: string) => d.select().from(executionT).where(eq(executionT.session_id, sessionId)).all(),
-  col: executionT,
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// SHARED
-// ════════════════════════════════════════════════════════════════════════════
 
-export { eq, and, isNull }
+const database = { project, provider, ticket, comment, agent, session, message, execution }
+export default database
