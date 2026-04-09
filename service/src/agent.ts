@@ -5,7 +5,7 @@ import { mkdtemp, rm } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { resolveModel } from './provider.js'
-import type { Db } from './database.js'
+import { type Db, project as projectDb, session as sessionDb } from './database.js'
 import type { Config } from './config.js'
 import type { Ticket, Agent as AgentDef } from './schema.js'
 import domain, { type TicketChainEntry } from './domain.js'
@@ -72,7 +72,7 @@ const pushRepo = async (workDir: string): Promise<void> => {
 export const runAgentSession = (db: Db, config: Config) =>
   async (sessionId: string, agentDef: AgentDef, ticketData: Ticket): Promise<void> => {
     const startTime = Date.now()
-    const proj = db.project.get(ticketData.project_id)
+    const proj = projectDb.get(db,ticketData.project_id)
     const slug = proj ? slugify(proj.name) : ''
 
     // Clone project repo as shared workspace for this session
@@ -94,7 +94,7 @@ export const runAgentSession = (db: Db, config: Config) =>
       } catch { /* no AGENT.md */ }
 
       const system = buildSystemPrompt(agentDef.prompt, agentMd, chain, ticketData)
-      db.session.update(sessionId, { system_prompt: system })
+      sessionDb.update(db,sessionId, { system_prompt: system })
       const enabledTools = agentDef.tools ? JSON.parse(agentDef.tools) as string[] : undefined
       const tools = makeTools(db, config, sessionId, ticketData.project_id, ticketData.id, agentDef.name, workDir, enabledTools)
 
@@ -145,7 +145,7 @@ export const runAgentSession = (db: Db, config: Config) =>
       // Use final text as completion notes; fall back to last non-empty assistant text
       const summary = result.text || undefined
       domain.ticket.complete(db)(ticketData.id, { ...(summary ? { notes: summary } : {}), agentName: agentDef.name, sessionId })
-      db.session.update(sessionId, {
+      sessionDb.update(db,sessionId, {
         status: 'done', ended_at: now(),
         tokens_in: result.usage?.inputTokens ?? null,
         tokens_out: result.usage?.outputTokens ?? null,
@@ -157,7 +157,7 @@ export const runAgentSession = (db: Db, config: Config) =>
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       try { domain.ticket.fail(db)(ticketData.id, { notes: msg, agentName: agentDef.name, sessionId }) } catch { /* ticket may already be done */ }
-      db.session.update(sessionId, {
+      sessionDb.update(db,sessionId, {
         status: 'failed', error: msg, ended_at: now(),
         duration_ms: Date.now() - startTime,
       })

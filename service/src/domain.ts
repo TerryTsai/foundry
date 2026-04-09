@@ -6,6 +6,12 @@ import { mkdtemp, rm, writeFile as fsWrite, mkdir } from 'fs/promises'
 import { mkdirSync } from 'fs'
 import type { Response } from 'express'
 import type { Db } from './database.js'
+import {
+  project as projectDb, provider as providerDb,
+  ticket as ticketDb, comment as commentDb,
+  agent as agentDb, session as sessionDb, message as messageDb, execution as executionDb,
+  eq, isNull,
+} from './database.js'
 import type { Config } from './config.js'
 import type { Ticket, Comment, Project, Provider, Agent, Session, Message, Execution } from './schema.js'
 import { require, assertStatus, slugify, pick, now, AppError, conflict, badRequest } from './functional.js'
@@ -23,20 +29,19 @@ const ts = () => { const t = now(); return { created_at: t, updated_at: t } }
 
 const project = {
   list: (db: Db) => (filters: z.infer<typeof v.project.list>): Project[] => {
-    const conditions = filters.status ? [db.eq(db.col.project.status, filters.status)] : []
-    return db.project.all(conditions)
+    const conditions = filters.status ? [eq(projectDb.col.status, filters.status)] : []
+    return projectDb.all(db, conditions)
   },
 
   get: (db: Db) => (id: string): Project =>
-    require(db.project.get(id)),
+    require(projectDb.get(db, id)),
 
   create: (db: Db, config: Config) => async (input: z.infer<typeof v.project.create>): Promise<Project> => {
     const { name, schedule_interval = 600, concurrency_limit = 3 } = input
-    const row = db.project.insert({
+    const row = projectDb.insert(db, {
       name, status: 'active',
       schedule_interval, concurrency_limit, ...ts(),
     })
-    // Init bare repo for project
     const bare = join(config.repoBase, `${slugify(name)}.git`)
     await execFileAsync('git', ['init', '--bare', bare])
     scheduler.start(db)(row.id, row.schedule_interval)
@@ -44,14 +49,14 @@ const project = {
   },
 
   update: (db: Db) => (id: string, input: z.infer<typeof v.project.update>): Project => {
-    const prev = require(db.project.get(id))
+    const prev = require(projectDb.get(db, id))
     const updates: Record<string, unknown> = {
       ...pick(input, 'name', 'status', 'schedule_interval', 'concurrency_limit'),
       updated_at: now(),
     }
     if (Object.keys(updates).length <= 1) return prev
 
-    const row = db.project.update(id, updates)
+    const row = projectDb.update(db, id, updates)
     if (input.status === 'archived') scheduler.stop(id)
     if (input.status === 'active' && prev.status === 'archived') scheduler.start(db)(id, row.schedule_interval)
     if (input.schedule_interval !== undefined && row.status === 'active') scheduler.start(db)(id, row.schedule_interval)
@@ -59,7 +64,7 @@ const project = {
   },
 
   run: (db: Db) => (id: string): { ok: true } => {
-    const row = assertStatus(require(db.project.get(id)), 'active', 'project is not active')
+    const row = assertStatus(require(projectDb.get(db, id)), 'active', 'project is not active')
     scheduler.dispatch(db)(row.id).catch((err: unknown) =>
       console.error(`dispatch error for project ${row.id}:`, err))
     return { ok: true }
@@ -73,24 +78,24 @@ const maskKey = (key: string): string => {
 
 const provider = {
   list: (db: Db) => (): (Omit<Provider, 'api_key'> & { api_key_preview: string })[] =>
-    db.provider.all().map(({ api_key, ...rest }) => ({ ...rest, api_key_preview: maskKey(api_key) })),
+    providerDb.all(db).map(({ api_key, ...rest }) => ({ ...rest, api_key_preview: maskKey(api_key) })),
 
   create: (db: Db) => (input: z.infer<typeof v.provider.create>): Omit<Provider, 'api_key'> & { api_key_preview: string } => {
     if (!supported.includes(input.name)) throw badRequest(`unsupported provider '${input.name}' — supported: ${supported.join(', ')}`)
-    if (db.provider.getByName(input.name)) throw conflict(`provider '${input.name}' already configured`)
-    const { api_key, ...rest } = db.provider.insert({ name: input.name, api_key: input.api_key, ...ts() })
+    if (providerDb.getByName(db, input.name)) throw conflict(`provider '${input.name}' already configured`)
+    const { api_key, ...rest } = providerDb.insert(db, { name: input.name, api_key: input.api_key, ...ts() })
     return { ...rest, api_key_preview: maskKey(api_key) }
   },
 
   update: (db: Db) => (id: string, input: z.infer<typeof v.provider.update>): Omit<Provider, 'api_key'> & { api_key_preview: string } => {
-    require(db.provider.get(id))
-    const { api_key, ...rest } = db.provider.update(id, { api_key: input.api_key, updated_at: now() })
+    require(providerDb.get(db, id))
+    const { api_key, ...rest } = providerDb.update(db, id, { api_key: input.api_key, updated_at: now() })
     return { ...rest, api_key_preview: maskKey(api_key) }
   },
 
   remove: (db: Db) => (id: string): { ok: true } => {
-    require(db.provider.get(id))
-    db.provider.remove(id)
+    require(providerDb.get(db, id))
+    providerDb.remove(db, id)
     return { ok: true }
   },
 }
@@ -99,7 +104,7 @@ const intervals = new Map<string, ReturnType<typeof setInterval>>()
 
 const scheduler = {
   dispatch: (db: Db) => async (projectId: string): Promise<void> => {
-    const proj = db.project.get(projectId)
+    const proj = projectDb.get(db, projectId)
     if (!proj || proj.status !== 'active') return
 
     const open    = ticket.list(db)({ projectId, status: 'open' })
@@ -114,7 +119,7 @@ const scheduler = {
       const def = agents.find(a => a.id === t.agent_id)!
       try { ticket.claim(db)(t.id) } catch { continue }
 
-      const row = db.session.insert({
+      const row = sessionDb.insert(db, {
         ticket_id: t.id, agent_id: def.id,
         status: 'running', model: def.model, started_at: now(),
       })
@@ -127,7 +132,7 @@ const scheduler = {
   },
 
   recover: (db: Db) => async (): Promise<void> => {
-    for (const proj of db.project.all()) {
+    for (const proj of projectDb.all(db)) {
       const cutoff = new Date(Date.now() - proj.schedule_interval * 3 * 1000).toISOString()
       for (const t of ticket.list(db)({ projectId: proj.id, status: 'claimed' })) {
         if (t.claimed_at && t.claimed_at < cutoff) {
@@ -152,7 +157,7 @@ const scheduler = {
   },
 
   startAll: (db: Db) => (): void => {
-    for (const proj of db.project.all([db.eq(db.col.project.status, 'active')])) {
+    for (const proj of projectDb.all(db, [eq(projectDb.col.status, 'active')])) {
       scheduler.start(db)(proj.id, proj.schedule_interval)
     }
   },
@@ -169,85 +174,85 @@ const scheduler = {
 
 const ticket = {
   list: (db: Db) => (filters: z.infer<typeof v.ticket.list>): Ticket[] => {
-    const { eq, isNull, col } = db
     const conditions = [
-      filters.projectId ? eq(col.ticket.project_id, filters.projectId) : null,
-      filters.agentId   ? eq(col.ticket.agent_id, filters.agentId)     : null,
-      filters.status    ? eq(col.ticket.status, filters.status)         : null,
-      filters.parentId === 'null' ? isNull(col.ticket.parent_id)
-        : filters.parentId        ? eq(col.ticket.parent_id, filters.parentId) : null,
+      filters.projectId ? eq(ticketDb.col.project_id, filters.projectId) : null,
+      filters.agentId   ? eq(ticketDb.col.agent_id, filters.agentId)     : null,
+      filters.status    ? eq(ticketDb.col.status, filters.status)         : null,
+      filters.parentId === 'null' ? isNull(ticketDb.col.parent_id)
+        : filters.parentId        ? eq(ticketDb.col.parent_id, filters.parentId) : null,
     ].filter(Boolean) as any[]
-    return db.ticket.all(conditions)
+    return ticketDb.all(db, conditions)
   },
 
   get: (db: Db) => (id: string): Ticket =>
-    require(db.ticket.get(id)),
+    require(ticketDb.get(db, id)),
 
   create: (db: Db) => (input: z.infer<typeof v.ticket.create>): Ticket => {
     const { project_id, agent_id, title, body, priority, parent_id, created_by, block } = input
-    if (parent_id) require(db.ticket.get(parent_id), 'parent_id not found')
+    if (parent_id) require(ticketDb.get(db, parent_id), 'parent_id not found')
 
-    return db.tx(tx => {
-      const row = tx.ticket.insert({
+    return db.transaction(tx => {
+      const row = ticketDb.insert(tx as any, {
         project_id, agent_id: agent_id ?? null, title, body, priority,
         status: 'open', parent_id: parent_id ?? null,
         created_by, ...ts(), claimed_at: null,
       })
-      if (block && parent_id && tx.ticket.get(parent_id)?.status === 'claimed') {
-        tx.ticket.update(parent_id, { status: 'blocked', updated_at: now() })
+      if (block && parent_id && ticketDb.get(tx as any, parent_id)?.status === 'claimed') {
+        ticketDb.update(tx as any, parent_id, { status: 'blocked', updated_at: now() })
       }
       return row
-    })
+    }) as Ticket,
   },
 
   update: (db: Db) => (id: string, input: z.infer<typeof v.ticket.update>): Ticket => {
-    require(db.ticket.get(id))
-    return db.ticket.update(id, { ...pick(input, 'title', 'body', 'agent_id', 'priority'), updated_at: now() })
+    require(ticketDb.get(db, id))
+    return ticketDb.update(db, id, { ...pick(input, 'title', 'body', 'agent_id', 'priority'), updated_at: now() })
   },
 
   claim: (db: Db) => (id: string): Ticket =>
-    db.tx(tx => {
-      assertStatus(require(tx.ticket.get(id)), 'open')
-      return tx.ticket.update(id, { status: 'claimed', claimed_at: now(), updated_at: now() })
-    }),
+    db.transaction(tx => {
+      assertStatus(require(ticketDb.get(tx as any, id)), 'open')
+      return ticketDb.update(tx as any, id, { status: 'claimed', claimed_at: now(), updated_at: now() })
+    }) as Ticket,
 
   complete: (db: Db) => (id: string, opts?: { notes?: string; agentName?: string; sessionId?: string }): Ticket =>
-    db.tx(tx => {
-      const row = assertStatus(require(tx.ticket.get(id)), 'claimed')
-      tx.ticket.update(id, { status: 'done', updated_at: now() })
+    db.transaction(tx => {
+      const d = tx as any
+      const row = assertStatus(require(ticketDb.get(d, id)), 'claimed')
+      ticketDb.update(d, id, { status: 'done', updated_at: now() })
       const author = opts?.agentName ?? 'system'
       const body = opts?.notes ? `Session completed\n${opts.notes}` : 'Session completed'
-      tx.comment.insert({ ticket_id: id, session_id: opts?.sessionId ?? null, author, body, created_at: now() })
-      if (row.parent_id && tx.ticket.get(row.parent_id)?.status === 'blocked') {
-        tx.ticket.update(row.parent_id, { status: 'open', updated_at: now() })
+      commentDb.insert(d, { ticket_id: id, session_id: opts?.sessionId ?? null, author, body, created_at: now() })
+      if (row.parent_id && ticketDb.get(d, row.parent_id)?.status === 'blocked') {
+        ticketDb.update(d, row.parent_id, { status: 'open', updated_at: now() })
       }
-      return require(tx.ticket.get(id))
-    }),
+      return require(ticketDb.get(d, id))
+    }) as Ticket,
 
   fail: (db: Db) => (id: string, opts?: { notes?: string; agentName?: string; sessionId?: string }): Ticket => {
-    assertStatus(require(db.ticket.get(id)), 'claimed')
-    const row = db.ticket.update(id, { status: 'failed', updated_at: now() })
+    assertStatus(require(ticketDb.get(db, id)), 'claimed')
+    const row = ticketDb.update(db, id, { status: 'failed', updated_at: now() })
     const author = opts?.agentName ?? 'system'
     const body = opts?.notes ? `Session failed\n${opts.notes}` : 'Session failed'
-    db.comment.insert({ ticket_id: id, session_id: opts?.sessionId ?? null, author, body, created_at: now() })
+    commentDb.insert(db, { ticket_id: id, session_id: opts?.sessionId ?? null, author, body, created_at: now() })
     return row
   },
 
   reopen: (db: Db) => (id: string): Ticket => {
-    assertStatus(require(db.ticket.get(id)), 'failed')
-    return db.ticket.update(id, { status: 'open', claimed_at: null, updated_at: now() })
+    assertStatus(require(ticketDb.get(db, id)), 'failed')
+    return ticketDb.update(db, id, { status: 'open', claimed_at: null, updated_at: now() })
   },
 
   chain: (db: Db) => (id: string): TicketChainEntry[] => {
     const chain: Ticket[] = []
-    let current: Ticket | undefined = require(db.ticket.get(id))
+    let current: Ticket | undefined = require(ticketDb.get(db, id))
     const visited = new Set<string>()
     while (current) {
       if (visited.has(current.id)) break
       visited.add(current.id)
       chain.unshift(current)
       if (!current.parent_id) break
-      current = db.ticket.get(current.parent_id)
+      current = ticketDb.get(db, current.parent_id)
     }
     return chain.map(t => ({
       id: t.id, title: t.title, body: t.body,
@@ -258,13 +263,13 @@ const ticket = {
 
 const comment = {
   list: (db: Db) => (ticketId: string): Comment[] => {
-    require(db.ticket.get(ticketId))
-    return db.comment.byTicket(ticketId)
+    require(ticketDb.get(db, ticketId))
+    return commentDb.byTicket(db, ticketId)
   },
 
   create: (db: Db) => (ticketId: string, input: { author: string; body: string; session_id?: string }): Comment => {
-    require(db.ticket.get(ticketId))
-    return db.comment.insert({ ticket_id: ticketId, session_id: input.session_id ?? null, author: input.author, body: input.body, created_at: now() })
+    require(ticketDb.get(db, ticketId))
+    return commentDb.insert(db, { ticket_id: ticketId, session_id: input.session_id ?? null, author: input.author, body: input.body, created_at: now() })
   },
 }
 
@@ -274,19 +279,19 @@ const comment = {
 
 const agent = {
   list: (db: Db) => (filters: z.infer<typeof v.agent.list>): Agent[] => {
-    const conditions = filters.projectId ? [db.eq(db.col.agent.project_id, filters.projectId)] : []
-    return db.agent.all(conditions)
+    const conditions = filters.projectId ? [eq(agentDb.col.project_id, filters.projectId)] : []
+    return agentDb.all(db, conditions)
   },
 
   get: (db: Db) => (id: string): Agent =>
-    require(db.agent.get(id)),
+    require(agentDb.get(db, id)),
 
   create: (db: Db) => (input: z.infer<typeof v.agent.create>): Agent => {
     const { project_id, name, model, prompt, max_tokens, max_steps, temperature, tools } = input
-    if (db.agent.all([db.eq(db.col.agent.project_id, project_id), db.eq(db.col.agent.name, name)]).length > 0) {
+    if (agentDb.all(db, [eq(agentDb.col.project_id, project_id), eq(agentDb.col.name, name)]).length > 0) {
       throw conflict(`agent '${name}' already exists in project '${project_id}'`)
     }
-    return db.agent.insert({
+    return agentDb.insert(db, {
       project_id, name, model, prompt,
       max_tokens: max_tokens ?? 8192, max_steps: max_steps ?? 20,
       temperature: temperature ?? null,
@@ -296,59 +301,59 @@ const agent = {
   },
 
   update: (db: Db) => (id: string, input: z.infer<typeof v.agent.update>): Agent => {
-    require(db.agent.get(id))
+    require(agentDb.get(db, id))
     const data: Record<string, unknown> = { ...pick(input, 'model', 'prompt', 'max_tokens', 'max_steps', 'temperature'), updated_at: now() }
     if (input.tools !== undefined) data.tools = JSON.stringify(input.tools)
-    return db.agent.update(id, data)
+    return agentDb.update(db, id, data)
   },
 
   remove: (db: Db) => (id: string): { ok: true } => {
-    require(db.agent.get(id))
-    db.agent.remove(id)
+    require(agentDb.get(db, id))
+    agentDb.remove(db, id)
     return { ok: true }
   },
 }
 
 const session = {
   get: (db: Db) => (id: string): Session =>
-    require(db.session.get(id)),
+    require(sessionDb.get(db, id)),
 
   status: (db: Db) => (id: string): { status: string } =>
-    ({ status: require(db.session.get(id)).status }),
+    ({ status: require(sessionDb.get(db, id)).status }),
 
   kill: (db: Db) => (id: string): { ok: true } => {
-    assertStatus(require(db.session.get(id)), 'running', 'session is not running')
-    db.session.update(id, { status: 'failed', error: 'killed', ended_at: now() })
+    assertStatus(require(sessionDb.get(db, id)), 'running', 'session is not running')
+    sessionDb.update(db, id, { status: 'failed', error: 'killed', ended_at: now() })
     return { ok: true }
   },
 
   message: (db: Db) => (sessionId: string, role: string, content: string, tokens?: number, tokensIn?: number): Message => {
-    require(db.session.get(sessionId))
-    return db.message.insert({
+    require(sessionDb.get(db, sessionId))
+    return messageDb.insert(db, {
       session_id: sessionId, role, content,
       tokens: tokens ?? null, tokens_in: tokensIn ?? null, created_at: now(),
     })
   },
 
   messages: (db: Db) => (sessionId: string): Message[] => {
-    require(db.session.get(sessionId))
-    return db.message.bySession(sessionId)
+    require(sessionDb.get(db, sessionId))
+    return messageDb.bySession(db, sessionId)
   },
 
   byTicket: (db: Db) => (ticketId: string) => {
-    require(db.ticket.get(ticketId))
-    return db.session.byTicket(ticketId)
+    require(ticketDb.get(db, ticketId))
+    return sessionDb.byTicket(db, ticketId)
   },
 
   listAll: (db: Db) => () =>
-    db.session.listWithAgent(),
+    sessionDb.listWithAgent(db),
 
   start: (db: Db, config: Config) => async (agentDefId: string, ticketId: string): Promise<Session> => {
-    const agentDef = require(db.agent.get(agentDefId), 'agent not found')
+    const agentDef = require(agentDb.get(db, agentDefId), 'agent not found')
     ticket.claim(db)(ticketId)
     const t = ticket.get(db)(ticketId)
 
-    const row = db.session.insert({
+    const row = sessionDb.insert(db, {
       ticket_id: ticketId, agent_id: agentDefId,
       status: 'running', model: agentDef.model, started_at: now(),
     })
@@ -365,20 +370,20 @@ const activeRuns = new Map<string, RunHandle>()
 
 const execution = {
   list: (db: Db) => (): Execution[] =>
-    db.execution.all().reverse().slice(0, 200),
+    executionDb.all(db).reverse().slice(0, 200),
 
   get: (db: Db) => (id: string): Execution =>
-    require(db.execution.get(id)),
+    require(executionDb.get(db, id)),
 
   bySession: (db: Db) => (sessionId: string): Execution[] => {
-    require(db.session.get(sessionId))
-    return db.execution.bySession(sessionId)
+    require(sessionDb.get(db, sessionId))
+    return executionDb.bySession(db, sessionId)
   },
 
   create: (db: Db, config: Config) =>
     (input: { command: string; session_id?: string | undefined; tool_name?: string | undefined; timeout_ms?: number | undefined; memory_mb?: number | undefined; network?: boolean | undefined; workspace?: string | undefined }) => {
       const { command, session_id, tool_name, timeout_ms = config.sandboxTimeout, memory_mb, network = false } = input
-      const row = db.execution.insert({
+      const row = executionDb.insert(db, {
         session_id: session_id ?? null, tool_name: tool_name ?? null, command,
         status: 'running', timeout_ms, memory_mb: memory_mb ?? null,
         started_at: now(),
@@ -397,7 +402,7 @@ const execution = {
       handle.emitter.on('stdout', (line: string) => stdoutBuf.push(line))
       handle.emitter.on('stderr', (line: string) => stderrBuf.push(line))
       handle.emitter.on('exit', (code: number, stats: import('./runner.js').ContainerStats | null) => {
-        db.execution.update(row.id, {
+        executionDb.update(db, row.id, {
           status: code === 0 ? 'done' : 'failed',
           exit_code: code, ended_at: now(),
           duration_ms: Date.now() - startTime,
@@ -415,15 +420,15 @@ const execution = {
     },
 
   kill: (db: Db) => (id: string): { ok: true } => {
-    assertStatus(require(db.execution.get(id)), 'running', 'execution is not active')
+    assertStatus(require(executionDb.get(db, id)), 'running', 'execution is not active')
     const handle = activeRuns.get(id)
     if (handle) { handle.kill(); activeRuns.delete(id) }
-    db.execution.update(id, { status: 'failed', exit_code: -1, ended_at: now() })
+    executionDb.update(db, id, { status: 'failed', exit_code: -1, ended_at: now() })
     return { ok: true }
   },
 
   stream: (db: Db) => (id: string, res: Response): void => {
-    const row = require(db.execution.get(id))
+    const row = require(executionDb.get(db, id))
     res.setHeader('Content-Type', 'text/event-stream')
     res.setHeader('Cache-Control', 'no-cache')
     res.setHeader('Connection', 'keep-alive')

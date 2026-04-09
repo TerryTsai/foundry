@@ -4,126 +4,127 @@ import { eq, and, isNull, type SQL } from 'drizzle-orm'
 import { nanoid } from 'nanoid'
 import * as schema from './schema.js'
 import {
-  agent, comment, execution, message, project, provider, session, ticket,
+  project as projectT, provider as providerT,
+  ticket as ticketT, comment as commentT,
+  agent as agentT, session as sessionT, message as messageT, execution as executionT,
   type Agent, type Comment, type Execution, type Message, type Project, type Provider, type Session, type Ticket,
 } from './schema.js'
 
-type Drizzle = ReturnType<typeof drizzle<typeof schema>>
-
-// ── Query helpers ──
-
-const getById = <T>(d: Drizzle, table: any, idCol: any, id: string): T | undefined =>
-  d.select().from(table).where(eq(idCol, id)).get() as T | undefined
-
-const getAll = <T>(d: Drizzle, table: any, conditions?: SQL[]): T[] =>
-  (conditions?.length
-    ? d.select().from(table).where(and(...conditions)).all()
-    : d.select().from(table).all()) as T[]
-
-const insertRow = <T>(d: Drizzle, table: any, idCol: any, data: Record<string, unknown>): T => {
-  const id = nanoid()
-  d.insert(table).values({ ...data, id } as any).run()
-  return d.select().from(table).where(eq(idCol, id)).get() as T
-}
-
-const updateRow = <T>(d: Drizzle, table: any, idCol: any, id: string, data: Record<string, unknown>): T => {
-  if (Object.keys(data).length > 0) {
-    d.update(table).set(data as any).where(eq(idCol, id)).run()
-  }
-  return d.select().from(table).where(eq(idCol, id)).get() as T
-}
-
-const removeRow = (d: Drizzle, table: any, idCol: any, id: string): void => {
-  d.delete(table).where(eq(idCol, id)).run()
-}
-
-// ── Session join fields (shared between byTicket and listWithAgent) ──
-
-const sessionJoinFields = {
-  id:            session.id,
-  ticket_id:     session.ticket_id,
-  agent_id:      session.agent_id,
-  agent_name:    agent.name,
-  status:        session.status,
-  model:         session.model,
-  error:         session.error,
-  tokens_in:     session.tokens_in,
-  tokens_out:    session.tokens_out,
-  cost_usd:      session.cost_usd,
-  duration_ms:   session.duration_ms,
-  step_count:    session.step_count,
-  tool_calls:    session.tool_calls,
-  finish_reason: session.finish_reason,
-  started_at:    session.started_at,
-  ended_at:      session.ended_at,
-} as const
-
-// ── CRUD table factory ──
-
-const crud = <T>(d: Drizzle, table: any, idCol: any) => ({
-  get:    (id: string) => getById<T>(d, table, idCol, id),
-  all:    (conditions?: SQL[]) => getAll<T>(d, table, conditions),
-  insert: (data: Record<string, unknown>) => insertRow<T>(d, table, idCol, data),
-  update: (id: string, data: Record<string, unknown>) => updateRow<T>(d, table, idCol, id, data),
-  remove: (id: string) => removeRow(d, table, idCol, id),
-})
-
-// ── Constructor ──
-
-const build = (d: Drizzle) => ({
-  // ── Project ──
-  project:   crud<Project>(d, project, project.id),
-  provider:  { ...crud<Provider>(d, provider, provider.id),
-    getByName: (name: string) => d.select().from(provider).where(eq(provider.name, name)).get() as Provider | undefined,
-  },
-
-  // ── Ticketing ──
-  ticket:  crud<Ticket>(d, ticket, ticket.id),
-  comment: {
-    get:      (id: string) => getById<Comment>(d, comment, comment.id, id),
-    all:      (conditions?: SQL[]) => getAll<Comment>(d, comment, conditions),
-    insert:   (data: Record<string, unknown>) => insertRow<Comment>(d, comment, comment.id, data),
-    byTicket: (ticketId: string) =>
-      d.select().from(comment).where(eq(comment.ticket_id, ticketId)).all(),
-  },
-
-  // ── Agent ──
-  agent:   crud<Agent>(d, agent, agent.id),
-  session: { ...crud<Session>(d, session, session.id),
-    byTicket: (ticketId: string) =>
-      d.select(sessionJoinFields).from(session)
-        .leftJoin(agent, eq(session.agent_id, agent.id))
-        .where(eq(session.ticket_id, ticketId))
-        .orderBy(session.started_at).all(),
-    listWithAgent: () =>
-      d.select(sessionJoinFields).from(session)
-        .leftJoin(agent, eq(session.agent_id, agent.id))
-        .orderBy(session.started_at).all()
-        .reverse().slice(0, 200),
-  },
-  message: {
-    get:       (id: string) => getById<Message>(d, message, message.id, id),
-    all:       (conditions?: SQL[]) => getAll<Message>(d, message, conditions),
-    insert:    (data: Record<string, unknown>) => insertRow<Message>(d, message, message.id, data),
-    bySession: (sessionId: string) =>
-      d.select().from(message).where(eq(message.session_id, sessionId)).all(),
-  },
-  execution: { ...crud<Execution>(d, execution, execution.id),
-    bySession: (sessionId: string) =>
-      d.select().from(execution).where(eq(execution.session_id, sessionId)).all(),
-  },
-
-  // ── Shared ──
-  tx: <T>(fn: (db: Db) => T): T => d.transaction(tx => fn(build(tx as any))) as T,
-  eq, and, isNull,
-  col: { ticket, comment, project, provider, agent, session, message, execution },
-})
-
-export type Db = ReturnType<typeof build>
+export type Db = ReturnType<typeof drizzle<typeof schema>>
 
 export const createDatabase = (path: string): Db => {
   const sqlite = new Database(path)
   sqlite.pragma('journal_mode = WAL')
   sqlite.pragma('foreign_keys = ON')
-  return build(drizzle(sqlite, { schema }))
+  return drizzle(sqlite, { schema })
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// PROJECT
+// ════════════════════════════════════════════════════════════════════════════
+
+export const project = {
+  get:    (d: Db, id: string) => d.select().from(projectT).where(eq(projectT.id, id)).get() as Project | undefined,
+  all:    (d: Db, conditions?: SQL[]) => (conditions?.length ? d.select().from(projectT).where(and(...conditions)).all() : d.select().from(projectT).all()) as Project[],
+  insert: (d: Db, data: Record<string, unknown>) => { const id = nanoid(); d.insert(projectT).values({ ...data, id } as any).run(); return d.select().from(projectT).where(eq(projectT.id, id)).get() as Project },
+  update: (d: Db, id: string, data: Record<string, unknown>) => { if (Object.keys(data).length > 0) d.update(projectT).set(data as any).where(eq(projectT.id, id)).run(); return d.select().from(projectT).where(eq(projectT.id, id)).get() as Project },
+  remove: (d: Db, id: string) => { d.delete(projectT).where(eq(projectT.id, id)).run() },
+  col: projectT,
+}
+
+export const provider = {
+  get:       (d: Db, id: string) => d.select().from(providerT).where(eq(providerT.id, id)).get() as Provider | undefined,
+  all:       (d: Db, conditions?: SQL[]) => (conditions?.length ? d.select().from(providerT).where(and(...conditions)).all() : d.select().from(providerT).all()) as Provider[],
+  insert:    (d: Db, data: Record<string, unknown>) => { const id = nanoid(); d.insert(providerT).values({ ...data, id } as any).run(); return d.select().from(providerT).where(eq(providerT.id, id)).get() as Provider },
+  update:    (d: Db, id: string, data: Record<string, unknown>) => { if (Object.keys(data).length > 0) d.update(providerT).set(data as any).where(eq(providerT.id, id)).run(); return d.select().from(providerT).where(eq(providerT.id, id)).get() as Provider },
+  remove:    (d: Db, id: string) => { d.delete(providerT).where(eq(providerT.id, id)).run() },
+  getByName: (d: Db, name: string) => d.select().from(providerT).where(eq(providerT.name, name)).get() as Provider | undefined,
+  col: providerT,
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// TICKETING
+// ════════════════════════════════════════════════════════════════════════════
+
+export const ticket = {
+  get:    (d: Db, id: string) => d.select().from(ticketT).where(eq(ticketT.id, id)).get() as Ticket | undefined,
+  all:    (d: Db, conditions?: SQL[]) => (conditions?.length ? d.select().from(ticketT).where(and(...conditions)).all() : d.select().from(ticketT).all()) as Ticket[],
+  insert: (d: Db, data: Record<string, unknown>) => { const id = nanoid(); d.insert(ticketT).values({ ...data, id } as any).run(); return d.select().from(ticketT).where(eq(ticketT.id, id)).get() as Ticket },
+  update: (d: Db, id: string, data: Record<string, unknown>) => { if (Object.keys(data).length > 0) d.update(ticketT).set(data as any).where(eq(ticketT.id, id)).run(); return d.select().from(ticketT).where(eq(ticketT.id, id)).get() as Ticket },
+  remove: (d: Db, id: string) => { d.delete(ticketT).where(eq(ticketT.id, id)).run() },
+  col: ticketT,
+}
+
+export const comment = {
+  get:      (d: Db, id: string) => d.select().from(commentT).where(eq(commentT.id, id)).get() as Comment | undefined,
+  all:      (d: Db, conditions?: SQL[]) => (conditions?.length ? d.select().from(commentT).where(and(...conditions)).all() : d.select().from(commentT).all()) as Comment[],
+  insert:   (d: Db, data: Record<string, unknown>) => { const id = nanoid(); d.insert(commentT).values({ ...data, id } as any).run(); return d.select().from(commentT).where(eq(commentT.id, id)).get() as Comment },
+  byTicket: (d: Db, ticketId: string) => d.select().from(commentT).where(eq(commentT.ticket_id, ticketId)).all(),
+  col: commentT,
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// AGENT
+// ════════════════════════════════════════════════════════════════════════════
+
+export const agent = {
+  get:    (d: Db, id: string) => d.select().from(agentT).where(eq(agentT.id, id)).get() as Agent | undefined,
+  all:    (d: Db, conditions?: SQL[]) => (conditions?.length ? d.select().from(agentT).where(and(...conditions)).all() : d.select().from(agentT).all()) as Agent[],
+  insert: (d: Db, data: Record<string, unknown>) => { const id = nanoid(); d.insert(agentT).values({ ...data, id } as any).run(); return d.select().from(agentT).where(eq(agentT.id, id)).get() as Agent },
+  update: (d: Db, id: string, data: Record<string, unknown>) => { if (Object.keys(data).length > 0) d.update(agentT).set(data as any).where(eq(agentT.id, id)).run(); return d.select().from(agentT).where(eq(agentT.id, id)).get() as Agent },
+  remove: (d: Db, id: string) => { d.delete(agentT).where(eq(agentT.id, id)).run() },
+  col: agentT,
+}
+
+export const session = {
+  get:    (d: Db, id: string) => d.select().from(sessionT).where(eq(sessionT.id, id)).get() as Session | undefined,
+  all:    (d: Db, conditions?: SQL[]) => (conditions?.length ? d.select().from(sessionT).where(and(...conditions)).all() : d.select().from(sessionT).all()) as Session[],
+  insert: (d: Db, data: Record<string, unknown>) => { const id = nanoid(); d.insert(sessionT).values({ ...data, id } as any).run(); return d.select().from(sessionT).where(eq(sessionT.id, id)).get() as Session },
+  update: (d: Db, id: string, data: Record<string, unknown>) => { if (Object.keys(data).length > 0) d.update(sessionT).set(data as any).where(eq(sessionT.id, id)).run(); return d.select().from(sessionT).where(eq(sessionT.id, id)).get() as Session },
+  remove: (d: Db, id: string) => { d.delete(sessionT).where(eq(sessionT.id, id)).run() },
+  byTicket: (d: Db, ticketId: string) =>
+    d.select({
+      id: sessionT.id, ticket_id: sessionT.ticket_id, agent_id: sessionT.agent_id,
+      agent_name: agentT.name, status: sessionT.status, model: sessionT.model,
+      error: sessionT.error, tokens_in: sessionT.tokens_in, tokens_out: sessionT.tokens_out,
+      cost_usd: sessionT.cost_usd, duration_ms: sessionT.duration_ms,
+      step_count: sessionT.step_count, tool_calls: sessionT.tool_calls, finish_reason: sessionT.finish_reason,
+      started_at: sessionT.started_at, ended_at: sessionT.ended_at,
+    }).from(sessionT).leftJoin(agentT, eq(sessionT.agent_id, agentT.id))
+      .where(eq(sessionT.ticket_id, ticketId)).orderBy(sessionT.started_at).all(),
+  listWithAgent: (d: Db) =>
+    d.select({
+      id: sessionT.id, ticket_id: sessionT.ticket_id, agent_id: sessionT.agent_id,
+      agent_name: agentT.name, status: sessionT.status, model: sessionT.model,
+      error: sessionT.error, tokens_in: sessionT.tokens_in, tokens_out: sessionT.tokens_out,
+      cost_usd: sessionT.cost_usd, duration_ms: sessionT.duration_ms,
+      step_count: sessionT.step_count, tool_calls: sessionT.tool_calls, finish_reason: sessionT.finish_reason,
+      started_at: sessionT.started_at, ended_at: sessionT.ended_at,
+    }).from(sessionT).leftJoin(agentT, eq(sessionT.agent_id, agentT.id))
+      .orderBy(sessionT.started_at).all().reverse().slice(0, 200),
+  col: sessionT,
+}
+
+export const message = {
+  get:       (d: Db, id: string) => d.select().from(messageT).where(eq(messageT.id, id)).get() as Message | undefined,
+  all:       (d: Db, conditions?: SQL[]) => (conditions?.length ? d.select().from(messageT).where(and(...conditions)).all() : d.select().from(messageT).all()) as Message[],
+  insert:    (d: Db, data: Record<string, unknown>) => { const id = nanoid(); d.insert(messageT).values({ ...data, id } as any).run(); return d.select().from(messageT).where(eq(messageT.id, id)).get() as Message },
+  bySession: (d: Db, sessionId: string) => d.select().from(messageT).where(eq(messageT.session_id, sessionId)).all(),
+  col: messageT,
+}
+
+export const execution = {
+  get:       (d: Db, id: string) => d.select().from(executionT).where(eq(executionT.id, id)).get() as Execution | undefined,
+  all:       (d: Db, conditions?: SQL[]) => (conditions?.length ? d.select().from(executionT).where(and(...conditions)).all() : d.select().from(executionT).all()) as Execution[],
+  insert:    (d: Db, data: Record<string, unknown>) => { const id = nanoid(); d.insert(executionT).values({ ...data, id } as any).run(); return d.select().from(executionT).where(eq(executionT.id, id)).get() as Execution },
+  update:    (d: Db, id: string, data: Record<string, unknown>) => { if (Object.keys(data).length > 0) d.update(executionT).set(data as any).where(eq(executionT.id, id)).run(); return d.select().from(executionT).where(eq(executionT.id, id)).get() as Execution },
+  remove:    (d: Db, id: string) => { d.delete(executionT).where(eq(executionT.id, id)).run() },
+  bySession: (d: Db, sessionId: string) => d.select().from(executionT).where(eq(executionT.session_id, sessionId)).all(),
+  col: executionT,
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// SHARED
+// ════════════════════════════════════════════════════════════════════════════
+
+export { eq, and, isNull }
