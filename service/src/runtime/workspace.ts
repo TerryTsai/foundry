@@ -13,10 +13,11 @@ const execFileAsync = promisify(execFile)
 // Per-session working tree: clone the project's bare repo into a tmpdir,
 // let the agent mutate it, then push any changes back and destroy the dir.
 
-const empty = async (): Promise<string> =>
-  mkdtemp(join(tmpdir(), 'foundry-session-'))
+async function empty(): Promise<string> {
+  return mkdtemp(join(tmpdir(), 'foundry-session-'))
+}
 
-const clone = (db: Db, config: Config) => async (projectId: string): Promise<string> => {
+async function clone(db: Db, config: Config, projectId: string): Promise<string> {
   const proj = database.project.get(db, projectId)
   if (!proj) throw new Error(`project ${projectId} not found`)
   const slug = slugify(proj.name)
@@ -28,7 +29,7 @@ const clone = (db: Db, config: Config) => async (projectId: string): Promise<str
   return workDir
 }
 
-const publish = async (workDir: string): Promise<void> => {
+async function publish(workDir: string): Promise<void> {
   // Stage and commit any changes the agent made
   await execFileAsync('git', ['-C', workDir, 'add', '-A'])
   try {
@@ -42,7 +43,7 @@ const publish = async (workDir: string): Promise<void> => {
   }
 }
 
-const destroy = async (workDir: string): Promise<void> => {
+async function destroy(workDir: string): Promise<void> {
   await rm(workDir, { recursive: true, force: true }).catch(() => {})
 }
 

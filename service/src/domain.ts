@@ -123,7 +123,7 @@ const scheduler = {
 
       const { runAgentSession } = await import('./runtime/agent.js')
       const { config } = await import('./config.js')
-      runAgentSession(db, config)(row.id, def, t).catch((err: unknown) =>
+      runAgentSession(db, config, row.id, def, t).catch((err: unknown) =>
         console.error('dispatch session error:', err))
     }
   },
@@ -360,7 +360,7 @@ const session = {
     })
 
     const { runAgentSession } = await import('./runtime/agent.js')
-    runAgentSession(db, config)(row.id, agentDef, t).catch((err: unknown) =>
+    runAgentSession(db, config, row.id, agentDef, t).catch((err: unknown) =>
       console.error(`session ${row.id} crashed:`, err))
 
     return row

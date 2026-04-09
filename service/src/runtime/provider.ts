@@ -16,11 +16,11 @@ const factories: Record<string, ProviderFactory> = {
 
 export const supported = Object.keys(factories)
 
-export const resolveModel = (db: Db) => (modelString: string): LanguageModelV3 => {
+export function resolveModel(db: Db, modelString: string): LanguageModelV3 {
   const sep = modelString.indexOf(':')
   if (sep === -1) throw badRequest('model must be provider:model format')
   const providerId = modelString.slice(0, sep)
-  const modelId = modelString.slice(sep + 1)
+  const modelId    = modelString.slice(sep + 1)
   const row = database.provider.getByName(db, providerId)
   if (!row) throw notFound(`provider '${providerId}' not configured — add an API key first`)
   const factory = factories[providerId]
@@ -31,8 +31,8 @@ export const resolveModel = (db: Db) => (modelString: string): LanguageModelV3 =
 // Wrap the base model with agent-specific defaults (max tokens, temperature,
 // anthropic thinking budget) so the step call site stays clean. Per-call
 // params still override these defaults.
-export const resolveModelWithDefaults = (db: Db) => (agentDef: AgentDef): LanguageModelV3 => {
-  const base = resolveModel(db)(agentDef.model)
+export function resolveModelWithDefaults(db: Db, agentDef: AgentDef): LanguageModelV3 {
+  const base = resolveModel(db, agentDef.model)
   const settings: Parameters<typeof defaultSettingsMiddleware>[0]['settings'] = {
     maxOutputTokens: agentDef.max_tokens,
   }
