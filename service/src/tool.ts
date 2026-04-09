@@ -5,7 +5,7 @@ import { join, dirname } from 'path'
 import { nanoid } from 'nanoid'
 import type { Db } from './database.js'
 import type { Config } from './config.js'
-import * as v from './validate.js'
+import validate from './validate.js'
 import domain from './domain.js'
 
 export const TOOL_NAMES = ['exec', 'read', 'write', 'patch', 'search', 'find', 'fetch', 'scrape', 'think', 'ticket', 'agents'] as const
@@ -97,7 +97,7 @@ const _makeAllTools = (db: Db, config: Config, sessionId: string, projectId: str
 
   exec: tool({
     description: 'Run a shell command in a sandboxed container with the project repo at /work. Large stdout is written to a file; use the read tool to paginate.',
-    inputSchema: v.tool.exec,
+    inputSchema: validate.tool.exec,
     outputSchema: boundedOutput.extend({ stderr: z.string(), exitCode: z.number() }),
     execute: async (args) => {
       const command = args.cwd ? `cd ${esc(args.cwd)} && ${args.command}` : args.command
@@ -114,7 +114,7 @@ const _makeAllTools = (db: Db, config: Config, sessionId: string, projectId: str
 
   read: tool({
     description: 'Read the contents of a file from the workspace. Returns up to 500 lines. Use offset and limit to paginate larger files.',
-    inputSchema: v.tool.read,
+    inputSchema: validate.tool.read,
     outputSchema: z.object({
       content: z.string(),
       truncated: z.boolean().optional(),
@@ -145,7 +145,7 @@ const _makeAllTools = (db: Db, config: Config, sessionId: string, projectId: str
 
   write: tool({
     description: 'Create or overwrite a file in the workspace.',
-    inputSchema: v.tool.write,
+    inputSchema: validate.tool.write,
     outputSchema: z.object({ ok: z.boolean(), error: z.string().optional() }),
     execute: async (args) => {
       const tmpRel = writeTmp(args.content)
@@ -164,7 +164,7 @@ const _makeAllTools = (db: Db, config: Config, sessionId: string, projectId: str
 
   patch: tool({
     description: 'Apply a targeted edit to a file by replacing an exact string match.',
-    inputSchema: v.tool.patch,
+    inputSchema: validate.tool.patch,
     outputSchema: z.object({ ok: z.boolean(), error: z.string().optional() }),
     execute: async (args) => {
       const meta = writeTmp(JSON.stringify({
@@ -195,7 +195,7 @@ print("ok")
 
   search: tool({
     description: 'Search file contents using grep with regex support. Large results are written to a file; use the read tool to paginate.',
-    inputSchema: v.tool.search,
+    inputSchema: validate.tool.search,
     outputSchema: boundedOutput,
     execute: async (args) => {
       const searchPath = args.path ? `/work/${args.path}` : '/work'
@@ -220,7 +220,7 @@ print("ok")
 
   find: tool({
     description: 'List files matching a glob pattern in the workspace. Large results are written to a file; use the read tool to paginate.',
-    inputSchema: v.tool.find,
+    inputSchema: validate.tool.find,
     outputSchema: boundedOutput,
     execute: async (args) => {
       const depth = args.max_depth ?? 3
@@ -244,7 +244,7 @@ print("ok")
 
   fetch: tool({
     description: 'Make an HTTP request and return the response. Large responses are written to a file; use the read tool to paginate.',
-    inputSchema: v.tool.fetch,
+    inputSchema: validate.tool.fetch,
     outputSchema: boundedOutput.extend({ status: z.number() }),
     execute: async (args) => {
       const curlArgs = ['-s', '-w', '\\n%{http_code}', '-X', args.method ?? 'GET']
@@ -269,7 +269,7 @@ print("ok")
 
   scrape: tool({
     description: 'Extract clean readable text from a web page. Large output is written to a file; use the read tool to paginate.',
-    inputSchema: v.tool.scrape,
+    inputSchema: validate.tool.scrape,
     outputSchema: boundedOutput,
     execute: async (args) => {
       const url = esc(args.url)
@@ -287,7 +287,7 @@ print("ok")
 
   think: tool({
     description: 'Use this tool to reason, plan, or analyze before taking action. No side effects.',
-    inputSchema: v.tool.think,
+    inputSchema: validate.tool.think,
     outputSchema: z.object({ ok: z.boolean() }),
     execute: async () => ({ ok: true }),
   }),
@@ -308,7 +308,7 @@ print("ok")
 
   ticket: tool({
     description: 'Create, read, or list tickets in the current project. Use create to spawn sub-tasks, optionally assigning to an agent by ID. Use the agents tool first to discover agent IDs.',
-    inputSchema: v.tool.ticket,
+    inputSchema: validate.tool.ticket,
     outputSchema: boundedOutput,
     execute: async (args) => {
       let command: string

@@ -14,7 +14,7 @@ import { require, assertStatus, slugify, pick, now, AppError, conflict, badReque
 import { supported } from './provider.js'
 import { spawnRun, type RunHandle } from './runner.js'
 import type { z } from 'zod'
-import type * as v from './validate.js'
+import type validate from './validate.js'
 
 const execFileAsync = promisify(execFile)
 const ts = () => { const t = now(); return { created_at: t, updated_at: t } }
@@ -24,7 +24,7 @@ const ts = () => { const t = now(); return { created_at: t, updated_at: t } }
 // ════════════════════════════════════════════════════════════════════════════
 
 const project = {
-  list: (db: Db) => (filters: z.infer<typeof v.project.list>): Project[] => {
+  list: (db: Db) => (filters: z.infer<typeof validate.project.list>): Project[] => {
     const conditions = filters.status ? [eq(schema.project.status, filters.status)] : []
     return database.project.all(db, conditions)
   },
@@ -32,7 +32,7 @@ const project = {
   get: (db: Db) => (id: string): Project =>
     require(database.project.get(db, id)),
 
-  create: (db: Db, config: Config) => async (input: z.infer<typeof v.project.create>): Promise<Project> => {
+  create: (db: Db, config: Config) => async (input: z.infer<typeof validate.project.create>): Promise<Project> => {
     const { name, schedule_interval = 600, concurrency_limit = 3 } = input
     const row = database.project.insert(db, {
       name, status: 'active',
@@ -44,7 +44,7 @@ const project = {
     return row
   },
 
-  update: (db: Db) => (id: string, input: z.infer<typeof v.project.update>): Project => {
+  update: (db: Db) => (id: string, input: z.infer<typeof validate.project.update>): Project => {
     const prev = require(database.project.get(db, id))
     const updates: Record<string, unknown> = {
       ...pick(input, 'name', 'status', 'schedule_interval', 'concurrency_limit'),
@@ -54,7 +54,7 @@ const project = {
 
     const row = database.project.update(db, id, updates)
     if (input.status === 'archived') scheduler.stop(id)
-    if (input.status === 'active' && prev.status === 'archived') scheduler.start(db)(id, row.schedule_interval)
+    if (input.status === 'active' && prevalidate.status === 'archived') scheduler.start(db)(id, row.schedule_interval)
     if (input.schedule_interval !== undefined && row.status === 'active') scheduler.start(db)(id, row.schedule_interval)
     return row
   },
@@ -76,14 +76,14 @@ const provider = {
   list: (db: Db) => (): (Omit<Provider, 'api_key'> & { api_key_preview: string })[] =>
     database.provider.all(db).map(({ api_key, ...rest }) => ({ ...rest, api_key_preview: maskKey(api_key) })),
 
-  create: (db: Db) => (input: z.infer<typeof v.provider.create>): Omit<Provider, 'api_key'> & { api_key_preview: string } => {
+  create: (db: Db) => (input: z.infer<typeof validate.provider.create>): Omit<Provider, 'api_key'> & { api_key_preview: string } => {
     if (!supported.includes(input.name)) throw badRequest(`unsupported provider '${input.name}' — supported: ${supported.join(', ')}`)
     if (database.provider.getByName(db, input.name)) throw conflict(`provider '${input.name}' already configured`)
     const { api_key, ...rest } = database.provider.insert(db, { name: input.name, api_key: input.api_key, ...ts() })
     return { ...rest, api_key_preview: maskKey(api_key) }
   },
 
-  update: (db: Db) => (id: string, input: z.infer<typeof v.provider.update>): Omit<Provider, 'api_key'> & { api_key_preview: string } => {
+  update: (db: Db) => (id: string, input: z.infer<typeof validate.provider.update>): Omit<Provider, 'api_key'> & { api_key_preview: string } => {
     require(database.provider.get(db, id))
     const { api_key, ...rest } = database.provider.update(db, id, { api_key: input.api_key, updated_at: now() })
     return { ...rest, api_key_preview: maskKey(api_key) }
@@ -169,7 +169,7 @@ const scheduler = {
 // ════════════════════════════════════════════════════════════════════════════
 
 const ticket = {
-  list: (db: Db) => (filters: z.infer<typeof v.ticket.list>): Ticket[] => {
+  list: (db: Db) => (filters: z.infer<typeof validate.ticket.list>): Ticket[] => {
     const conditions = [
       filters.projectId ? eq(schema.ticket.project_id, filters.projectId) : null,
       filters.agentId   ? eq(schema.ticket.agent_id, filters.agentId)     : null,
@@ -183,7 +183,7 @@ const ticket = {
   get: (db: Db) => (id: string): Ticket =>
     require(database.ticket.get(db, id)),
 
-  create: (db: Db) => (input: z.infer<typeof v.ticket.create>): Ticket => {
+  create: (db: Db) => (input: z.infer<typeof validate.ticket.create>): Ticket => {
     const { project_id, agent_id, title, body, priority, parent_id, created_by, block } = input
     if (parent_id) require(database.ticket.get(db, parent_id), 'parent_id not found')
 
@@ -200,7 +200,7 @@ const ticket = {
     }) as Ticket,
   },
 
-  update: (db: Db) => (id: string, input: z.infer<typeof v.ticket.update>): Ticket => {
+  update: (db: Db) => (id: string, input: z.infer<typeof validate.ticket.update>): Ticket => {
     require(database.ticket.get(db, id))
     return database.ticket.update(db, id, { ...pick(input, 'title', 'body', 'agent_id', 'priority'), updated_at: now() })
   },
@@ -274,7 +274,7 @@ const comment = {
 // ════════════════════════════════════════════════════════════════════════════
 
 const agent = {
-  list: (db: Db) => (filters: z.infer<typeof v.agent.list>): Agent[] => {
+  list: (db: Db) => (filters: z.infer<typeof validate.agent.list>): Agent[] => {
     const conditions = filters.projectId ? [eq(schema.agent.project_id, filters.projectId)] : []
     return database.agent.all(db, conditions)
   },
@@ -282,7 +282,7 @@ const agent = {
   get: (db: Db) => (id: string): Agent =>
     require(database.agent.get(db, id)),
 
-  create: (db: Db) => (input: z.infer<typeof v.agent.create>): Agent => {
+  create: (db: Db) => (input: z.infer<typeof validate.agent.create>): Agent => {
     const { project_id, name, model, prompt, max_tokens, max_steps, temperature, tools } = input
     if (database.agent.all(db, [eq(schema.agent.project_id, project_id), eq(schema.agent.name, name)]).length > 0) {
       throw conflict(`agent '${name}' already exists in project '${project_id}'`)
@@ -296,7 +296,7 @@ const agent = {
     })
   },
 
-  update: (db: Db) => (id: string, input: z.infer<typeof v.agent.update>): Agent => {
+  update: (db: Db) => (id: string, input: z.infer<typeof validate.agent.update>): Agent => {
     require(database.agent.get(db, id))
     const data: Record<string, unknown> = { ...pick(input, 'model', 'prompt', 'max_tokens', 'max_steps', 'temperature'), updated_at: now() }
     if (input.tools !== undefined) data.tools = JSON.stringify(input.tools)

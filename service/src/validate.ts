@@ -4,7 +4,7 @@ import { z } from 'zod'
 // PROJECT
 // ════════════════════════════════════════════════════════════════════════════
 
-export const project = {
+const project = {
   list: z.object({
     status: z.string().optional(),
   }),
@@ -21,7 +21,7 @@ export const project = {
   }),
 }
 
-export const provider = {
+const provider = {
   create: z.object({
     name:    z.string().min(1),
     api_key: z.string().min(1),
@@ -35,7 +35,7 @@ export const provider = {
 // TICKETING
 // ════════════════════════════════════════════════════════════════════════════
 
-export const ticket = {
+const ticket = {
   list: z.object({
     projectId: z.string().optional(),
     agentId:   z.string().optional(),
@@ -62,7 +62,7 @@ export const ticket = {
   fail: z.object({ notes: z.string().optional() }),
 }
 
-export const comment = {
+const comment = {
   create: z.object({
     author: z.string(),
     body:   z.string(),
@@ -75,7 +75,7 @@ export const comment = {
 
 const modelString = z.string().min(1).refine(s => s.includes(':'), { message: 'model must be provider:model format' })
 
-export const agent = {
+const agent = {
   list: z.object({
     projectId: z.string().optional(),
   }),
@@ -99,12 +99,12 @@ export const agent = {
   }),
 }
 
-export const session = {
+const session = {
   start:   z.object({ ticket_id: z.string() }),
   message: z.object({ content: z.string().min(1) }),
 }
 
-export const execution = {
+const execution = {
   create: z.object({
     command:    z.string().min(1),
     session_id: z.string().optional(),
@@ -114,7 +114,7 @@ export const execution = {
   }),
 }
 
-export const tool = {
+const tool = {
   exec: z.object({
     command: z.string().describe('Shell command to run'),
     cwd:     z.string().optional().describe('Working directory relative to /work (default: /work)'),
@@ -171,9 +171,14 @@ export const tool = {
 // FILES
 // ════════════════════════════════════════════════════════════════════════════
 
-export const file = {
+const file = {
   write: z.object({
     content: z.string(),
     message: z.string().optional(),
   }),
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+
+const validate = { project, provider, ticket, comment, agent, session, execution, tool, file }
+export default validate
