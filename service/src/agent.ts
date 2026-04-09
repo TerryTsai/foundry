@@ -1,4 +1,4 @@
-import { generateText, stepCountIs } from 'ai'
+import { generateText, stepCountIs, type ModelMessage } from 'ai'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
 import { mkdtemp, rm } from 'fs/promises'
@@ -104,56 +104,109 @@ export const runAgentSession = (db: Db, config: Config) =>
 
       domain.session.message(db)(sessionId, 'user', ticketData.body)
 
-      const result = await generateText({
-        model: resolveModel(db)(agentDef.model),
-        system,
-        prompt: ticketData.body,
-        tools,
-        stopWhen: stepCountIs(agentDef.max_steps),
-        maxOutputTokens: agentDef.max_tokens,
-        ...(agentDef.temperature !== null ? { temperature: agentDef.temperature } : {}),
-        onStepFinish: ({ text, reasoningText, toolCalls, toolResults, usage }) => {
-          const tokensOut = usage?.outputTokens ?? undefined
-          const tokensIn = usage?.inputTokens ?? undefined
-          if (reasoningText) {
-            domain.session.message(db)(sessionId, 'reasoning', reasoningText)
-          }
-          if (text) {
-            domain.session.message(db)(sessionId, 'assistant', text, tokensOut, tokensIn)
-          }
-          if (toolCalls?.length) {
-            domain.session.message(db)(sessionId, 'assistant', JSON.stringify(toolCalls), tokensOut, tokensIn)
-          }
-          if (toolResults?.length) {
-            domain.session.message(db)(sessionId, 'user', JSON.stringify(toolResults))
-          }
-        },
-      })
+      // Manual step loop — gives us injection points between steps for
+      // mid-session course correction (new comments), budgets, hard kill, etc.
+
+      const model = resolveModel(db)(agentDef.model)
+      const messages: ModelMessage[] = [{ role: 'user', content: ticketData.body }]
+
+      // Track comment IDs we've already seen so we don't re-inject them.
+      // Pre-seed with comments older than the previous session's end (so prior
+      // history is excluded but feedback posted between sessions still counts
+      // as fresh on a reopen). For first sessions, only seed comments older
+      // than the just-inserted "Session started" marker, which by author
+      // filter is harmless but kept for clarity.
+      const allComments = database.comment.byTicket(db, ticketData.id)
+      const priorSessions = database.session.byTicket(db, ticketData.id)
+        .filter(s => s.id !== sessionId && s.ended_at)
+      const cutoff = priorSessions.length > 0
+        ? priorSessions[priorSessions.length - 1].ended_at!
+        : null
+      const seenCommentIds = new Set<string>(
+        cutoff
+          ? allComments.filter(c => c.created_at <= cutoff).map(c => c.id)
+          : allComments.map(c => c.id)
+      )
+
+      let totalTokensIn = 0
+      let totalTokensOut = 0
+      let totalToolCalls = 0
+      let totalSteps = 0
+      let lastFinishReason: string | null = null
+
+      for (let step = 0; step < agentDef.max_steps; step++) {
+        // Inject any unseen comments from anyone except the agent itself
+        const newComments = database.comment.byTicket(db, ticketData.id)
+          .filter(c => !seenCommentIds.has(c.id) && c.author !== agentDef.name)
+        if (newComments.length > 0) {
+          const text = newComments.map(c => `[${c.author}]: ${c.body}`).join('\n\n')
+          const injected = `New feedback from founder:\n${text}`
+          messages.push({ role: 'user', content: injected })
+          domain.session.message(db)(sessionId, 'user', injected)
+          newComments.forEach(c => seenCommentIds.add(c.id))
+        }
+
+        const result = await generateText({
+          model, system, messages, tools,
+          stopWhen: stepCountIs(1),
+          maxOutputTokens: agentDef.max_tokens,
+          ...(agentDef.temperature !== null ? { temperature: agentDef.temperature } : {}),
+          ...(agentDef.reasoning_budget !== null ? {
+            providerOptions: {
+              anthropic: { thinking: { type: 'enabled', budgetTokens: agentDef.reasoning_budget } },
+            },
+          } : {}),
+        })
+
+        // Persist what happened in this step
+        const tokensIn = result.usage?.inputTokens ?? undefined
+        const tokensOut = result.usage?.outputTokens ?? undefined
+        if (result.reasoningText) {
+          domain.session.message(db)(sessionId, 'reasoning', result.reasoningText)
+        }
+        if (result.text) {
+          // Assistant text is the agent talking to the founder — goes to comments,
+          // not session activity. Comments are the durable conversation; session
+          // activity is the internal work log (tools + reasoning).
+          const own = domain.comment.create(db)(ticketData.id, { author: agentDef.name, body: result.text, session_id: sessionId })
+          seenCommentIds.add(own.id)
+        }
+        if (result.toolCalls?.length) {
+          domain.session.message(db)(sessionId, 'assistant', JSON.stringify(result.toolCalls), tokensOut, tokensIn)
+        }
+        if (result.toolResults?.length) {
+          domain.session.message(db)(sessionId, 'user', JSON.stringify(result.toolResults))
+        }
+
+        // Append the SDK's response messages to our running history so the
+        // next iteration sees the full conversation.
+        messages.push(...result.response.messages)
+
+        // Tally aggregates
+        totalTokensIn += tokensIn ?? 0
+        totalTokensOut += tokensOut ?? 0
+        totalToolCalls += result.toolCalls?.length ?? 0
+        totalSteps += 1
+        lastFinishReason = result.finishReason ?? null
+
+        // Stop if model is done
+        if (result.finishReason === 'stop') break
+      }
 
       // Push any changes back to the bare repo
       try { await pushRepo(workDir) } catch (err) {
         console.error(`session ${sessionId}: push failed:`, err)
       }
 
-      const stepCount = result.steps?.length ?? null
-      const toolCallCount = result.steps?.reduce((sum, s) => sum + (s.toolCalls?.length ?? 0), 0) ?? null
-
-      // Store final reasoning if present
-      if (result.reasoningText) {
-        domain.session.message(db)(sessionId, 'reasoning', result.reasoningText)
-      }
-
-      // Use final text as completion notes; fall back to last non-empty assistant text
-      const summary = result.text || undefined
-      domain.ticket.complete(db)(ticketData.id, { ...(summary ? { notes: summary } : {}), agentName: agentDef.name, sessionId })
-      database.session.update(db,sessionId, {
+      domain.ticket.complete(db)(ticketData.id, { agentName: agentDef.name, sessionId })
+      database.session.update(db, sessionId, {
         status: 'done', ended_at: now(),
-        tokens_in: result.usage?.inputTokens ?? null,
-        tokens_out: result.usage?.outputTokens ?? null,
+        tokens_in: totalTokensIn || null,
+        tokens_out: totalTokensOut || null,
         duration_ms: Date.now() - startTime,
-        step_count: stepCount,
-        tool_calls: toolCallCount,
-        finish_reason: result.finishReason ?? null,
+        step_count: totalSteps || null,
+        tool_calls: totalToolCalls || null,
+        finish_reason: lastFinishReason,
       })
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)

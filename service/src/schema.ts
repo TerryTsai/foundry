@@ -66,17 +66,18 @@ export type Comment = typeof comment.$inferSelect
 // ════════════════════════════════════════════════════════════════════════════
 
 const agent = sqliteTable('agent', {
-  id:          text('id').primaryKey(),
-  project_id:  text('project_id').notNull(),
-  name:        text('name').notNull(),
-  model:       text('model').notNull(),
-  prompt:      text('prompt').notNull(),
-  max_tokens:  integer('max_tokens').notNull().default(8192),
-  max_steps:   integer('max_steps').notNull().default(20),
-  temperature: real('temperature'),
-  tools:       text('tools'),
-  created_at:  text('created_at').notNull(),
-  updated_at:  text('updated_at').notNull(),
+  id:               text('id').primaryKey(),
+  project_id:       text('project_id').notNull(),
+  name:             text('name').notNull(),
+  model:            text('model').notNull(),
+  prompt:           text('prompt').notNull(),
+  max_tokens:       integer('max_tokens').notNull().default(8192),
+  max_steps:        integer('max_steps').notNull().default(20),
+  temperature:      real('temperature'),
+  reasoning_budget: integer('reasoning_budget'),
+  tools:            text('tools'),
+  created_at:       text('created_at').notNull(),
+  updated_at:       text('updated_at').notNull(),
 })
 
 export type Agent = typeof agent.$inferSelect
@@ -119,6 +120,7 @@ const execution = sqliteTable('execution', {
   id:              text('id').primaryKey(),
   session_id:      text('session_id'),
   tool_name:       text('tool_name'),
+  tool_input:      text('tool_input'),
   command:         text('command').notNull(),
   status:          text('status').notNull().default('running'),
   exit_code:       integer('exit_code'),

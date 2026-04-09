@@ -21,6 +21,7 @@ export function AgentDetailPage() {
   const [maxTokens, setMaxTokens] = useState(String(agent.max_tokens))
   const [maxSteps, setMaxSteps] = useState(String(agent.max_steps))
   const [temperature, setTemperature] = useState(agent.temperature !== null ? String(agent.temperature) : '')
+  const [reasoningBudget, setReasoningBudget] = useState(agent.reasoning_budget !== null ? String(agent.reasoning_budget) : '')
   const [availableTools, setAvailableTools] = useState<string[]>([])
   const [selectedTools, setSelectedTools] = useState<Set<string>>(agent.tools ? new Set(JSON.parse(agent.tools) as string[]) : new Set())
   const [error, setError] = useState('')
@@ -38,6 +39,7 @@ export function AgentDetailPage() {
         model, prompt,
         max_tokens: +maxTokens, max_steps: +maxSteps,
         temperature: temperature ? +temperature : undefined,
+        reasoning_budget: reasoningBudget ? +reasoningBudget : null,
         tools,
       })
       setEditing(false)
@@ -69,6 +71,7 @@ export function AgentDetailPage() {
         { label: 'model',       value: agent.model },
         { label: 'tools',       value: agent.tools ? (JSON.parse(agent.tools) as string[]).join(', ') : 'all' },
         { label: 'temperature', value: agent.temperature !== null ? String(agent.temperature) : 'default' },
+        { label: 'reasoning',   value: agent.reasoning_budget !== null ? `${agent.reasoning_budget} tokens` : 'off' },
         { label: 'max steps',   value: String(agent.max_steps) },
         { label: 'max tokens',  value: String(agent.max_tokens) },
         { label: 'created',     value: ts(agent.created_at) },
@@ -95,6 +98,9 @@ export function AgentDetailPage() {
               <TextInput type="number" value={temperature} onChange={e => setTemperature(e.target.value)} min="0" max="2" step="0.1" placeholder="default" />
             </Field>
           </div>
+          <Field label="reasoning budget (tokens)">
+            <TextInput type="number" value={reasoningBudget} onChange={e => setReasoningBudget(e.target.value)} min="1024" placeholder="off" />
+          </Field>
           <ToolPicker available={availableTools} selected={selectedTools} onChange={setSelectedTools} />
           <div className="flex gap-2 pt-2">
             <ActionButton label="cancel" variant="secondary" onClick={() => setEditing(false)} className="flex-1" />

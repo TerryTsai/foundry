@@ -1,14 +1,15 @@
 const dotColor: Record<string, string> = {
-  open:    'bg-sky-400',
-  claimed: 'bg-amber-400',
-  done:    'bg-emerald-400',
-  failed:  'bg-red-400',
-  blocked: 'bg-purple-400',
-  active:  'bg-emerald-400',
+  open:     'bg-sky-400',
+  reopened: 'bg-orange-400',
+  claimed:  'bg-amber-400',
+  done:     'bg-emerald-400',
+  failed:   'bg-red-400',
+  blocked:  'bg-purple-400',
+  active:   'bg-emerald-400',
   archived: 'bg-zinc-400',
-  running: 'bg-sky-400',
-  agent:   'bg-amber-400',
-  founder: 'bg-sky-400',
+  running:  'bg-sky-400',
+  agent:    'bg-amber-400',
+  founder:  'bg-sky-400',
 }
 
 export function StatusBadge({ status }: { status: string }) {

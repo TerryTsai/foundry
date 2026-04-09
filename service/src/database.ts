@@ -12,6 +12,27 @@ export const createDatabase = (path: string): Db => {
   const sqlite = new Database(path)
   sqlite.pragma('journal_mode = WAL')
   sqlite.pragma('foreign_keys = ON')
+  sqlite.pragma('synchronous = NORMAL')   // safe with WAL, ~2x faster writes
+  sqlite.pragma('cache_size = -64000')    // 64 MB page cache
+  sqlite.pragma('temp_store = MEMORY')    // temp tables in RAM
+  sqlite.pragma('mmap_size = 268435456')  // 256 MB mmap for faster reads
+  sqlite.pragma('busy_timeout = 5000')    // wait 5s on lock instead of failing
+
+  // Indexes — append-mostly workload reads by parent ID. CREATE INDEX IF NOT
+  // EXISTS is idempotent so it's safe to run on every startup.
+  sqlite.exec(`
+    CREATE INDEX IF NOT EXISTS idx_message_session_id    ON message(session_id);
+    CREATE INDEX IF NOT EXISTS idx_execution_session_id  ON execution(session_id);
+    CREATE INDEX IF NOT EXISTS idx_comment_ticket_id     ON comment(ticket_id);
+    CREATE INDEX IF NOT EXISTS idx_session_ticket_id     ON session(ticket_id);
+    CREATE INDEX IF NOT EXISTS idx_session_agent_id      ON session(agent_id);
+    CREATE INDEX IF NOT EXISTS idx_session_started_at    ON session(started_at);
+    CREATE INDEX IF NOT EXISTS idx_ticket_project_id     ON ticket(project_id);
+    CREATE INDEX IF NOT EXISTS idx_ticket_status         ON ticket(status);
+    CREATE INDEX IF NOT EXISTS idx_ticket_project_status ON ticket(project_id, status);
+    CREATE INDEX IF NOT EXISTS idx_agent_project_id      ON agent(project_id);
+  `)
+
   return drizzle(sqlite, { schema })
 }
 
@@ -52,7 +73,7 @@ const comment = {
   get:      (d: Db, id: string) => d.select().from(schema.comment).where(eq(schema.comment.id, id)).get() as Comment | undefined,
   all:      (d: Db, conditions?: SQL[]) => (conditions?.length ? d.select().from(schema.comment).where(and(...conditions)).all() : d.select().from(schema.comment).all()) as Comment[],
   insert:   (d: Db, data: Record<string, unknown>) => { const id = nanoid(); d.insert(schema.comment).values({ ...data, id } as any).run(); return d.select().from(schema.comment).where(eq(schema.comment.id, id)).get() as Comment },
-  byTicket: (d: Db, ticketId: string) => d.select().from(schema.comment).where(eq(schema.comment.ticket_id, ticketId)).all(),
+  byTicket: (d: Db, ticketId: string) => d.select().from(schema.comment).where(eq(schema.comment.ticket_id, ticketId)).orderBy(schema.comment.created_at).all(),
 }
 
 // ════════════════════════════════════════════════════════════════════════════

@@ -14,6 +14,31 @@ interface SessionLoaderData {
   messages: Message[]
 }
 
+// ── Tool call formatter ──
+
+function truncate(s: string, n: number): string {
+  return s.length > n ? s.substring(0, n) + '…' : s
+}
+
+function formatToolCall(name: string | null, inputJson: string | null): string {
+  if (!name) return 'exec'
+  let input: any = {}
+  if (inputJson) { try { input = JSON.parse(inputJson) } catch { /* fall through */ } }
+  switch (name) {
+    case 'read':   return `read ${input.path ?? ''}${input.offset ? ` from ${input.offset}` : ''}`
+    case 'write':  return `write ${input.path ?? ''}`
+    case 'patch':  return `patch ${input.path ?? ''}`
+    case 'search': return `search "${truncate(input.pattern ?? '', 40)}"${input.path ? ` in ${input.path}` : ''}`
+    case 'find':   return `find ${input.pattern ?? ''}${input.path ? ` in ${input.path}` : ''}`
+    case 'exec':   return `exec ${truncate(input.command ?? '', 60)}`
+    case 'fetch':  return `fetch ${input.url ?? ''}`
+    case 'scrape': return `scrape ${input.url ?? ''}`
+    case 'ticket': return `ticket ${input.action ?? ''}${input.id ? ` ${input.id}` : input.title ? ` "${truncate(input.title, 40)}"` : ''}`
+    case 'agents': return 'list agents'
+    default:       return name
+  }
+}
+
 // ── Context bar ──
 
 const fmtTokens = (n: number): string => n >= 1000 ? `${(n / 1000).toFixed(0)}k` : String(n)
@@ -166,7 +191,7 @@ export function TicketSessionDetailPage() {
                   <ActivityRow
                     key={`e-${e.id}`}
                     icon={<Terminal size={14} />}
-                    label={e.tool_name ?? 'exec'}
+                    label={formatToolCall(e.tool_name, e.tool_input)}
                     status={e.status}
                     meta={ts(e.started_at)}
                     body=""

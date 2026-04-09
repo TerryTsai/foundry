@@ -60,9 +60,9 @@ const _makeAllTools = (db: Db, config: Config, sessionId: string, projectId: str
     }
   }
 
-  function run(command: string, toolName: string, network = false): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+  function run(command: string, toolName: string, toolInput: unknown, network = false): Promise<{ stdout: string; stderr: string; exitCode: number }> {
     const { emitter } = domain.execution.create(db, config)({
-      command, session_id: sessionId, tool_name: toolName, network, workspace,
+      command, session_id: sessionId, tool_name: toolName, tool_input: toolInput, network, workspace,
     })
     const stdout: string[] = []
     const stderr: string[] = []
@@ -75,8 +75,8 @@ const _makeAllTools = (db: Db, config: Config, sessionId: string, projectId: str
     })
   }
 
-  function runApi(command: string, toolName: string): Promise<{ content: string; outputFile?: string; totalLines?: number; totalBytes?: number; error?: string }> {
-    return run(command, toolName, true).then(r => {
+  function runApi(command: string, toolName: string, toolInput: unknown): Promise<{ content: string; outputFile?: string; totalLines?: number; totalBytes?: number; error?: string }> {
+    return run(command, toolName, toolInput, true).then(r => {
       if (r.exitCode === 0) return bounded(r.stdout)
       return { content: '', error: `request failed (exit ${r.exitCode})` }
     }).catch(err => ({ content: '', error: err instanceof Error ? err.message : String(err) }))
@@ -102,7 +102,7 @@ const _makeAllTools = (db: Db, config: Config, sessionId: string, projectId: str
     execute: async (args) => {
       const command = args.cwd ? `cd ${esc(args.cwd)} && ${args.command}` : args.command
       try {
-        const r = await run(command, 'exec', args.network ?? false)
+        const r = await run(command, 'exec', args, args.network ?? false)
         return { ...bounded(r.stdout), stderr: r.stderr, exitCode: r.exitCode }
       } catch (err) {
         return { content: '', stderr: '', exitCode: -1, error: err instanceof Error ? err.message : String(err) }
@@ -117,24 +117,25 @@ const _makeAllTools = (db: Db, config: Config, sessionId: string, projectId: str
     inputSchema: validate.tool.read,
     outputSchema: z.object({
       content: z.string(),
-      truncated: z.boolean().optional(),
-      totalLines: z.number().optional(),
-      error: z.string().optional(),
-    }),
-    execute: async (args) => {
+      truncated: z.boolean(),
+      totalLines: z.number(),
+      error: z.string(),
+    }).partial().required({ content: true }),
+    execute: async (args: { path: string; offset?: number; limit?: number }) => {
       const limit = Math.min(args.limit ?? 500, 500)
       const start = args.offset ?? 0
-      // First line of stdout = total line count, rest = file content
       const path = esc(`/work/${args.path}`)
       const command = `total=$(wc -l < ${path}) && echo "$total" && sed -n '${start + 1},${start + limit}p' ${path}`
       try {
-        const r = await run(command, 'read')
+        const r = await run(command, 'read', args)
         if (r.exitCode !== 0) return { content: '', error: r.stderr || 'file not found or unreadable' }
         const lines = r.stdout.split('\n')
         const totalLines = parseInt(lines[0], 10)
         const content = lines.slice(1).join('\n')
         const truncated = (start + limit) < totalLines
-        return { content, ...(truncated ? { truncated: true, totalLines } : {}) }
+        return truncated
+          ? { content, truncated: true, totalLines }
+          : { content }
       } catch (err) {
         return { content: '', error: err instanceof Error ? err.message : String(err) }
       }
@@ -152,7 +153,7 @@ const _makeAllTools = (db: Db, config: Config, sessionId: string, projectId: str
       const dest = esc(`/work/${args.path}`)
       const command = `mkdir -p "$(dirname ${dest})" && mv /work/${esc(tmpRel)} ${dest}`
       try {
-        const r = await run(command, 'write')
+        const r = await run(command, 'write', { path: args.path })
         return r.exitCode === 0 ? { ok: true } : { ok: false, error: r.stderr || 'write failed' }
       } catch (err) {
         return { ok: false, error: err instanceof Error ? err.message : String(err) }
@@ -183,7 +184,7 @@ open(m["path"],"w").write(c.replace(m["old"],m["new"],1))
 print("ok")
 '`
       try {
-        const r = await run(command, 'patch')
+        const r = await run(command, 'patch', { path: args.path })
         return r.exitCode === 0 ? { ok: true } : { ok: false, error: r.stderr || r.stdout || 'patch failed' }
       } catch (err) {
         return { ok: false, error: err instanceof Error ? err.message : String(err) }
@@ -206,7 +207,7 @@ print("ok")
       // || true so exit 1 (no matches) doesn't mark execution as failed
       const command = `${parts.join(' ')} | sed 's|/work/||g' || true`
       try {
-        const r = await run(command, 'search')
+        const r = await run(command, 'search', args)
         const output = r.stdout.trimEnd()
         if (!output) return { content: '' }
         return bounded(output)
@@ -230,7 +231,7 @@ print("ok")
       parts.push('-type', 'f', '-name', esc(args.pattern), '-print')
       const command = `${parts.join(' ')} | sed 's|/work/||g'`
       try {
-        const r = await run(command, 'find')
+        const r = await run(command, 'find', args)
         const output = r.stdout.trim()
         if (!output) return { content: '' }
         return bounded(output)
@@ -255,7 +256,7 @@ print("ok")
       curlArgs.push(args.url)
       const command = `curl ${curlArgs.map(a => esc(a)).join(' ')}`
       try {
-        const r = await run(command, 'fetch', true)
+        const r = await run(command, 'fetch', args, true)
         const lines = r.stdout.trimEnd().split('\n')
         const statusCode = parseInt(lines.pop() ?? '0', 10)
         return { ...bounded(lines.join('\n')), status: statusCode }
@@ -275,7 +276,7 @@ print("ok")
       const url = esc(args.url)
       const command = `lynx -dump -nolist -width=120 ${url} 2>/dev/null || curl -sL ${url} | sed 's/<[^>]*>//g' | sed '/^$/d' | head -500`
       try {
-        const r = await run(command, 'scrape', true)
+        const r = await run(command, 'scrape', args, true)
         return bounded(r.stdout.trim())
       } catch (err) {
         return { content: '', error: err instanceof Error ? err.message : String(err) }
@@ -300,7 +301,7 @@ print("ok")
     outputSchema: boundedOutput,
     execute: async () => {
       const command = `curl -sf '${api}/agent?projectId=${projectId}'`
-      return runApi(command, 'agents')
+      return runApi(command, 'agents', {})
     },
   }),
 
@@ -328,7 +329,7 @@ print("ok")
       } else {
         return { content: '', error: 'unknown action' }
       }
-      return runApi(command, 'ticket')
+      return runApi(command, 'ticket', args)
     },
   }),
 })}

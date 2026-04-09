@@ -62,7 +62,7 @@ export function DetailShell({
       <div className="max-w-2xl mx-auto lg:px-2 py-5 space-y-4">
         <DetailHeader type={type} title={title} subtitle={subtitle} status={status} mono={mono} actions={actions} />
         <InfoGroup rows={allRows} primaryCount={primaryCount} />
-        <div className="px-4 space-y-4">
+        <div className="space-y-4">
           {children}
         </div>
       </div>

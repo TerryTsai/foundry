@@ -32,6 +32,7 @@ function AgentSheet({
   const [maxTokens, setMaxTokens] = useState('8192')
   const [maxSteps, setMaxSteps] = useState('20')
   const [temperature, setTemperature] = useState('')
+  const [reasoningBudget, setReasoningBudget] = useState('')
   const [availableTools, setAvailableTools] = useState<string[]>([])
   const [selectedTools, setSelectedTools] = useState<Set<string>>(new Set())
   const [error, setError] = useState('')
@@ -49,10 +50,12 @@ function AgentSheet({
       setMaxTokens(String(agent.max_tokens))
       setMaxSteps(String(agent.max_steps))
       setTemperature(agent.temperature !== null ? String(agent.temperature) : '')
+      setReasoningBudget(agent.reasoning_budget !== null ? String(agent.reasoning_budget) : '')
       setSelectedTools(agent.tools ? new Set(JSON.parse(agent.tools) as string[]) : new Set())
     } else {
       setName(''); setModel('anthropic:claude-sonnet-4-20250514'); setPrompt('')
       setMaxTokens('8192'); setMaxSteps('20'); setTemperature('')
+      setReasoningBudget('')
       setSelectedTools(new Set())
     }
     setError('')
@@ -67,6 +70,7 @@ function AgentSheet({
         model, prompt,
         max_tokens: +maxTokens, max_steps: +maxSteps,
         temperature: temperature ? +temperature : undefined,
+        reasoning_budget: reasoningBudget ? +reasoningBudget : null,
         tools,
       }
       if (isNew) {
@@ -106,6 +110,9 @@ function AgentSheet({
             <TextInput type="number" value={temperature} onChange={e => setTemperature(e.target.value)} min="0" max="2" step="0.1" placeholder="default" />
           </Field>
         </div>
+        <Field label="reasoning budget (tokens)">
+          <TextInput type="number" value={reasoningBudget} onChange={e => setReasoningBudget(e.target.value)} min="1024" placeholder="off" />
+        </Field>
         <ToolPicker available={availableTools} selected={selectedTools} onChange={setSelectedTools} />
         <Field label="prompt">
           <TextArea label="prompt" value={prompt} onChange={e => setPrompt(e.target.value)} required rows={8} />

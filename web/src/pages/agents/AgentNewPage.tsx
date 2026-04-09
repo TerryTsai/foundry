@@ -17,6 +17,7 @@ export function AgentNewPage() {
   const [maxTokens, setMaxTokens] = useState('8192')
   const [maxSteps, setMaxSteps] = useState('20')
   const [temperature, setTemperature] = useState('')
+  const [reasoningBudget, setReasoningBudget] = useState('')
   const [availableTools, setAvailableTools] = useState<string[]>([])
   const [selectedTools, setSelectedTools] = useState<Set<string>>(new Set())
   const [error, setError] = useState('')
@@ -32,6 +33,7 @@ export function AgentNewPage() {
         project_id: projectId, name, model, prompt,
         max_tokens: +maxTokens, max_steps: +maxSteps,
         temperature: temperature ? +temperature : undefined,
+        reasoning_budget: reasoningBudget ? +reasoningBudget : null,
         tools,
       })
       navigate(`/p/${projectId}/agents`)
@@ -59,6 +61,9 @@ export function AgentNewPage() {
             <TextInput type="number" value={temperature} onChange={e => setTemperature(e.target.value)} min="0" max="2" step="0.1" placeholder="default" />
           </Field>
         </div>
+        <Field label="reasoning budget (tokens)">
+          <TextInput type="number" value={reasoningBudget} onChange={e => setReasoningBudget(e.target.value)} min="1024" placeholder="off" />
+        </Field>
         <ToolPicker available={availableTools} selected={selectedTools} onChange={setSelectedTools} />
         <Field label="prompt">
           <TextArea label="prompt" value={prompt} onChange={e => setPrompt(e.target.value)} required rows={8} />

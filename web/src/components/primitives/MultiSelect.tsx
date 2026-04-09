@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { ChevronDown, Check } from 'lucide-react'
 
@@ -16,19 +16,9 @@ export function MultiSelect({ label, options, selected, onChange }: MultiSelectP
   const [pos, setPos] = useState<DropdownPos | null>(null)
   const btnRef = useRef<HTMLButtonElement>(null)
 
-  useEffect(() => {
-    if (!open) return
-    function onDown(e: MouseEvent) {
-      // close if click is outside both the button and the portal dropdown
-      const target = e.target as Node
-      if (btnRef.current?.contains(target)) return
-      const portal = document.getElementById('multiselect-portal')
-      if (portal?.contains(target)) return
-      setOpen(false)
-    }
-    document.addEventListener('mousedown', onDown)
-    return () => document.removeEventListener('mousedown', onDown)
-  }, [open])
+  // Outside clicks are handled by the backdrop below — no document listener
+  // needed, which avoids the race where mousedown closes the dropdown but the
+  // subsequent click still hits a list item underneath.
 
   function handleOpen() {
     if (open) { setOpen(false); return }
@@ -47,11 +37,16 @@ export function MultiSelect({ label, options, selected, onChange }: MultiSelectP
   const active = count > 0
 
   const dropdown = open && pos && createPortal(
-    <div
-      id="multiselect-portal"
-      style={{ position: 'fixed', top: pos.top, left: pos.left, minWidth: Math.max(pos.width, 140), zIndex: 9999 }}
-      className="bg-white dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700/60 rounded-lg shadow-xl overflow-hidden"
-    >
+    <>
+      <div
+        onClick={() => setOpen(false)}
+        style={{ position: 'fixed', inset: 0, zIndex: 9998 }}
+      />
+      <div
+        id="multiselect-portal"
+        style={{ position: 'fixed', top: pos.top, left: pos.left, minWidth: Math.max(pos.width, 140), zIndex: 9999 }}
+        className="bg-white dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700/60 rounded-lg shadow-xl overflow-hidden"
+      >
       {options.map(opt => (
         <button
           key={opt}
@@ -77,7 +72,8 @@ export function MultiSelect({ label, options, selected, onChange }: MultiSelectP
           </button>
         </>
       )}
-    </div>,
+      </div>
+    </>,
     document.body
   )
 

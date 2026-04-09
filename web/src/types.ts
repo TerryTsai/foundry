@@ -49,6 +49,7 @@ export interface Agent {
   max_tokens: number
   max_steps: number
   temperature: number | null
+  reasoning_budget: number | null
   tools: string | null
   created_at: string
   updated_at: string
@@ -78,6 +79,7 @@ export interface Execution {
   id: string
   session_id: string | null
   tool_name: string | null
+  tool_input: string | null
   command: string
   status: 'running' | 'done' | 'failed'
   exit_code: number | null

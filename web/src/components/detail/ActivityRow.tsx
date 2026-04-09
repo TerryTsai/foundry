@@ -41,13 +41,13 @@ export function ActivityRow({ label, icon, detailHref, detailLabel, status, meta
     <div className="border-b border-zinc-200 dark:border-zinc-800/30 last:border-b-0">
       <button
         onClick={() => setExpanded(e => !e)}
-        className="w-full text-left px-4 py-3 active:bg-zinc-100 dark:active:bg-zinc-900/70"
+        className="w-full text-left py-3 active:bg-zinc-100 dark:active:bg-zinc-900/70"
       >
         {row}
       </button>
 
       {expanded && (
-        <div className="px-4 pb-3 -mt-1">
+        <div className="pb-3 -mt-1">
           {detailHref && (
             <Link
               to={detailHref}

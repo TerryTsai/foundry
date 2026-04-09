@@ -7,7 +7,7 @@ import { MultiSelect } from '../../components/primitives/MultiSelect.js'
 import { ListRow } from '../../components/list/ListRow.js'
 import { EmptyState } from '../../components/list/EmptyState.js'
 
-const STATUSES = ['open', 'claimed', 'done', 'failed', 'blocked']
+const STATUSES = ['open', 'reopened', 'claimed', 'done', 'failed', 'blocked']
 const DATE_OPTIONS = ['today', 'yesterday', 'this week', 'this month']
 
 function matchesDateFilter(iso: string, selected: Set<string>): boolean {

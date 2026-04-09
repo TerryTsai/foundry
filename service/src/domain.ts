@@ -54,7 +54,7 @@ const project = {
 
     const row = database.project.update(db, id, updates)
     if (input.status === 'archived') scheduler.stop(id)
-    if (input.status === 'active' && prevalidate.status === 'archived') scheduler.start(db)(id, row.schedule_interval)
+    if (input.status === 'active' && prev.status === 'archived') scheduler.start(db)(id, row.schedule_interval)
     if (input.schedule_interval !== undefined && row.status === 'active') scheduler.start(db)(id, row.schedule_interval)
     return row
   },
@@ -103,13 +103,14 @@ const scheduler = {
     const proj = database.project.get(db, projectId)
     if (!proj || proj.status !== 'active') return
 
-    const open    = ticket.list(db)({ projectId, status: 'open' })
-    const claimed = ticket.list(db)({ projectId, status: 'claimed' })
-    const agents  = agent.list(db)({ projectId })
+    const open     = ticket.list(db)({ projectId, status: 'open' })
+    const reopened = ticket.list(db)({ projectId, status: 'reopened' })
+    const claimed  = ticket.list(db)({ projectId, status: 'claimed' })
+    const agents   = agent.list(db)({ projectId })
 
     if (claimed.length >= proj.concurrency_limit) return
 
-    const eligible = open.filter(t => t.agent_id && agents.find(a => a.id === t.agent_id))
+    const eligible = [...open, ...reopened].filter(t => t.agent_id && agents.find(a => a.id === t.agent_id))
 
     for (const t of eligible.slice(0, proj.concurrency_limit - claimed.length)) {
       const def = agents.find(a => a.id === t.agent_id)!
@@ -128,11 +129,14 @@ const scheduler = {
   },
 
   recover: (db: Db) => async (): Promise<void> => {
+    // Stale claimed tickets (orphaned by a server restart or crashed session)
+    // get released back to 'open' so they can be picked up again. This is a
+    // direct status reset, not a user-driven reopen.
     for (const proj of database.project.all(db)) {
       const cutoff = new Date(Date.now() - proj.schedule_interval * 3 * 1000).toISOString()
       for (const t of ticket.list(db)({ projectId: proj.id, status: 'claimed' })) {
         if (t.claimed_at && t.claimed_at < cutoff) {
-          try { ticket.reopen(db)(t.id) } catch { /* skip */ }
+          database.ticket.update(db, t.id, { status: 'open', claimed_at: null, updated_at: now() })
         }
       }
     }
@@ -197,17 +201,17 @@ const ticket = {
         database.ticket.update(tx as any, parent_id, { status: 'blocked', updated_at: now() })
       }
       return row
-    }) as Ticket,
+    }) as Ticket
   },
 
   update: (db: Db) => (id: string, input: z.infer<typeof validate.ticket.update>): Ticket => {
-    require(database.ticket.get(db, id))
+    assertStatus(require(database.ticket.get(db, id)), 'open', 'ticket can only be edited while open')
     return database.ticket.update(db, id, { ...pick(input, 'title', 'body', 'agent_id', 'priority'), updated_at: now() })
   },
 
   claim: (db: Db) => (id: string): Ticket =>
     db.transaction(tx => {
-      assertStatus(require(database.ticket.get(tx as any, id)), 'open')
+      assertStatus(require(database.ticket.get(tx as any, id)), ['open', 'reopened'])
       return database.ticket.update(tx as any, id, { status: 'claimed', claimed_at: now(), updated_at: now() })
     }) as Ticket,
 
@@ -235,8 +239,8 @@ const ticket = {
   },
 
   reopen: (db: Db) => (id: string): Ticket => {
-    assertStatus(require(database.ticket.get(db, id)), 'failed')
-    return database.ticket.update(db, id, { status: 'open', claimed_at: null, updated_at: now() })
+    assertStatus(require(database.ticket.get(db, id)), ['done', 'failed'], 'only done or failed tickets can be reopened')
+    return database.ticket.update(db, id, { status: 'reopened', claimed_at: null, updated_at: now() })
   },
 
   chain: (db: Db) => (id: string): TicketChainEntry[] => {
@@ -283,7 +287,7 @@ const agent = {
     require(database.agent.get(db, id)),
 
   create: (db: Db) => (input: z.infer<typeof validate.agent.create>): Agent => {
-    const { project_id, name, model, prompt, max_tokens, max_steps, temperature, tools } = input
+    const { project_id, name, model, prompt, max_tokens, max_steps, temperature, reasoning_budget, tools } = input
     if (database.agent.all(db, [eq(schema.agent.project_id, project_id), eq(schema.agent.name, name)]).length > 0) {
       throw conflict(`agent '${name}' already exists in project '${project_id}'`)
     }
@@ -291,6 +295,7 @@ const agent = {
       project_id, name, model, prompt,
       max_tokens: max_tokens ?? 8192, max_steps: max_steps ?? 20,
       temperature: temperature ?? null,
+      reasoning_budget: reasoning_budget ?? null,
       tools: tools ? JSON.stringify(tools) : null,
       ...ts(),
     })
@@ -298,7 +303,7 @@ const agent = {
 
   update: (db: Db) => (id: string, input: z.infer<typeof validate.agent.update>): Agent => {
     require(database.agent.get(db, id))
-    const data: Record<string, unknown> = { ...pick(input, 'model', 'prompt', 'max_tokens', 'max_steps', 'temperature'), updated_at: now() }
+    const data: Record<string, unknown> = { ...pick(input, 'model', 'prompt', 'max_tokens', 'max_steps', 'temperature', 'reasoning_budget'), updated_at: now() }
     if (input.tools !== undefined) data.tools = JSON.stringify(input.tools)
     return database.agent.update(db, id, data)
   },
@@ -377,10 +382,12 @@ const execution = {
   },
 
   create: (db: Db, config: Config) =>
-    (input: { command: string; session_id?: string | undefined; tool_name?: string | undefined; timeout_ms?: number | undefined; memory_mb?: number | undefined; network?: boolean | undefined; workspace?: string | undefined }) => {
-      const { command, session_id, tool_name, timeout_ms = config.sandboxTimeout, memory_mb, network = false } = input
+    (input: { command: string; session_id?: string | undefined; tool_name?: string | undefined; tool_input?: unknown; timeout_ms?: number | undefined; memory_mb?: number | undefined; network?: boolean | undefined; workspace?: string | undefined }) => {
+      const { command, session_id, tool_name, tool_input, timeout_ms = config.sandboxTimeout, memory_mb, network = false } = input
       const row = database.execution.insert(db, {
-        session_id: session_id ?? null, tool_name: tool_name ?? null, command,
+        session_id: session_id ?? null, tool_name: tool_name ?? null,
+        tool_input: tool_input !== undefined ? JSON.stringify(tool_input) : null,
+        command,
         status: 'running', timeout_ms, memory_mb: memory_mb ?? null,
         started_at: now(),
       })

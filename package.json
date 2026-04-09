@@ -4,11 +4,5 @@
   "workspaces": [
     "service",
     "web"
-  ],
-  "scripts": {
-    "dev": "concurrently -n service,web -c cyan,white \"npm run dev -w service\" \"npm run dev -w web\""
-  },
-  "devDependencies": {
-    "concurrently": "^9.2.1"
-  }
+  ]
 }

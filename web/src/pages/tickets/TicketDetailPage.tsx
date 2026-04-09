@@ -93,7 +93,7 @@ export function TicketDetailPage() {
     <DetailShell
       type="ticket" id={ticket.id} title={ticket.title} status={ticket.status}
       subtitle={!editing ? ticket.body : undefined}
-      actions={!editing ? (
+      actions={!editing && ticket.status === 'open' ? (
         <button onClick={() => setEditing(true)}
           className="text-xs text-zinc-400 dark:text-zinc-500 active:text-zinc-900 dark:active:text-zinc-100 shrink-0">
           edit
@@ -123,7 +123,7 @@ export function TicketDetailPage() {
 
       <CommentsSection projectId={projectId} ticketId={ticket.id} comments={comments} />
 
-      {!editing && ticket.status === 'failed' && (
+      {!editing && (ticket.status === 'failed' || ticket.status === 'done') && (
         <div className="pt-2">
           <ActionButton label="reopen" variant="secondary" onClick={handleReopen} className="w-full" />
         </div>

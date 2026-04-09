@@ -15,8 +15,9 @@ export const require = <T>(row: T | undefined, msg?: string): T => {
   return row
 }
 
-export const assertStatus = <T extends { status: string }>(row: T, expected: string, msg?: string): T => {
-  if (row.status !== expected) throw conflict(msg ?? `cannot transition from '${row.status}'`)
+export const assertStatus = <T extends { status: string }>(row: T, expected: string | string[], msg?: string): T => {
+  const allowed = Array.isArray(expected) ? expected : [expected]
+  if (!allowed.includes(row.status)) throw conflict(msg ?? `cannot transition from '${row.status}'`)
   return row
 }
 

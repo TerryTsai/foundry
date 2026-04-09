@@ -101,9 +101,9 @@ export const agentApi = {
   list: (projectId?: string) => get<Agent[]>(`/agent${projectId ? `?projectId=${projectId}` : ''}`),
   get: (id: string) => get<Agent>(`/agent/${id}`),
   tools: () => get<string[]>('/agent/tools'),
-  create: (data: { project_id: string; name: string; model: string; prompt: string; max_tokens?: number; max_steps?: number; temperature?: number; tools?: string[] }) =>
+  create: (data: { project_id: string; name: string; model: string; prompt: string; max_tokens?: number; max_steps?: number; temperature?: number; reasoning_budget?: number | null; tools?: string[] }) =>
     post<Agent>('/agent', data),
-  update: (id: string, data: { model?: string; prompt?: string; max_tokens?: number; max_steps?: number; temperature?: number; tools?: string[] }) =>
+  update: (id: string, data: { model?: string; prompt?: string; max_tokens?: number; max_steps?: number; temperature?: number; reasoning_budget?: number | null; tools?: string[] }) =>
     put<Agent>(`/agent/${id}`, data),
   delete: (id: string) => del<{ ok: boolean }>(`/agent/${id}`),
 }
