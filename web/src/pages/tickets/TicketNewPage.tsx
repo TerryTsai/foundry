@@ -22,8 +22,8 @@ export function TicketNewPage() {
     e.preventDefault()
     setError('')
     try {
-      await ticketApi.create({ project_id: projectId, title, body, agent_id: agentId || undefined, created_by: 'founder' })
-      navigate(`/p/${projectId}/tickets`)
+      const ticket = await ticketApi.create({ project_id: projectId, title, body, agent_id: agentId || undefined, created_by: 'founder' })
+      navigate(`/p/${projectId}/tickets/${ticket.id}`)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'failed')
     }

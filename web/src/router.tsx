@@ -12,7 +12,7 @@ import { RootRedirect } from './pages/RootRedirect.js'
 import { ProjectListPage } from './pages/projects/ProjectListPage.js'
 import { ProjectNewPage } from './pages/projects/ProjectNewPage.js'
 import { ProjectEditPage } from './pages/projects/ProjectEditPage.js'
-import { TicketListPage } from './pages/tickets/TicketListPage.js'
+import { TicketsSplitLayout, TicketsIndexPlaceholder } from './components/layout/TicketsSplitLayout.js'
 import { TicketNewPage } from './pages/tickets/TicketNewPage.js'
 import { TicketDetailPage } from './pages/tickets/TicketDetailPage.js'
 import { TicketSessionDetailPage } from './pages/tickets/TicketSessionDetailPage.js'
@@ -49,15 +49,15 @@ export const router = createBrowserRouter([
       // Tickets
       {
         path: 'tickets',
-        element: <Passthrough />,
+        element: <TicketsSplitLayout />,
         handle: { crumb: 'Tickets' },
+        loader: ({ params }) =>
+          Promise.all([ticketApi.list({ projectId: pid(params) }), agentApi.list(pid(params))])
+            .then(([tickets, agents]) => ({ tickets, agents })),
         children: [
           {
             index: true,
-            element: <TicketListPage />,
-            loader: ({ params }) =>
-              Promise.all([ticketApi.list({ projectId: pid(params) }), agentApi.list(pid(params))])
-                .then(([tickets, agents]) => ({ tickets, agents })),
+            element: <TicketsIndexPlaceholder />,
           },
           {
             path: 'new',
