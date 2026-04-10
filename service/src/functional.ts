@@ -30,3 +30,14 @@ export const pick = (obj: Record<string, unknown>, ...keys: string[]): Record<st
   Object.fromEntries(keys.filter(k => obj[k] !== undefined).map(k => [k, obj[k]]))
 
 export const now = () => new Date().toISOString()
+
+export const toInt = (s: string, fallback = 0): number => {
+  const n = parseInt(s, 10)
+  return isNaN(n) ? fallback : n
+}
+
+// ── Effects ──
+
+export const succeeds = async (fn: () => Promise<unknown>): Promise<boolean> => {
+  try { await fn(); return true } catch { return false }
+}

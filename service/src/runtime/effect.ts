@@ -14,7 +14,7 @@ import { type Db } from '../database.js'
 import database from '../database.js'
 import type { Config } from '../config.js'
 import type { Agent as AgentDef } from '../schema.js'
-import { slugify, badRequest, notFound } from '../functional.js'
+import { require, slugify, badRequest, succeeds, toInt } from '../functional.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -27,8 +27,7 @@ const workspace = {
     mkdtemp(join(tmpdir(), 'foundry-session-')),
 
   clone: async (db: Db, config: Config, projectId: string): Promise<string> => {
-    const proj = database.project.get(db, projectId)
-    if (!proj) throw new Error(`project ${projectId} not found`)
+    const proj = require(database.project.get(db, projectId), `project ${projectId} not found`)
     const workDir = await workspace.empty()
     const bare    = join(config.repoBase, `${slugify(proj.name)}.git`)
     await execFileAsync('git', ['clone', bare, workDir])
@@ -39,13 +38,12 @@ const workspace = {
 
   publish: async (workDir: string): Promise<void> => {
     await execFileAsync('git', ['-C', workDir, 'add', '-A'])
-    try {
-      await execFileAsync('git', ['-C', workDir, 'diff', '--cached', '--quiet'])
-    } catch {
-      await execFileAsync('git', ['-C', workDir, 'commit', '-m', 'agent: apply changes'])
-      const { stdout: branch } = await execFileAsync('git', ['-C', workDir, 'rev-parse', '--abbrev-ref', 'HEAD'])
-      await execFileAsync('git', ['-C', workDir, 'push', 'origin', `HEAD:${branch.trim()}`])
-    }
+    // `git diff --cached --quiet` exits non-zero when there are staged changes
+    const clean = await succeeds(() => execFileAsync('git', ['-C', workDir, 'diff', '--cached', '--quiet']))
+    if (clean) return
+    await execFileAsync('git', ['-C', workDir, 'commit', '-m', 'agent: apply changes'])
+    const { stdout: branch } = await execFileAsync('git', ['-C', workDir, 'rev-parse', '--abbrev-ref', 'HEAD'])
+    await execFileAsync('git', ['-C', workDir, 'push', 'origin', `HEAD:${branch.trim()}`])
   },
 
   destroy: async (workDir: string): Promise<void> => {
@@ -110,7 +108,8 @@ function wrapCommand(command: string): string {
 
 function podmanArgs(opts: RunOptions): string[] {
   const { workspace, image, env, network, memoryMb, cpus, pidsLimit, nofileSoft, nofileHard, tmpfsMb, command } = opts
-  const args = [
+  const envArgs = Object.entries(env).flatMap(([k, v]) => ['-e', `${k}=${v}`])
+  return [
     'run', '--rm',
     ...(network ? [] : ['--network=none']),
     '--memory', `${memoryMb}m`, '--memory-swap', `${memoryMb}m`,
@@ -119,9 +118,9 @@ function podmanArgs(opts: RunOptions): string[] {
     '--cap-drop', 'ALL', '--read-only',
     '--tmpfs', `/tmp:rw,size=${tmpfsMb}m`, '--tmpfs', `/run:rw,size=8m`,
     '-v', `${workspace}:/work`, '-w', '/work',
+    ...envArgs,
+    image, 'sh', '-c', wrapCommand(command),
   ]
-  for (const [k, v] of Object.entries(env)) args.push('-e', `${k}=${v}`)
-  return [...args, image, 'sh', '-c', wrapCommand(command)]
 }
 
 function parseNet(section: string): [number, number] | null {
@@ -131,8 +130,8 @@ function parseNet(section: string): [number, number] | null {
     if (!trimmed || trimmed.startsWith('lo:')) continue
     const parts = trimmed.split(/\s+/)
     if (parts.length < 10) continue
-    rx += parseInt(parts[1], 10) || 0
-    tx += parseInt(parts[9], 10) || 0
+    rx += toInt(parts[1])
+    tx += toInt(parts[9])
     hasNet = true
   }
   return hasNet ? [rx, tx] : null
@@ -141,11 +140,11 @@ function parseNet(section: string): [number, number] | null {
 function parseStats(lines: string[], timedOut: boolean): ContainerStats {
   if (timedOut) return { ...emptyStats(), exitSignal: 'timeout' }
   const [cpu = '', mem = '', net = ''] = lines.join('\n').split('---')
-  const cpuMatch = cpu.match(/usage_usec\s+(\d+)/)
-  const memBytes = parseInt(mem.trim(), 10)
+  const cpuUsec  = toInt(cpu.match(/usage_usec\s+(\d+)/)?.[1] ?? '')
+  const memBytes = toInt(mem.trim())
   const netBytes = parseNet(net)
   return {
-    cpuMs:        cpuMatch ? Math.round(parseInt(cpuMatch[1], 10) / 1000) : null,
+    cpuMs:        cpuUsec  > 0 ? Math.round(cpuUsec / 1000) : null,
     peakMemoryMb: memBytes > 0 ? Math.round(memBytes / (1024 * 1024) * 100) / 100 : null,
     netRxBytes:   netBytes?.[0] ?? null,
     netTxBytes:   netBytes?.[1] ?? null,
@@ -201,10 +200,9 @@ export function resolveModel(db: Db, modelString: string): LanguageModelV3 {
   if (sep === -1) throw badRequest('model must be provider:model format')
   const providerId = modelString.slice(0, sep)
   const modelId    = modelString.slice(sep + 1)
-  const row = database.provider.getByName(db, providerId)
-  if (!row) throw notFound(`provider '${providerId}' not configured — add an API key first`)
-  const factory = factories[providerId]
+  const factory    = factories[providerId]
   if (!factory) throw badRequest(`unsupported provider '${providerId}'`)
+  const row = require(database.provider.getByName(db, providerId), `provider '${providerId}' not configured — add an API key first`)
   return factory(row.api_key).languageModel(modelId)
 }
 
