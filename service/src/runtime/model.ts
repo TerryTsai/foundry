@@ -22,11 +22,11 @@ const factories: Record<string, ProviderFactory> = {
   openai:    (key) => createOpenAI({ apiKey: key }),
 }
 
-// Provider types accepted at create time. 'claude-subscription' has no
+// Provider types accepted at create time. 'anthropic-subscription' has no
 // factory here because it bypasses resolveModel entirely — the runner
 // dispatches it to runtime/sdk-runner.ts which uses the Claude Agent SDK
 // directly with the api_key field repurposed as a CLAUDE_CODE_OAUTH_TOKEN.
-export const supported = [...Object.keys(factories), 'claude-subscription']
+export const supported = [...Object.keys(factories), 'anthropic-subscription']
 
 export function resolveModel(db: Db, providerId: string, modelId: string): LanguageModelV3 {
   const row = require(database.providerGet(db, providerId), `provider '${providerId}' not found`)

@@ -13,7 +13,7 @@ import { makeSdkTools } from './tool.js'
 // ════════════════════════════════════════════════════════════════════════════
 // CLAUDE AGENT SDK BACKEND
 // ════════════════════════════════════════════════════════════════════════════
-// Alternate runtime for agents whose provider.type is 'claude-subscription'.
+// Alternate runtime for agents whose provider.type is 'anthropic-subscription'.
 // The SDK drives the agent loop and bills against a Claude Pro/Max subscription
 // via CLAUDE_CODE_OAUTH_TOKEN (obtained once via `claude setup-token`). All
 // tool calls still go through Foundry's MCP server (makeSdkTools) which routes

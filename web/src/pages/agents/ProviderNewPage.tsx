@@ -7,7 +7,7 @@ import { TextInput } from '../../components/form/TextInput.js'
 import { Select } from '../../components/form/Select.js'
 import { ActionButton } from '../../components/form/ActionButton.js'
 
-const TYPES = ['anthropic', 'openai', 'claude-subscription']
+const TYPES = ['anthropic', 'openai', 'anthropic-subscription']
 
 export function ProviderNewPage() {
   const { projectId } = useShell()
@@ -38,13 +38,13 @@ export function ProviderNewPage() {
             {TYPES.map(t => <option key={t} value={t}>{t}</option>)}
           </Select>
         </Field>
-        <Field label={type === 'claude-subscription' ? 'oauth token' : 'api key'}>
+        <Field label={type === 'anthropic-subscription' ? 'oauth token' : 'api key'}>
           <TextInput
             type="password"
             value={apiKey}
             onChange={e => setApiKey(e.target.value)}
             required
-            placeholder={type === 'claude-subscription' ? 'run `claude setup-token` to obtain' : 'sk-...'}
+            placeholder={type === 'anthropic-subscription' ? 'run `claude setup-token` to obtain' : 'sk-...'}
           />
         </Field>
         <div className="flex gap-2 pt-2">
