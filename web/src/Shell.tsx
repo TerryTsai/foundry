@@ -1,10 +1,11 @@
 import { useState } from 'react'
-import { Outlet, NavLink, Link, ScrollRestoration, useParams, useLoaderData, useRevalidator } from 'react-router-dom'
-import { Ticket, Bot, FolderOpen, ChevronDown, Pause, Play, Sun, Moon, Monitor, type LucideIcon } from 'lucide-react'
+import { Outlet, NavLink, ScrollRestoration, useParams, useLoaderData, useRevalidator } from 'react-router-dom'
+import { Ticket, Bot, FolderOpen, Pause, Play, Sun, Moon, Monitor, type LucideIcon } from 'lucide-react'
 import { projectApi } from './api.js'
 import type { Project } from './types.js'
 import { useTheme, type ThemeMode } from './theme.js'
 import { Breadcrumb, MobileBreadcrumb } from './Breadcrumb.js'
+import { ProjectSwitcher } from './components/ProjectSwitcher.js'
 
 // ── Foundry Mark ──
 
@@ -79,21 +80,7 @@ function Sidebar({
       </nav>
 
       <div className="shrink-0 border-t border-zinc-300 dark:border-zinc-800/60 p-2 space-y-1">
-        <div className="flex items-center gap-1">
-          <NavLink
-            to={`/p/${projectId}/settings`}
-            className="flex-1 px-3 py-2 rounded-lg text-sm text-zinc-700 dark:text-zinc-300 truncate hover:bg-zinc-50 dark:hover:bg-zinc-900 transition-colors"
-          >
-            {current?.name ?? '...'}
-          </NavLink>
-          <Link
-            to="/projects"
-            className="shrink-0 flex items-center justify-center w-8 h-8 rounded-lg text-zinc-400 dark:text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
-            title="Switch project"
-          >
-            <ChevronDown size={13} strokeWidth={2} />
-          </Link>
-        </div>
+        <ProjectSwitcher current={current} projectId={projectId} />
         <div className="flex items-center gap-1 px-1">
           <button
             onClick={cycleTheme}
@@ -187,9 +174,11 @@ function MobileHeader({
             }
           </button>
         )}
-        <NavLink to={`/p/${projectId}/settings`} className="text-xs text-zinc-500 dark:text-zinc-500 truncate max-w-[100px] pl-1">
-          {project?.name ?? '...'}
-        </NavLink>
+        <ProjectSwitcher
+          current={project}
+          projectId={projectId}
+          className="flex items-center gap-1 text-xs text-zinc-500 dark:text-zinc-500 truncate max-w-[140px] pl-1 hover:text-zinc-700 dark:hover:text-zinc-300 transition-colors"
+        />
       </div>
     </div>
   )
