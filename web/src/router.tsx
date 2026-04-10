@@ -86,7 +86,6 @@ export const router = createBrowserRouter([
               {
                 path: 'sessions',
                 element: <Passthrough />,
-                handle: { crumb: 'Sessions' },
                 children: [
                   {
                     path: ':sessionId',
