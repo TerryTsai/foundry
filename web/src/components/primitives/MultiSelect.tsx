@@ -85,7 +85,7 @@ export function MultiSelect({ label, options, selected, onChange }: MultiSelectP
         className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs transition-colors shrink-0 ${
           active
             ? 'border-sky-500/60 bg-sky-500/10 text-sky-600 dark:text-sky-300'
-            : 'border-zinc-300 dark:border-zinc-700 text-zinc-500 active:border-zinc-400 dark:active:border-zinc-600'
+            : 'border-transparent text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800/50 active:bg-zinc-200 dark:active:bg-zinc-800'
         }`}
       >
         <span>{label}</span>
