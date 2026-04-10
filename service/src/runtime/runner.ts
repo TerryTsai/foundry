@@ -9,7 +9,8 @@ import * as domain from '../domain.js'
 import type { TicketChainEntry } from '../domain.js'
 import { now, slugify } from '../functional.js'
 
-import { workspaceClone, workspaceEmpty, workspacePublish, workspaceDestroy, resolveModelWithDefaults } from './effect.js'
+import { workspaceClone, workspaceEmpty, workspacePublish, workspaceDestroy } from './workspace.js'
+import { resolveModelWithDefaults } from './model.js'
 import { makeTools } from './tool.js'
 
 type StepResult = Awaited<ReturnType<typeof generateText<ToolSet>>>

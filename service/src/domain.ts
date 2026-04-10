@@ -13,7 +13,8 @@ import * as schema from './schema.js'
 import type { Ticket, Comment, Provider, Agent, Session, Message, Execution } from './schema.js'
 import type { Config } from './config.js'
 import { require, assertStatus, slugify, pick, now, AppError, conflict, badRequest } from './functional.js'
-import { supported, spawnRun, type RunHandle } from './runtime/effect.js'
+import { supported } from './runtime/model.js'
+import { spawnRun, type RunHandle } from './runtime/sandbox.js'
 import type { z } from 'zod'
 import * as validate from './validate.js'
 
@@ -133,7 +134,7 @@ export async function schedulerDispatch(db: Db, projectId: string): Promise<void
       status: 'running', model: def.model, started_at: now(),
     })
 
-    const { runAgentSession } = await import('./runtime/session.js')
+    const { runAgentSession } = await import('./runtime/runner.js')
     const { config } = await import('./config.js')
     runAgentSession(db, config, row.id, def, t).catch((err: unknown) =>
       console.error('dispatch session error:', err))
@@ -380,7 +381,7 @@ export async function sessionStart(db: Db, config: Config, agentDefId: string, t
     status: 'running', model: agentDef.model, started_at: now(),
   })
 
-  const { runAgentSession } = await import('./runtime/session.js')
+  const { runAgentSession } = await import('./runtime/runner.js')
   runAgentSession(db, config, row.id, agentDef, t).catch((err: unknown) =>
     console.error(`session ${row.id} crashed:`, err))
 
@@ -443,7 +444,7 @@ export function executionCreate(db: Db, config: Config, input: {
   const stderrBuf: string[] = []
   handle.emitter.on('stdout', (line: string) => stdoutBuf.push(line))
   handle.emitter.on('stderr', (line: string) => stderrBuf.push(line))
-  handle.emitter.on('exit', (code: number, stats: import('./runtime/effect.js').ContainerStats | null) => {
+  handle.emitter.on('exit', (code: number, stats: import('./runtime/sandbox.js').ContainerStats | null) => {
     database.executionUpdate(db, row.id, {
       status: code === 0 ? 'done' : 'failed',
       exit_code: code, ended_at: now(),
