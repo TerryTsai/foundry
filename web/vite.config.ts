@@ -1,22 +1,29 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
+// /auth needs the original Host header preserved on its way to the service so
+// the OAuth callback URL gets derived from the user-facing host (e.g. a LAN
+// name like t470.lan:3006), not localhost. changeOrigin:false is the default
+// but pinning it here makes the requirement obvious.
+const target = 'http://localhost:3000'
+const passthrough = { target, changeOrigin: false }
+
 export default defineConfig({
   plugins: [react()],
   server: {
     port: 3006,
     host: true,
     proxy: {
-      '/project': 'http://localhost:3000',
-      '/ticket': 'http://localhost:3000',
-      '/file': 'http://localhost:3000',
-      '/git': 'http://localhost:3000',
-      '/execution': 'http://localhost:3000',
-      '/agent': 'http://localhost:3000',
-      '/session': 'http://localhost:3000',
-      '/provider': 'http://localhost:3000',
-      '/health': 'http://localhost:3000',
-      '/auth': 'http://localhost:3000',
+      '/project':   passthrough,
+      '/ticket':    passthrough,
+      '/file':      passthrough,
+      '/git':       passthrough,
+      '/execution': passthrough,
+      '/agent':     passthrough,
+      '/session':   passthrough,
+      '/provider':  passthrough,
+      '/health':    passthrough,
+      '/auth':      passthrough,
     },
   },
 })
