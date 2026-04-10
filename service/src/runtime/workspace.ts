@@ -22,6 +22,13 @@ export async function workspaceClone(db: Db, config: Config, projectId: string):
   const proj = require(database.projectGet(db, projectId), `project ${projectId} not found`)
   const workDir = await workspaceEmpty()
   const bare    = join(config.repoBase, `${slugify(proj.name)}.git`)
+
+  // Best-effort: pull latest from upstream into the bare before cloning, so
+  // the agent sees commits that landed on GitHub since the last session.
+  // Bare repos for local-only projects (no `origin` remote) silently fail
+  // here, which is fine — the local clone below still works either way.
+  await execFileAsync('git', ['-C', bare, 'fetch', 'origin', '+refs/heads/*:refs/heads/*']).catch(() => {})
+
   await execFileAsync('git', ['clone', bare, workDir])
   await execFileAsync('git', ['-C', workDir, 'config', 'user.email', 'foundry@localhost'])
   await execFileAsync('git', ['-C', workDir, 'config', 'user.name',  'Foundry'])
