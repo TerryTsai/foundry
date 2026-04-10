@@ -42,19 +42,31 @@ function formatToolCall(name: string | null, inputJson: string | null): string {
   }
 }
 
-// ── Context bar ──
+// ── Context window meter ──
 
 const fmtTokens = (n: number): string => n >= 1000 ? `${(n / 1000).toFixed(0)}k` : String(n)
 
-function ContextBar({ tokensIn, total }: { tokensIn: number; total: number }) {
-  const pct = total > 0 ? Math.min((tokensIn / total) * 100, 100) : 0
+// Map a model identifier to its input context window. Defaults to 200k
+// (the common Anthropic limit) for unknown models.
+function contextLimit(model: string): number {
+  if (model.startsWith('anthropic:')) return 200_000
+  if (model.startsWith('openai:gpt-4o'))      return 128_000
+  if (model.startsWith('openai:gpt-4-turbo')) return 128_000
+  if (model.startsWith('openai:gpt-4'))       return 8_192
+  if (model.startsWith('openai:gpt-3.5'))     return 16_385
+  return 200_000
+}
+
+function ContextMeter({ peakIn, limit }: { peakIn: number; limit: number }) {
+  const pct = limit > 0 ? Math.min((peakIn / limit) * 100, 100) : 0
   return (
-    <div className="flex items-center gap-2 mt-2">
-      <div className="flex-1 h-0.5 rounded-full bg-zinc-200 dark:bg-zinc-800 overflow-hidden">
+    <div className="flex items-center gap-3 py-2">
+      <span className="text-zinc-600 dark:text-zinc-500 shrink-0 w-20 text-sm">context</span>
+      <div className="flex-1 h-1 rounded-full bg-zinc-200 dark:bg-zinc-800 overflow-hidden">
         <div className="h-full rounded-full bg-amber-500" style={{ width: `${pct}%` }} />
       </div>
       <span className="text-[10px] text-zinc-400 dark:text-zinc-500 shrink-0 font-mono">
-        {fmtTokens(tokensIn)} / {fmtTokens(total)}
+        {fmtTokens(peakIn)} / {fmtTokens(limit)} ({pct < 1 ? '<1' : pct.toFixed(0)}%)
       </span>
     </div>
   )
@@ -153,6 +165,7 @@ export function TicketSessionDetailPage() {
   const duration = session.duration_ms !== null ? `${(session.duration_ms / 1000).toFixed(1)}s` : null
   const timeline = buildTimeline(messages, executions)
   const peakTokensIn = messages.reduce((max, m) => m.tokens_in !== null && m.tokens_in > max ? m.tokens_in : max, 0)
+  const ctxLimit = contextLimit(session.model)
   const execPath = (eId: string) => `/p/${projectId}/tickets/${ticketId}/sessions/${sessionId}/executions/${eId}`
 
   return (
@@ -173,6 +186,8 @@ export function TicketSessionDetailPage() {
         { label: 'ended',       value: session.ended_at ? ts(session.ended_at) : null },
       ]}
     >
+      {peakTokensIn > 0 && <ContextMeter peakIn={peakTokensIn} limit={ctxLimit} />}
+
       {session.error && (
         <div>
           <SectionLabel label="error" />
@@ -184,15 +199,7 @@ export function TicketSessionDetailPage() {
         <SectionLabel label={`activity (${timeline.length})`} onRefresh={refreshActivity} />
         {timeline.length === 0
           ? <EmptyState message="no activity" />
-          : (() => {
-            let lastTokensIn: number | null = null
-            return timeline.map(entry => {
-              if (entry.kind === 'message') {
-                lastTokensIn = entry.data.tokens_in
-              }
-              const tokensIn = entry.kind === 'message' ? entry.data.tokens_in : lastTokensIn
-              const bar = tokensIn !== null && peakTokensIn > 0 ? <ContextBar tokensIn={tokensIn} total={peakTokensIn} /> : undefined
-
+          : timeline.map(entry => {
               if (entry.kind === 'execution') {
                 const e = entry.data
                 return (
@@ -203,13 +210,12 @@ export function TicketSessionDetailPage() {
                     status={e.status}
                     meta={ts(e.started_at)}
                     body=""
-                    footer={<>{<ExecutionBody e={e} />}{bar}</>}
+                    footer={<ExecutionBody e={e} />}
                     detailHref={execPath(e.id)}
                     detailLabel="view execution"
                   />
                 )
               }
-
               const m = entry.data
               const icon = m.role === 'reasoning' ? <Brain size={14} /> : m.role === 'user' ? <FileText size={14} /> : <MessageSquare size={14} />
               const label = m.role === 'reasoning' ? 'thinking' : m.role === 'user' ? 'prompt' : 'message'
@@ -221,11 +227,9 @@ export function TicketSessionDetailPage() {
                   status="done"
                   meta={ts(m.created_at)}
                   body={m.content}
-                  footer={bar}
                 />
               )
             })
-          })()
         }
       </div>
     </DetailShell>
