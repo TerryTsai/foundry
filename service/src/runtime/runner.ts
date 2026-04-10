@@ -27,9 +27,9 @@ function buildSystemPrompt(agentPrompt: string, agentMd: string, chain: TicketCh
     agentPrompt, '', '---', '',
     '## Project Context (AGENT.md)', '', agentMd,
     chainText ? `\n## Parent Tickets\n\n${chainText}` : '',
-    priorHistory ? `\n## Prior Session History\n\n${priorHistory}` : '',
     '', '---', '',
     `## Current Ticket: ${ticketData.title}`, '', ticketData.body,
+    priorHistory ? `\n\n---\n\n${priorHistory}` : '',
   ].filter(s => s !== undefined).join('\n')
 }
 
@@ -52,7 +52,7 @@ async function buildContext(
   const slug         = proj ? slugify(proj.name) : ''
   const chain        = readChain(db, ticketData.id)
   const agentMd      = proj ? await readAgentMd(config, slug) : ''
-  const priorHistory = domain.ticketPriorHistory(db, ticketData.id, sessionId)
+  const priorHistory = domain.ticketPriorHistory(db, ticketData.id, sessionId, agentDef.name)
   const system       = buildSystemPrompt(agentDef.prompt, agentMd, chain, ticketData, priorHistory)
   database.sessionUpdate(db, sessionId, { system_prompt: system })
   const enabledTools = agentDef.tools ? JSON.parse(agentDef.tools) as string[] : undefined

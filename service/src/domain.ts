@@ -292,19 +292,31 @@ export function commentCreate(db: Db, ticketId: string, input: { author: string;
   require(database.ticketGet(db, ticketId))
   return database.commentInsert(db, { ticket_id: ticketId, session_id: input.session_id ?? null, author: input.author, body: input.body, created_at: now() })
 }
-// Returns a formatted block of all comments from sessions that ended before
-// the given sessionId, so that a reopened ticket's agent has full context
-// of what happened in prior sessions. Returns an empty string on first run.
-export function ticketPriorHistory(db: Db, ticketId: string, sessionId: string): string {
-  const priorSessions = database.sessionByTicket(db, ticketId)
-    .filter(s => s.id !== sessionId && s.ended_at)
-  if (priorSessions.length === 0) return ''
-  const cutoff = priorSessions[priorSessions.length - 1]?.ended_at ?? null
-  if (!cutoff) return ''
+// Returns a formatted block of everything that's been said on this ticket
+// outside the current session. Includes all prior comments — both the
+// agent's own previous responses (so it remembers what it produced) and
+// human feedback (so it can act on revisions). Strips session-marker noise.
+// The feedback section is footer-marked as authoritative, since human
+// follow-ups frequently override the original ticket body.
+export function ticketPriorHistory(db: Db, ticketId: string, sessionId: string, agentName: string): string {
+  const NOISE = new Set(['Session started', 'Session started (SDK)', 'Session completed'])
   const comments = database.commentByTicket(db, ticketId)
-    .filter(c => c.created_at <= cutoff)
+    .filter(c => c.session_id !== sessionId && !NOISE.has(c.body))
   if (comments.length === 0) return ''
-  return comments.map(c => `[${c.author}]: ${c.body}`).join('\n\n')
+  const own      = comments.filter(c => c.author === agentName)
+  const feedback = comments.filter(c => c.author !== agentName)
+  const sections: string[] = []
+  if (own.length > 0) {
+    sections.push('## Your prior responses on this ticket\n\n' + own.map(c => c.body).join('\n\n---\n\n'))
+  }
+  if (feedback.length > 0) {
+    sections.push(
+      '## Feedback from the founder\n\n' +
+      feedback.map(c => `[${c.author}]: ${c.body}`).join('\n\n') +
+      '\n\nThe feedback above takes precedence over the original ticket body when they conflict. Address the most recent feedback in this run.',
+    )
+  }
+  return sections.join('\n\n---\n\n')
 }
 
 // ════════════════════════════════════════════════════════════════════════════

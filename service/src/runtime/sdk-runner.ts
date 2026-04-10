@@ -43,9 +43,9 @@ export async function runAgentSessionViaSdk(
 
   try {
     domain.commentCreate(db, ticketData.id, { author: agentDef.name, body: 'Session started (SDK)', session_id: sessionId })
-    const priorHistory = domain.ticketPriorHistory(db, ticketData.id, sessionId)
+    const priorHistory = domain.ticketPriorHistory(db, ticketData.id, sessionId, agentDef.name)
     const prompt = priorHistory
-      ? `## Prior Session History\n\n${priorHistory}\n\n---\n\n${ticketData.body}`
+      ? `${ticketData.body}\n\n---\n\n${priorHistory}`
       : ticketData.body
     domain.sessionMessage(db, sessionId, 'user', prompt)
 
