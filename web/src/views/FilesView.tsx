@@ -162,7 +162,7 @@ function TreeNodeRow({
         className={`w-full text-left flex items-center gap-1.5 py-1 pr-3 transition-colors ${
           active ? 'text-zinc-900 dark:text-zinc-100' : 'text-zinc-600 dark:text-zinc-500 active:text-zinc-700 dark:active:text-zinc-300'
         }`}
-        style={{ paddingLeft: `${12 + indent}px` }}
+        style={{ paddingLeft: `${24 + indent}px` }}
       >
         {active && <span className="absolute left-0 w-0.5 h-4 bg-zinc-400 dark:bg-zinc-400 rounded-full" />}
         <Icon size={12} strokeWidth={1.5} className={`shrink-0 ${active ? color : 'text-zinc-400 dark:text-zinc-600'}`} />
@@ -176,7 +176,7 @@ function TreeNodeRow({
       <button
         onClick={() => setOpen(o => !o)}
         className="w-full text-left flex items-center gap-1.5 py-1 pr-3 text-zinc-500 dark:text-zinc-400 active:text-zinc-700 dark:active:text-zinc-200 transition-colors"
-        style={{ paddingLeft: `${indent}px` }}
+        style={{ paddingLeft: `${12 + indent}px` }}
       >
         <ChevronRight
           size={11} strokeWidth={2}
