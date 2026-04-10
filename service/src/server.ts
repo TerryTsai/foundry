@@ -3,7 +3,7 @@ import { config } from './config.js'
 import { createDatabase } from './database.js'
 import * as router from './router.js'
 import { errors } from './middleware.js'
-import domain from './domain.js'
+import * as domain from './domain.js'
 
 const db  = createDatabase(config.dbPath)
 const app = express()
@@ -32,8 +32,8 @@ app.use(errors)
 
 app.listen(config.port, () => {
   console.log(`foundry service listening on port ${config.port}`)
-  domain.scheduler.recover(db)().catch(console.error)
-  domain.scheduler.startAll(db)()
+  domain.schedulerRecover(db).catch(console.error)
+  domain.schedulerStartAll(db)
 })
 
 export { app }

@@ -4,7 +4,7 @@ import { sqliteTable, text, integer, real } from 'drizzle-orm/sqlite-core'
 // PROJECT
 // ════════════════════════════════════════════════════════════════════════════
 
-const project = sqliteTable('project', {
+export const project = sqliteTable('project', {
   id:                text('id').primaryKey(),
   name:              text('name').notNull(),
   status:            text('status').notNull().default('active'),
@@ -17,7 +17,7 @@ const project = sqliteTable('project', {
 export type Project = typeof project.$inferSelect
 export type NewProject = typeof project.$inferInsert
 
-const provider = sqliteTable('provider', {
+export const provider = sqliteTable('provider', {
   id:         text('id').primaryKey(),
   name:       text('name').notNull().unique(),
   api_key:    text('api_key').notNull(),
@@ -32,7 +32,7 @@ export type NewProvider = typeof provider.$inferInsert
 // TICKETING
 // ════════════════════════════════════════════════════════════════════════════
 
-const ticket = sqliteTable('ticket', {
+export const ticket = sqliteTable('ticket', {
   id:         text('id').primaryKey(),
   project_id: text('project_id').notNull(),
   agent_id:   text('agent_id'),
@@ -50,7 +50,7 @@ const ticket = sqliteTable('ticket', {
 export type Ticket = typeof ticket.$inferSelect
 export type NewTicket = typeof ticket.$inferInsert
 
-const comment = sqliteTable('comment', {
+export const comment = sqliteTable('comment', {
   id:         text('id').primaryKey(),
   ticket_id:  text('ticket_id').notNull().references(() => ticket.id),
   session_id: text('session_id'),
@@ -65,7 +65,7 @@ export type Comment = typeof comment.$inferSelect
 // AGENT
 // ════════════════════════════════════════════════════════════════════════════
 
-const agent = sqliteTable('agent', {
+export const agent = sqliteTable('agent', {
   id:               text('id').primaryKey(),
   project_id:       text('project_id').notNull(),
   name:             text('name').notNull(),
@@ -83,7 +83,7 @@ const agent = sqliteTable('agent', {
 export type Agent = typeof agent.$inferSelect
 export type NewAgent = typeof agent.$inferInsert
 
-const session = sqliteTable('session', {
+export const session = sqliteTable('session', {
   id:            text('id').primaryKey(),
   ticket_id:     text('ticket_id').notNull(),
   agent_id:      text('agent_id').notNull().references(() => agent.id),
@@ -104,7 +104,7 @@ const session = sqliteTable('session', {
 
 export type Session = typeof session.$inferSelect
 
-const message = sqliteTable('message', {
+export const message = sqliteTable('message', {
   id:         text('id').primaryKey(),
   session_id: text('session_id').notNull().references(() => session.id),
   role:       text('role').notNull(),
@@ -116,7 +116,7 @@ const message = sqliteTable('message', {
 
 export type Message = typeof message.$inferSelect
 
-const execution = sqliteTable('execution', {
+export const execution = sqliteTable('execution', {
   id:              text('id').primaryKey(),
   session_id:      text('session_id'),
   tool_name:       text('tool_name'),
@@ -147,6 +147,3 @@ export type Execution = typeof execution.$inferSelect
 // (No dedicated tables — files are served from bare git repos on disk)
 
 // ════════════════════════════════════════════════════════════════════════════
-
-const schema = { project, provider, ticket, comment, agent, session, message, execution }
-export default schema

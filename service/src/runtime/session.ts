@@ -2,13 +2,14 @@ import { generateText, stepCountIs, type ModelMessage, type ToolSet } from 'ai'
 import type { LanguageModelV3 } from '@ai-sdk/provider'
 
 import { type Db } from '../database.js'
-import database from '../database.js'
+import * as database from '../database.js'
 import type { Config } from '../config.js'
 import { type Ticket, type Agent as AgentDef, type Comment } from '../schema.js'
-import domain, { type TicketChainEntry } from '../domain.js'
+import * as domain from '../domain.js'
+import type { TicketChainEntry } from '../domain.js'
 import { now, slugify } from '../functional.js'
 
-import { workspace, resolveModelWithDefaults } from './effect.js'
+import { workspaceClone, workspaceEmpty, workspacePublish, workspaceDestroy, resolveModelWithDefaults } from './effect.js'
 import { makeTools } from './tool.js'
 
 type StepResult = Awaited<ReturnType<typeof generateText<ToolSet>>>
@@ -43,22 +44,22 @@ function buildSystemPrompt(agentPrompt: string, agentMd: string, chain: TicketCh
 // ════════════════════════════════════════════════════════════════════════════
 
 function readChain(db: Db, ticketId: string): TicketChainEntry[] {
-  try { return domain.ticket.chain(db)(ticketId) } catch { return [] }
+  try { return domain.ticketChain(db, ticketId) } catch { return [] }
 }
 
 async function readAgentMd(config: Config, slug: string): Promise<string> {
-  try { return await domain.file.read(config.repoBase)(slug, 'AGENT.md') } catch { return '' }
+  try { return await domain.fileRead(config.repoBase, slug, 'AGENT.md') } catch { return '' }
 }
 
 async function buildContext(
   db: Db, config: Config, sessionId: string, ticketData: Ticket, agentDef: AgentDef, workDir: string,
 ): Promise<{ system: string; tools: ReturnType<typeof makeTools> }> {
-  const proj    = database.project.get(db, ticketData.project_id)
+  const proj    = database.projectGet(db, ticketData.project_id)
   const slug    = proj ? slugify(proj.name) : ''
   const chain   = readChain(db, ticketData.id)
   const agentMd = proj ? await readAgentMd(config, slug) : ''
   const system  = buildSystemPrompt(agentDef.prompt, agentMd, chain, ticketData)
-  database.session.update(db, sessionId, { system_prompt: system })
+  database.sessionUpdate(db, sessionId, { system_prompt: system })
   const enabledTools = agentDef.tools ? JSON.parse(agentDef.tools) as string[] : undefined
   const tools = makeTools(db, config, sessionId, ticketData.project_id, ticketData.id, agentDef.name, workDir, enabledTools)
   return { system, tools }
@@ -71,16 +72,16 @@ async function buildContext(
 // Seed with everything older than the previous session's end so a reopen
 // doesn't replay history, but feedback posted between sessions still fires.
 function seedSeenComments(db: Db, sessionId: string, ticketId: string): Set<string> {
-  const priorSessions = database.session.byTicket(db, ticketId)
+  const priorSessions = database.sessionByTicket(db, ticketId)
     .filter(s => s.id !== sessionId && s.ended_at)
   const cutoff = priorSessions[priorSessions.length - 1]?.ended_at ?? null
-  const allComments = database.comment.byTicket(db, ticketId)
+  const allComments = database.commentByTicket(db, ticketId)
   const filtered = cutoff ? allComments.filter(c => c.created_at <= cutoff) : allComments
   return new Set(filtered.map(c => c.id))
 }
 
 function findFreshComments(db: Db, ticketId: string, agentName: string, seen: Set<string>): Comment[] {
-  return database.comment.byTicket(db, ticketId)
+  return database.commentByTicket(db, ticketId)
     .filter(c => !seen.has(c.id) && c.author !== agentName)
 }
 
@@ -97,21 +98,21 @@ function formatInjectedMessage(comments: Comment[]): string {
 // and tool calls/results go to session.message (internal work log).
 function persistStep(db: Db, sessionId: string, ticketId: string, agentName: string, result: StepResult): string | null {
   const { inputTokens: tIn, outputTokens: tOut } = result.usage ?? {}
-  if (result.reasoningText)       domain.session.message(db)(sessionId, 'reasoning', result.reasoningText)
-  if (result.toolCalls?.length)   domain.session.message(db)(sessionId, 'assistant', JSON.stringify(result.toolCalls), tOut, tIn)
-  if (result.toolResults?.length) domain.session.message(db)(sessionId, 'user',      JSON.stringify(result.toolResults))
+  if (result.reasoningText)       domain.sessionMessage(db, sessionId, 'reasoning', result.reasoningText)
+  if (result.toolCalls?.length)   domain.sessionMessage(db, sessionId, 'assistant', JSON.stringify(result.toolCalls), tOut, tIn)
+  if (result.toolResults?.length) domain.sessionMessage(db, sessionId, 'user',      JSON.stringify(result.toolResults))
   if (!result.text) return null
-  return domain.comment.create(db)(ticketId, { author: agentName, body: result.text, session_id: sessionId }).id
+  return domain.commentCreate(db, ticketId, { author: agentName, body: result.text, session_id: sessionId }).id
 }
 
 function beginSession(db: Db, sessionId: string, ticketId: string, agentName: string, body: string): void {
-  domain.comment.create(db)(ticketId, { author: agentName, body: 'Session started', session_id: sessionId })
-  domain.session.message(db)(sessionId, 'user', body)
+  domain.commentCreate(db, ticketId, { author: agentName, body: 'Session started', session_id: sessionId })
+  domain.sessionMessage(db, sessionId, 'user', body)
 }
 
 function completeSession(db: Db, sessionId: string, ticketId: string, agentName: string, stats: LoopStats, startTime: number): void {
-  domain.ticket.complete(db)(ticketId, { agentName, sessionId })
-  database.session.update(db, sessionId, {
+  domain.ticketComplete(db, ticketId, { agentName, sessionId })
+  database.sessionUpdate(db, sessionId, {
     status: 'done', ended_at: now(), duration_ms: Date.now() - startTime,
     tokens_in:  stats.tokens_in  || null, tokens_out: stats.tokens_out || null,
     step_count: stats.step_count || null, tool_calls: stats.tool_calls || null,
@@ -121,8 +122,8 @@ function completeSession(db: Db, sessionId: string, ticketId: string, agentName:
 
 function failSession(db: Db, sessionId: string, ticketId: string, agentName: string, err: unknown, startTime: number): void {
   const msg = err instanceof Error ? err.message : String(err)
-  try { domain.ticket.fail(db)(ticketId, { notes: msg, agentName, sessionId }) } catch {}
-  database.session.update(db, sessionId, {
+  try { domain.ticketFail(db, ticketId, { notes: msg, agentName, sessionId }) } catch {}
+  database.sessionUpdate(db, sessionId, {
     status: 'failed', error: msg, ended_at: now(), duration_ms: Date.now() - startTime,
   })
 }
@@ -153,7 +154,7 @@ async function runLoop(db: Db, args: {
     if (fresh.length > 0) {
       const injected = formatInjectedMessage(fresh)
       messages.push({ role: 'user', content: injected })
-      domain.session.message(db)(sessionId, 'user', injected)
+      domain.sessionMessage(db, sessionId, 'user', injected)
       fresh.forEach(c => seen.add(c.id))
     }
     const result = await generateText({ model, system, messages, tools, stopWhen: stepCountIs(1) })
@@ -174,7 +175,7 @@ export async function runAgentSession(
   db: Db, config: Config, sessionId: string, agentDef: AgentDef, ticketData: Ticket,
 ): Promise<void> {
   const startTime = Date.now()
-  const workDir   = await workspace.clone(db, config, ticketData.project_id).catch(() => workspace.empty())
+  const workDir   = await workspaceClone(db, config, ticketData.project_id).catch(() => workspaceEmpty())
   try {
     const { system, tools } = await buildContext(db, config, sessionId, ticketData, agentDef, workDir)
     beginSession(db, sessionId, ticketData.id, agentDef.name, ticketData.body)
@@ -183,11 +184,11 @@ export async function runAgentSession(
       model, system, tools, agentDef, sessionId,
       ticketId: ticketData.id, agentName: agentDef.name, initialMessage: ticketData.body,
     })
-    await workspace.publish(workDir).catch(err => console.error(`session ${sessionId}: push failed:`, err))
+    await workspacePublish(workDir).catch(err => console.error(`session ${sessionId}: push failed:`, err))
     completeSession(db, sessionId, ticketData.id, agentDef.name, stats, startTime)
   } catch (err) {
     failSession(db, sessionId, ticketData.id, agentDef.name, err, startTime)
   } finally {
-    await workspace.destroy(workDir)
+    await workspaceDestroy(workDir)
   }
 }

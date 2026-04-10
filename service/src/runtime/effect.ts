@@ -11,7 +11,7 @@ import type { LanguageModelV3 } from '@ai-sdk/provider'
 import { wrapLanguageModel, defaultSettingsMiddleware } from 'ai'
 
 import { type Db } from '../database.js'
-import database from '../database.js'
+import * as database from '../database.js'
 import type { Config } from '../config.js'
 import type { Agent as AgentDef } from '../schema.js'
 import { require, slugify, badRequest, succeeds, toInt } from '../functional.js'
@@ -22,33 +22,32 @@ const execFileAsync = promisify(execFile)
 // WORKSPACE
 // ════════════════════════════════════════════════════════════════════════════
 
-const workspace = {
-  empty: async (): Promise<string> =>
-    mkdtemp(join(tmpdir(), 'foundry-session-')),
+export async function workspaceEmpty(): Promise<string> {
+  return mkdtemp(join(tmpdir(), 'foundry-session-'))
+}
 
-  clone: async (db: Db, config: Config, projectId: string): Promise<string> => {
-    const proj = require(database.project.get(db, projectId), `project ${projectId} not found`)
-    const workDir = await workspace.empty()
-    const bare    = join(config.repoBase, `${slugify(proj.name)}.git`)
-    await execFileAsync('git', ['clone', bare, workDir])
-    await execFileAsync('git', ['-C', workDir, 'config', 'user.email', 'foundry@localhost'])
-    await execFileAsync('git', ['-C', workDir, 'config', 'user.name',  'Foundry'])
-    return workDir
-  },
+export async function workspaceClone(db: Db, config: Config, projectId: string): Promise<string> {
+  const proj = require(database.projectGet(db, projectId), `project ${projectId} not found`)
+  const workDir = await workspaceEmpty()
+  const bare    = join(config.repoBase, `${slugify(proj.name)}.git`)
+  await execFileAsync('git', ['clone', bare, workDir])
+  await execFileAsync('git', ['-C', workDir, 'config', 'user.email', 'foundry@localhost'])
+  await execFileAsync('git', ['-C', workDir, 'config', 'user.name',  'Foundry'])
+  return workDir
+}
 
-  publish: async (workDir: string): Promise<void> => {
-    await execFileAsync('git', ['-C', workDir, 'add', '-A'])
-    // `git diff --cached --quiet` exits non-zero when there are staged changes
-    const clean = await succeeds(() => execFileAsync('git', ['-C', workDir, 'diff', '--cached', '--quiet']))
-    if (clean) return
-    await execFileAsync('git', ['-C', workDir, 'commit', '-m', 'agent: apply changes'])
-    const { stdout: branch } = await execFileAsync('git', ['-C', workDir, 'rev-parse', '--abbrev-ref', 'HEAD'])
-    await execFileAsync('git', ['-C', workDir, 'push', 'origin', `HEAD:${branch.trim()}`])
-  },
+export async function workspacePublish(workDir: string): Promise<void> {
+  await execFileAsync('git', ['-C', workDir, 'add', '-A'])
+  // `git diff --cached --quiet` exits non-zero when there are staged changes
+  const clean = await succeeds(() => execFileAsync('git', ['-C', workDir, 'diff', '--cached', '--quiet']))
+  if (clean) return
+  await execFileAsync('git', ['-C', workDir, 'commit', '-m', 'agent: apply changes'])
+  const { stdout: branch } = await execFileAsync('git', ['-C', workDir, 'rev-parse', '--abbrev-ref', 'HEAD'])
+  await execFileAsync('git', ['-C', workDir, 'push', 'origin', `HEAD:${branch.trim()}`])
+}
 
-  destroy: async (workDir: string): Promise<void> => {
-    await rm(workDir, { recursive: true, force: true }).catch(() => {})
-  },
+export async function workspaceDestroy(workDir: string): Promise<void> {
+  await rm(workDir, { recursive: true, force: true }).catch(() => {})
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -85,8 +84,9 @@ export interface RunHandle {
 
 const STATS_DELIM = '___FOUNDRY_STATS___'
 
-const emptyStats = (): ContainerStats =>
-  ({ peakMemoryMb: null, cpuMs: null, netRxBytes: null, netTxBytes: null, exitSignal: null })
+function emptyStats(): ContainerStats {
+  return { peakMemoryMb: null, cpuMs: null, netRxBytes: null, netTxBytes: null, exitSignal: null }
+}
 
 function escapeShellArg(s: string): string {
   return "'" + s.replace(/'/g, "'\\''") + "'"
@@ -202,7 +202,7 @@ export function resolveModel(db: Db, modelString: string): LanguageModelV3 {
   const modelId    = modelString.slice(sep + 1)
   const factory    = factories[providerId]
   if (!factory) throw badRequest(`unsupported provider '${providerId}'`)
-  const row = require(database.provider.getByName(db, providerId), `provider '${providerId}' not configured — add an API key first`)
+  const row = require(database.providerGetByName(db, providerId), `provider '${providerId}' not configured — add an API key first`)
   return factory(row.api_key).languageModel(modelId)
 }
 
@@ -218,4 +218,3 @@ export function resolveModelWithDefaults(db: Db, agentDef: AgentDef): LanguageMo
   })
 }
 
-export { workspace }
