@@ -180,9 +180,10 @@ function SessionRow({ session }: { session: Session }) {
           <InfoGroup rows={[
             { label: 'model',      value: session.model },
             { label: 'duration',   value: duration },
-            { label: 'tokens in',  value: session.tokens_in ?? null },
-            { label: 'tokens out', value: session.tokens_out ?? null },
-            { label: 'cost',       value: session.cost_usd !== null ? `$${session.cost_usd.toFixed(4)}` : null },
+            { label: 'tokens in',  value: session.tokens_in  !== null ? session.tokens_in.toLocaleString()  : null },
+            { label: 'tokens out', value: session.tokens_out !== null ? session.tokens_out.toLocaleString() : null },
+            { label: 'tool calls', value: session.tool_calls !== null ? String(session.tool_calls)          : null },
+            { label: 'cost',       value: session.cost_usd   !== null ? `$${session.cost_usd.toFixed(4)}`   : null },
           ]} />
           {session.error && (
             <pre className="bg-red-50 dark:bg-red-950/30 p-2.5 font-mono text-xs text-red-600 dark:text-red-400 whitespace-pre-wrap leading-relaxed">{session.error}</pre>

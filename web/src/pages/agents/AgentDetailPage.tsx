@@ -10,7 +10,7 @@ import { TextArea } from '../../components/form/TextArea.js'
 import { ActionButton } from '../../components/form/ActionButton.js'
 import { ToolPicker } from '../../components/form/ToolPicker.js'
 import { useBreadcrumbLabel } from '../../Breadcrumb.js'
-import { fmtTokens, fmtDuration, fmtBytes } from '../../lib/format.js'
+import { fmtDuration, fmtBytes } from '../../lib/format.js'
 
 export function AgentDetailPage() {
   const { projectId } = useShell()
@@ -78,8 +78,9 @@ export function AgentDetailPage() {
         { label: 'created',     value: ts(agent.created_at) },
         { label: 'updated',     value: agent.updated_at !== agent.created_at ? ts(agent.updated_at) : null },
         { label: 'sessions',    value: usage.session_count > 0 ? String(usage.session_count) : null },
-        { label: 'tokens',      value: usage.tokens_in + usage.tokens_out > 0 ? `${fmtTokens(usage.tokens_in)} in / ${fmtTokens(usage.tokens_out)} out` : null },
-        { label: 'tools used',  value: usage.tool_calls > 0 ? `${usage.tool_calls} (${usage.exec_count} exec)` : null },
+        { label: 'tokens in',   value: usage.tokens_in  > 0 ? usage.tokens_in.toLocaleString()  : null },
+        { label: 'tokens out',  value: usage.tokens_out > 0 ? usage.tokens_out.toLocaleString() : null },
+        { label: 'tool calls',  value: usage.tool_calls > 0 ? String(usage.tool_calls)          : null },
         { label: 'cpu',         value: usage.cpu_ms > 0 ? fmtDuration(usage.cpu_ms) : null },
         { label: 'memory',      value: usage.peak_memory_mb !== null ? `${usage.peak_memory_mb.toFixed(0)} MB peak` : null },
         { label: 'network',     value: usage.net_bytes > 0 ? fmtBytes(usage.net_bytes) : null },
