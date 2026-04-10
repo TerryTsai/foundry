@@ -126,7 +126,7 @@ export function TicketsSplitLayout() {
   //   else    → full-screen outlet (drill-in behaviour, same as before)
 
   return (
-    <div className="flex h-full">
+    <div className="flex h-full min-w-0">
 
       {/* ── Desktop left panel ─────────────────────────────────────────────── */}
       <aside className="hidden lg:flex flex-col w-80 shrink-0 border-r border-zinc-200 dark:border-zinc-800/60">
@@ -153,20 +153,20 @@ export function TicketsSplitLayout() {
 
       {/* ── Right panel / outlet ───────────────────────────────────────────── */}
       {/* Always visible on desktop. On mobile: visible only when NOT at index. */}
-      <div className={`flex-1 flex flex-col min-h-0 ${isIndex ? 'hidden lg:flex' : 'flex'}`}>
+      <div className={`flex-1 flex flex-col min-h-0 min-w-0 ${isIndex ? 'hidden lg:flex' : 'flex'}`}>
         <Outlet context={shellCtx} />
       </div>
 
       {/* ── Mobile full-screen list ────────────────────────────────────────── */}
       {/* Only rendered on mobile when we're at the bare index route. */}
       {isIndex && (
-        <div className="lg:hidden flex flex-1 flex-col min-h-0">
+        <div className="lg:hidden flex flex-1 flex-col min-h-0 min-w-0">
           {/* Filter bar */}
           <div className="shrink-0 flex items-center gap-2 px-4 h-11 border-b border-zinc-200 dark:border-zinc-800/60 overflow-x-auto no-scrollbar">
             {filterChips}
           </div>
           {/* List inside PageShell for FAB + pull-to-refresh */}
-          <div className="flex-1 min-h-0">
+          <div className="flex-1 min-h-0 min-w-0">
             <PageShell
               action={{ label: 'Ticket', onPress: `/p/${projectId}/tickets/new` }}
               onRefresh={async () => { revalidate() }}
