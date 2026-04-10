@@ -4,7 +4,7 @@ import { Ticket, Bot, FolderOpen, Pause, Play, Sun, Moon, Monitor, type LucideIc
 import { projectApi } from './api.js'
 import type { Project } from './types.js'
 import { useTheme, type ThemeMode } from './theme.js'
-import { Breadcrumb, MobileBreadcrumb } from './Breadcrumb.js'
+import { MobileBreadcrumb } from './Breadcrumb.js'
 import { ProjectSwitcher } from './components/ProjectSwitcher.js'
 
 // ── Foundry Mark ──
@@ -207,7 +207,6 @@ export function Shell() {
 
       <div className="flex flex-col flex-1 min-w-0 min-h-0">
         <MobileHeader project={project} projectId={projectId!} onToggle={handleToggle} />
-        <Breadcrumb />
 
         <main className="flex-1 min-h-0 overflow-y-auto">
           <ScrollRestoration />
