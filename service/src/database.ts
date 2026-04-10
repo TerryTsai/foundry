@@ -217,8 +217,12 @@ export function agentRemove(d: Db, id: string): void {
 // ────────────────────────────────────────────────────────────────────────────
 
 // All session selects that need rolled-up usage go through this column map.
-// tokens_in/tokens_out/step_count/tool_calls are derived from the message
-// table at read time — there is no cached copy on the session row.
+// tokens_in / tokens_out / step_count are aggregated from message rows (the
+// LEFT JOIN below). tool_calls is sourced from the execution table via
+// subquery — every tool invocation goes through executionCreate, which is
+// the same code path for the managed loop and the SDK runner. That makes
+// the count backend-agnostic and independent of how the loop chose to
+// persist messages.
 const sessionWithAgentColumns = {
   id:            schema.session.id,
   ticket_id:     schema.session.ticket_id,
@@ -235,7 +239,7 @@ const sessionWithAgentColumns = {
   tokens_in:  sql<number | null>`SUM(${schema.message.tokens_in})`.as('tokens_in'),
   tokens_out: sql<number | null>`SUM(${schema.message.tokens})`.as('tokens_out'),
   step_count: sql<number | null>`NULLIF(COUNT(CASE WHEN ${schema.message.role} = 'assistant' THEN 1 END), 0)`.as('step_count'),
-  tool_calls: sql<number | null>`SUM(${schema.message.tool_call_count})`.as('tool_calls'),
+  tool_calls: sql<number | null>`NULLIF((SELECT COUNT(*) FROM execution WHERE execution.session_id = session.id), 0)`.as('tool_calls'),
 }
 
 export function sessionGet(d: Db, id: string): Session | undefined {
