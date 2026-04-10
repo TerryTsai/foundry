@@ -251,7 +251,7 @@ export function FilesView({ projectId }: { projectId: string }) {
       <div className="shrink-0 border-b border-zinc-300 dark:border-zinc-800/60 h-11 flex items-center gap-2 min-w-0">
         <button
           onClick={() => setSidebarOpen(o => !o)}
-          className="shrink-0 h-full px-3 flex items-center text-zinc-500 dark:text-zinc-600 active:text-zinc-700 dark:active:text-zinc-300 transition-colors border-r border-zinc-300 dark:border-zinc-800/60 lg:hidden"
+          className="shrink-0 h-full px-3 flex items-center text-zinc-500 dark:text-zinc-600 hover:text-zinc-700 dark:hover:text-zinc-300 active:text-zinc-700 dark:active:text-zinc-300 transition-colors border-r border-zinc-300 dark:border-zinc-800/60"
           title={sidebarOpen ? 'hide sidebar' : 'show sidebar'}
         >
           {sidebarOpen
@@ -285,7 +285,7 @@ export function FilesView({ projectId }: { projectId: string }) {
       <div className="relative flex-1 overflow-hidden lg:flex lg:flex-row">
 
         {/* Sidebar — desktop: always visible inline; mobile: overlay drawer */}
-        <div className={`absolute top-0 left-0 bottom-0 z-20 w-56 bg-white dark:bg-zinc-950 border-r border-zinc-300 dark:border-zinc-800/60 overflow-y-auto py-2 shadow-xl lg:relative lg:z-0 lg:shadow-none lg:w-64 lg:shrink-0 lg:block ${sidebarOpen ? '' : 'hidden lg:block'}`}>
+        <div className={`absolute top-0 left-0 bottom-0 z-20 w-56 bg-white dark:bg-zinc-950 border-r border-zinc-300 dark:border-zinc-800/60 overflow-y-auto py-2 shadow-xl lg:relative lg:z-0 lg:shadow-none lg:w-64 lg:shrink-0 ${sidebarOpen ? '' : 'hidden'}`}>
           {loadingFiles ? (
             <EmptyState message="loading…" />
           ) : tree.length === 0 ? (
