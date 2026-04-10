@@ -292,6 +292,20 @@ export function commentCreate(db: Db, ticketId: string, input: { author: string;
   require(database.ticketGet(db, ticketId))
   return database.commentInsert(db, { ticket_id: ticketId, session_id: input.session_id ?? null, author: input.author, body: input.body, created_at: now() })
 }
+// Returns a formatted block of all comments from sessions that ended before
+// the given sessionId, so that a reopened ticket's agent has full context
+// of what happened in prior sessions. Returns an empty string on first run.
+export function ticketPriorHistory(db: Db, ticketId: string, sessionId: string): string {
+  const priorSessions = database.sessionByTicket(db, ticketId)
+    .filter(s => s.id !== sessionId && s.ended_at)
+  if (priorSessions.length === 0) return ''
+  const cutoff = priorSessions[priorSessions.length - 1]?.ended_at ?? null
+  if (!cutoff) return ''
+  const comments = database.commentByTicket(db, ticketId)
+    .filter(c => c.created_at <= cutoff)
+  if (comments.length === 0) return ''
+  return comments.map(c => `[${c.author}]: ${c.body}`).join('\n\n')
+}
 
 // ════════════════════════════════════════════════════════════════════════════
 // AGENT

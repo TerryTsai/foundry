@@ -19,7 +19,7 @@ type StepResult = Awaited<ReturnType<typeof generateText<ToolSet>>>
 // SYSTEM PROMPT
 // ════════════════════════════════════════════════════════════════════════════
 
-function buildSystemPrompt(agentPrompt: string, agentMd: string, chain: TicketChainEntry[], ticketData: Ticket): string {
+function buildSystemPrompt(agentPrompt: string, agentMd: string, chain: TicketChainEntry[], ticketData: Ticket, priorHistory: string): string {
   const chainText = chain.slice(0, -1)
     .map(t => `### ${t.title} (${t.status})\n${t.body}`)
     .join('\n\n')
@@ -27,6 +27,7 @@ function buildSystemPrompt(agentPrompt: string, agentMd: string, chain: TicketCh
     agentPrompt, '', '---', '',
     '## Project Context (AGENT.md)', '', agentMd,
     chainText ? `\n## Parent Tickets\n\n${chainText}` : '',
+    priorHistory ? `\n## Prior Session History\n\n${priorHistory}` : '',
     '', '---', '',
     `## Current Ticket: ${ticketData.title}`, '', ticketData.body,
   ].filter(s => s !== undefined).join('\n')
@@ -47,11 +48,12 @@ async function readAgentMd(config: Config, slug: string): Promise<string> {
 async function buildContext(
   db: Db, config: Config, sessionId: string, ticketData: Ticket, agentDef: AgentDef, workDir: string,
 ): Promise<{ system: string; tools: ReturnType<typeof makeTools> }> {
-  const proj    = database.projectGet(db, ticketData.project_id)
-  const slug    = proj ? slugify(proj.name) : ''
-  const chain   = readChain(db, ticketData.id)
-  const agentMd = proj ? await readAgentMd(config, slug) : ''
-  const system  = buildSystemPrompt(agentDef.prompt, agentMd, chain, ticketData)
+  const proj         = database.projectGet(db, ticketData.project_id)
+  const slug         = proj ? slugify(proj.name) : ''
+  const chain        = readChain(db, ticketData.id)
+  const agentMd      = proj ? await readAgentMd(config, slug) : ''
+  const priorHistory = domain.ticketPriorHistory(db, ticketData.id, sessionId)
+  const system       = buildSystemPrompt(agentDef.prompt, agentMd, chain, ticketData, priorHistory)
   database.sessionUpdate(db, sessionId, { system_prompt: system })
   const enabledTools = agentDef.tools ? JSON.parse(agentDef.tools) as string[] : undefined
   const tools = makeTools(db, config, sessionId, ticketData.project_id, ticketData.id, agentDef.name, workDir, enabledTools)

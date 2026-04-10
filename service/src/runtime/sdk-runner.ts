@@ -43,7 +43,11 @@ export async function runAgentSessionViaSdk(
 
   try {
     domain.commentCreate(db, ticketData.id, { author: agentDef.name, body: 'Session started (SDK)', session_id: sessionId })
-    domain.sessionMessage(db, sessionId, 'user', ticketData.body)
+    const priorHistory = domain.ticketPriorHistory(db, ticketData.id, sessionId)
+    const prompt = priorHistory
+      ? `## Prior Session History\n\n${priorHistory}\n\n---\n\n${ticketData.body}`
+      : ticketData.body
+    domain.sessionMessage(db, sessionId, 'user', prompt)
 
     const mcpServer = makeSdkTools(db, config, sessionId, ticketData.project_id, ticketData.id, agentDef.name, workDir)
 
@@ -54,7 +58,7 @@ export async function runAgentSessionViaSdk(
     let numTurns = 0
 
     for await (const message of query({
-      prompt: ticketData.body,
+      prompt,
       options: {
         cwd:             workDir,
         tools:           [],          // disable all built-ins; only Foundry MCP tools
