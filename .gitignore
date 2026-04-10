@@ -33,3 +33,9 @@ npm-debug.log*
 # Temporary
 *.tmp
 *.temp
+
+# Foundry sandbox tool scratch — bounded() writes large stdout dumps
+# here, writeTmp() writes patch payloads here, and they live inside the
+# per-session workDir which is a clone of the bare repo. Without this,
+# workspacePublish's `git add -A` sweeps them into the agent's commit.
+.foundry/
