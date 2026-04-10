@@ -18,7 +18,7 @@ export function ProviderListPage() {
         ? <EmptyState message="no providers configured" />
         : <div className="[&>:last-child>*]:border-b-0">{providers.map(p => (
           <Link key={p.id} to={`/p/${projectId}/agents/providers/${p.id}`} className="block">
-            <ListRow title={p.name} subtitle={p.api_key_preview} />
+            <ListRow title={p.name} subtitle={`${p.type} · ${p.api_key_preview}`} />
           </Link>
         ))}</div>
       }

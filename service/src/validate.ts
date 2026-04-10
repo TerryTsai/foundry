@@ -23,11 +23,13 @@ export const projectUpdate = z.object({
 
 export const providerCreate = z.object({
   name:    z.string().min(1),
+  type:    z.string().min(1),
   api_key: z.string().min(1),
 })
 
 export const providerUpdate = z.object({
-  api_key: z.string().min(1),
+  name:    z.string().min(1).optional(),
+  api_key: z.string().min(1).optional(),
 })
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -71,7 +73,7 @@ export const commentCreate = z.object({
 // AGENT
 // ════════════════════════════════════════════════════════════════════════════
 
-const modelString = z.string().min(1).refine(s => s.includes(':'), { message: 'model must be provider:model format' })
+const modelId = z.string().min(1).refine(s => !s.includes(':'), { message: 'model must be just the model id, no provider prefix (use provider_id to select the provider)' })
 
 export const agentList = z.object({
   projectId: z.string().optional(),
@@ -79,8 +81,9 @@ export const agentList = z.object({
 
 export const agentCreate = z.object({
   project_id:       z.string(),
+  provider_id:      z.string().min(1),
   name:             z.string().min(1),
-  model:            modelString,
+  model:            modelId,
   prompt:           z.string().min(1),
   max_tokens:       z.number().int().positive().optional(),
   max_steps:        z.number().int().positive().optional(),
@@ -90,7 +93,8 @@ export const agentCreate = z.object({
 })
 
 export const agentUpdate = z.object({
-  model:            modelString.optional(),
+  provider_id:      z.string().min(1).optional(),
+  model:            modelId.optional(),
   prompt:           z.string().min(1).optional(),
   max_tokens:       z.number().int().positive().optional(),
   max_steps:        z.number().int().positive().optional(),

@@ -138,17 +138,19 @@ export const router = createBrowserRouter([
             path: 'new',
             element: <AgentNewPage />,
             handle: { crumb: 'New' },
+            loader: () => providerApi.list(),
           },
           {
             path: ':agentId',
             element: <AgentDetailPage />,
             handle: { crumb: 'Agent' },
             loader: async ({ params }) => {
-              const [agent, usage] = await Promise.all([
+              const [agent, usage, providers] = await Promise.all([
                 agentApi.get(params.agentId!),
                 agentApi.usage(params.agentId!),
+                providerApi.list(),
               ])
-              return { agent, usage }
+              return { agent, usage, providers }
             },
           },
           {

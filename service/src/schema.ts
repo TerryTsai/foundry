@@ -20,6 +20,7 @@ export type NewProject = typeof project.$inferInsert
 export const provider = sqliteTable('provider', {
   id:         text('id').primaryKey(),
   name:       text('name').notNull().unique(),
+  type:       text('type').notNull(),
   api_key:    text('api_key').notNull(),
   created_at: text('created_at').notNull(),
   updated_at: text('updated_at').notNull(),
@@ -68,6 +69,7 @@ export type Comment = typeof comment.$inferSelect
 export const agent = sqliteTable('agent', {
   id:               text('id').primaryKey(),
   project_id:       text('project_id').notNull(),
+  provider_id:      text('provider_id').notNull().references(() => provider.id),
   name:             text('name').notNull(),
   model:            text('model').notNull(),
   prompt:           text('prompt').notNull(),

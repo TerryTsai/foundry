@@ -1,18 +1,22 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLoaderData } from 'react-router-dom'
 import { agentApi } from '../../api.js'
+import type { Provider } from '../../types.js'
 import { useShell } from '../../Shell.js'
 import { Field } from '../../components/form/Field.js'
 import { TextInput } from '../../components/form/TextInput.js'
 import { TextArea } from '../../components/form/TextArea.js'
+import { Select } from '../../components/form/Select.js'
 import { ActionButton } from '../../components/form/ActionButton.js'
 import { ToolPicker } from '../../components/form/ToolPicker.js'
 
 export function AgentNewPage() {
   const { projectId } = useShell()
   const navigate = useNavigate()
+  const providers = useLoaderData() as Provider[]
   const [name, setName] = useState('')
-  const [model, setModel] = useState('anthropic:claude-sonnet-4-20250514')
+  const [providerId, setProviderId] = useState(providers[0]?.id ?? '')
+  const [model, setModel] = useState('claude-sonnet-4-20250514')
   const [prompt, setPrompt] = useState('')
   const [maxTokens, setMaxTokens] = useState('8192')
   const [maxSteps, setMaxSteps] = useState('20')
@@ -27,10 +31,11 @@ export function AgentNewPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError('')
+    if (!providerId) { setError('select a provider'); return }
     try {
       const tools = selectedTools.size > 0 ? [...selectedTools] : undefined
       await agentApi.create({
-        project_id: projectId, name, model, prompt,
+        project_id: projectId, provider_id: providerId, name, model, prompt,
         max_tokens: +maxTokens, max_steps: +maxSteps,
         temperature: temperature ? +temperature : undefined,
         reasoning_budget: reasoningBudget ? +reasoningBudget : null,
@@ -47,8 +52,17 @@ export function AgentNewPage() {
         <Field label="name">
           <TextInput value={name} onChange={e => setName(e.target.value)} required />
         </Field>
+        <Field label="provider">
+          {providers.length === 0 ? (
+            <div className="text-xs text-zinc-500">no providers configured — add one first</div>
+          ) : (
+            <Select value={providerId} onChange={e => setProviderId(e.target.value)} required>
+              {providers.map(p => <option key={p.id} value={p.id}>{p.name} ({p.type})</option>)}
+            </Select>
+          )}
+        </Field>
         <Field label="model">
-          <TextInput value={model} onChange={e => setModel(e.target.value)} required />
+          <TextInput value={model} onChange={e => setModel(e.target.value)} required placeholder="claude-sonnet-4-20250514" />
         </Field>
         <div className="grid grid-cols-3 gap-3">
           <Field label="max tokens">
@@ -70,7 +84,7 @@ export function AgentNewPage() {
         </Field>
         <div className="flex gap-2 pt-2">
           <ActionButton label="cancel" variant="secondary" onClick={() => navigate(-1)} className="flex-1" />
-          <ActionButton label="create" type="submit" className="flex-1" />
+          <ActionButton label="create" type="submit" className="flex-1" disabled={providers.length === 0} />
         </div>
       </form>
     </div>

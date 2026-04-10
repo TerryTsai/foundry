@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, useLoaderData } from 'react-router-dom'
 import { agentApi } from '../../api.js'
-import type { Agent, UsageRollup } from '../../types.js'
+import type { Agent, Provider, UsageRollup } from '../../types.js'
 import { useShell } from '../../Shell.js'
 import { DetailShell } from '../../components/layout/DetailShell.js'
 import { Field } from '../../components/form/Field.js'
 import { TextInput } from '../../components/form/TextInput.js'
 import { TextArea } from '../../components/form/TextArea.js'
+import { Select } from '../../components/form/Select.js'
 import { ActionButton } from '../../components/form/ActionButton.js'
 import { ToolPicker } from '../../components/form/ToolPicker.js'
 import { useBreadcrumbLabel } from '../../Breadcrumb.js'
@@ -15,8 +16,9 @@ import { fmtDuration, fmtBytes } from '../../lib/format.js'
 export function AgentDetailPage() {
   const { projectId } = useShell()
   const navigate = useNavigate()
-  const { agent, usage } = useLoaderData() as { agent: Agent; usage: UsageRollup }
+  const { agent, usage, providers } = useLoaderData() as { agent: Agent; usage: UsageRollup; providers: Provider[] }
   const [editing, setEditing] = useState(false)
+  const [providerId, setProviderId] = useState(agent.provider_id)
   const [model, setModel] = useState(agent.model)
   const [prompt, setPrompt] = useState(agent.prompt)
   const [maxTokens, setMaxTokens] = useState(String(agent.max_tokens))
@@ -31,13 +33,15 @@ export function AgentDetailPage() {
 
   useBreadcrumbLabel(agent.name)
 
+  const providerName = providers.find(p => p.id === agent.provider_id)?.name ?? agent.provider_id
+
   async function handleSave(e: React.FormEvent) {
     e.preventDefault()
     setError('')
     try {
       const tools = selectedTools.size > 0 ? [...selectedTools] : undefined
       await agentApi.update(agent.id, {
-        model, prompt,
+        provider_id: providerId, model, prompt,
         max_tokens: +maxTokens, max_steps: +maxSteps,
         temperature: temperature ? +temperature : undefined,
         reasoning_budget: reasoningBudget ? +reasoningBudget : null,
@@ -69,6 +73,7 @@ export function AgentDetailPage() {
         </button>
       ) : undefined}
       infoRows={!editing ? [
+        { label: 'provider',    value: providerName },
         { label: 'model',       value: agent.model },
         { label: 'tools',       value: agent.tools ? (JSON.parse(agent.tools) as string[]).join(', ') : 'all' },
         { label: 'temperature', value: agent.temperature !== null ? String(agent.temperature) : 'default' },
@@ -90,6 +95,11 @@ export function AgentDetailPage() {
       {editing && (
         <form onSubmit={handleSave} className="space-y-4">
           {error && <div className="text-sm text-red-400">{error}</div>}
+          <Field label="provider">
+            <Select value={providerId} onChange={e => setProviderId(e.target.value)} required>
+              {providers.map(p => <option key={p.id} value={p.id}>{p.name} ({p.type})</option>)}
+            </Select>
+          </Field>
           <Field label="model">
             <TextInput value={model} onChange={e => setModel(e.target.value)} required />
           </Field>

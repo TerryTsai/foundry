@@ -7,12 +7,13 @@ import { TextInput } from '../../components/form/TextInput.js'
 import { Select } from '../../components/form/Select.js'
 import { ActionButton } from '../../components/form/ActionButton.js'
 
-const SUPPORTED = ['anthropic', 'openai']
+const TYPES = ['anthropic', 'openai']
 
 export function ProviderNewPage() {
   const { projectId } = useShell()
   const navigate = useNavigate()
-  const [name, setName] = useState('anthropic')
+  const [name, setName] = useState('')
+  const [type, setType] = useState('anthropic')
   const [apiKey, setApiKey] = useState('')
   const [error, setError] = useState('')
 
@@ -20,7 +21,7 @@ export function ProviderNewPage() {
     e.preventDefault()
     setError('')
     try {
-      await providerApi.create({ name, api_key: apiKey })
+      await providerApi.create({ name, type, api_key: apiKey })
       navigate(`/p/${projectId}/agents/providers`)
     } catch (err) { setError(err instanceof Error ? err.message : 'failed') }
   }
@@ -29,9 +30,12 @@ export function ProviderNewPage() {
     <div className="max-w-2xl mx-auto px-4 lg:px-6 py-5">
       <form onSubmit={handleSubmit} className="space-y-4">
         {error && <div className="text-sm text-red-400">{error}</div>}
-        <Field label="provider">
-          <Select value={name} onChange={e => setName(e.target.value)}>
-            {SUPPORTED.map(s => <option key={s} value={s}>{s}</option>)}
+        <Field label="name">
+          <TextInput value={name} onChange={e => setName(e.target.value)} required placeholder="e.g. personal-anthropic" />
+        </Field>
+        <Field label="type">
+          <Select value={type} onChange={e => setType(e.target.value)}>
+            {TYPES.map(t => <option key={t} value={t}>{t}</option>)}
           </Select>
         </Field>
         <Field label="api key">

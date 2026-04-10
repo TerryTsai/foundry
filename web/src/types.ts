@@ -1,6 +1,7 @@
 export interface Provider {
   id: string
   name: string
+  type: string
   api_key_preview: string
   created_at: string
   updated_at: string
@@ -56,6 +57,7 @@ export interface Comment {
 export interface Agent {
   id: string
   project_id: string
+  provider_id: string
   name: string
   model: string
   prompt: string

@@ -41,6 +41,35 @@ export function createDatabase(path: string): Db {
     WHERE role = 'assistant' AND tool_call_count IS NULL AND content LIKE '[%'
   `)
 
+  // Provider type column was added after the original schema. For pre-existing
+  // rows, the SDK identifier was stored in the name field, so seed type from
+  // name. Idempotent — only updates rows where type is still NULL/empty.
+  sqlite.exec(`
+    UPDATE provider
+    SET type = name
+    WHERE type IS NULL OR type = ''
+  `)
+
+  // Agent.provider_id was added after the original schema. Pre-existing rows
+  // stored the provider as a prefix on model ("anthropic:claude-..."). Look up
+  // the matching provider by type and link it, then strip the prefix from
+  // model. Both updates are idempotent — once provider_id is set, the model
+  // strip skips the row.
+  sqlite.exec(`
+    UPDATE agent
+    SET provider_id = (
+      SELECT id FROM provider
+      WHERE type = substr(agent.model, 1, instr(agent.model, ':') - 1)
+      LIMIT 1
+    )
+    WHERE (provider_id IS NULL OR provider_id = '') AND instr(model, ':') > 0
+  `)
+  sqlite.exec(`
+    UPDATE agent
+    SET model = substr(model, instr(model, ':') + 1)
+    WHERE provider_id IS NOT NULL AND provider_id != '' AND instr(model, ':') > 0
+  `)
+
   return drizzle(sqlite, { schema })
 }
 

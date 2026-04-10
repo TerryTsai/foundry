@@ -88,15 +88,20 @@ export function providerList(db: Db): MaskedProvider[] {
 }
 
 export function providerCreate(db: Db, input: z.infer<typeof validate.providerCreate>): MaskedProvider {
-  if (!supported.includes(input.name)) throw badRequest(`unsupported provider '${input.name}' — supported: ${supported.join(', ')}`)
-  if (database.providerGetByName(db, input.name)) throw conflict(`provider '${input.name}' already configured`)
-  const { api_key, ...rest } = database.providerInsert(db, { name: input.name, api_key: input.api_key, ...ts() })
+  if (!supported.includes(input.type)) throw badRequest(`unsupported provider type '${input.type}' — supported: ${supported.join(', ')}`)
+  if (database.providerGetByName(db, input.name)) throw conflict(`provider '${input.name}' already exists`)
+  const { api_key, ...rest } = database.providerInsert(db, {
+    name: input.name, type: input.type, api_key: input.api_key, ...ts(),
+  })
   return { ...rest, api_key_preview: maskKey(api_key) }
 }
 
 export function providerUpdate(db: Db, id: string, input: z.infer<typeof validate.providerUpdate>): MaskedProvider {
   require(database.providerGet(db, id))
-  const { api_key, ...rest } = database.providerUpdate(db, id, { api_key: input.api_key, updated_at: now() })
+  const data: Record<string, unknown> = { updated_at: now() }
+  if (input.name    !== undefined) data.name    = input.name
+  if (input.api_key !== undefined) data.api_key = input.api_key
+  const { api_key, ...rest } = database.providerUpdate(db, id, data)
   return { ...rest, api_key_preview: maskKey(api_key) }
 }
 
@@ -302,12 +307,13 @@ export function agentGet(db: Db, id: string): Agent {
 }
 
 export function agentCreate(db: Db, input: z.infer<typeof validate.agentCreate>): Agent {
-  const { project_id, name, model, prompt, max_tokens, max_steps, temperature, reasoning_budget, tools } = input
+  const { project_id, provider_id, name, model, prompt, max_tokens, max_steps, temperature, reasoning_budget, tools } = input
+  require(database.providerGet(db, provider_id), `provider '${provider_id}' not found`)
   if (database.agentAll(db, [eq(schema.agent.project_id, project_id), eq(schema.agent.name, name)]).length > 0) {
     throw conflict(`agent '${name}' already exists in project '${project_id}'`)
   }
   return database.agentInsert(db, {
-    project_id, name, model, prompt,
+    project_id, provider_id, name, model, prompt,
     max_tokens: max_tokens ?? 8192, max_steps: max_steps ?? 20,
     temperature: temperature ?? null,
     reasoning_budget: reasoning_budget ?? null,
@@ -318,7 +324,8 @@ export function agentCreate(db: Db, input: z.infer<typeof validate.agentCreate>)
 
 export function agentUpdate(db: Db, id: string, input: z.infer<typeof validate.agentUpdate>): Agent {
   require(database.agentGet(db, id))
-  const data: Record<string, unknown> = { ...pick(input, 'model', 'prompt', 'max_tokens', 'max_steps', 'temperature', 'reasoning_budget'), updated_at: now() }
+  if (input.provider_id) require(database.providerGet(db, input.provider_id), `provider '${input.provider_id}' not found`)
+  const data: Record<string, unknown> = { ...pick(input, 'provider_id', 'model', 'prompt', 'max_tokens', 'max_steps', 'temperature', 'reasoning_budget'), updated_at: now() }
   if (input.tools !== undefined) data.tools = JSON.stringify(input.tools)
   return database.agentUpdate(db, id, data)
 }

@@ -1,21 +1,9 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { projectApi, agentApi } from '../../api.js'
+import { projectApi } from '../../api.js'
 import { Field } from '../../components/form/Field.js'
 import { TextInput } from '../../components/form/TextInput.js'
 import { ActionButton } from '../../components/form/ActionButton.js'
-
-const DEFAULT_AGENT_PROMPT = `You are a software engineering agent working on a codebase. You receive tickets describing tasks to implement.
-
-When given a ticket:
-1. Explore the codebase to understand the relevant code
-2. Implement the changes described in the ticket
-3. Run tests to verify your work
-4. Commit your changes with a clear message
-
-Tools: read, write, patch, search, find, exec, fetch, scrape, think.
-
-Always read existing code before modifying it. Write clean, minimal changes that match the existing style.`
 
 export function ProjectNewPage() {
   const navigate = useNavigate()
@@ -29,8 +17,7 @@ export function ProjectNewPage() {
     setError('')
     try {
       const saved = await projectApi.create({ name, schedule_interval: +interval, concurrency_limit: +maxAgents })
-      await agentApi.create({ project_id: saved.id, name: 'coder', model: 'anthropic:claude-sonnet-4-20250514', prompt: DEFAULT_AGENT_PROMPT })
-      navigate(`/p/${saved.id}/tickets`)
+      navigate(`/p/${saved.id}/agents/new`)
     } catch (err) { setError(err instanceof Error ? err.message : 'failed') }
   }
 

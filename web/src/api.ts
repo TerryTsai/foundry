@@ -47,8 +47,8 @@ async function del<T>(url: string): Promise<T> {
 // Providers
 export const providerApi = {
   list: () => get<Provider[]>('/provider'),
-  create: (data: { name: string; api_key: string }) => post<Provider>('/provider', data),
-  update: (id: string, data: { api_key: string }) => put<Provider>(`/provider/${id}`, data),
+  create: (data: { name: string; type: string; api_key: string }) => post<Provider>('/provider', data),
+  update: (id: string, data: { name?: string; api_key?: string }) => put<Provider>(`/provider/${id}`, data),
   delete: (id: string) => del<{ ok: boolean }>(`/provider/${id}`),
 }
 
@@ -103,9 +103,9 @@ export const agentApi = {
   list: (projectId?: string) => get<Agent[]>(`/agent${projectId ? `?projectId=${projectId}` : ''}`),
   get: (id: string) => get<Agent>(`/agent/${id}`),
   tools: () => get<string[]>('/agent/tools'),
-  create: (data: { project_id: string; name: string; model: string; prompt: string; max_tokens?: number; max_steps?: number; temperature?: number; reasoning_budget?: number | null; tools?: string[] }) =>
+  create: (data: { project_id: string; provider_id: string; name: string; model: string; prompt: string; max_tokens?: number; max_steps?: number; temperature?: number; reasoning_budget?: number | null; tools?: string[] }) =>
     post<Agent>('/agent', data),
-  update: (id: string, data: { model?: string; prompt?: string; max_tokens?: number; max_steps?: number; temperature?: number; reasoning_budget?: number | null; tools?: string[] }) =>
+  update: (id: string, data: { provider_id?: string; model?: string; prompt?: string; max_tokens?: number; max_steps?: number; temperature?: number; reasoning_budget?: number | null; tools?: string[] }) =>
     put<Agent>(`/agent/${id}`, data),
   delete: (id: string) => del<{ ok: boolean }>(`/agent/${id}`),
   usage: (id: string) => get<UsageRollup>(`/agent/${id}/usage`),
