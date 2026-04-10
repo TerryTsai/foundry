@@ -65,16 +65,17 @@ export async function runAgentSessionViaSdk(
       },
     })) {
       if (message.type === 'result') {
-        if (message.subtype === 'success') {
-          finalText    = message.result
-          inputTokens  = message.usage.input_tokens
-          outputTokens = message.usage.output_tokens
-          numTurns     = message.num_turns
-          stopReason   = message.stop_reason ?? message.subtype
-        } else {
-          stopReason   = message.subtype
-          numTurns     = message.num_turns
-        }
+        // result.usage is per-call (final turn only). result.modelUsage is
+        // the cumulative-per-model totals across the whole agent run, which
+        // is what we want for the session header. Sum across all models the
+        // run touched, and include cache_read + cache_creation since those
+        // are tokens the model actually processed (just billed differently).
+        const models = Object.values(message.modelUsage)
+        inputTokens  = models.reduce((s, m) => s + m.inputTokens + m.cacheReadInputTokens + m.cacheCreationInputTokens, 0)
+        outputTokens = models.reduce((s, m) => s + m.outputTokens, 0)
+        numTurns     = message.num_turns
+        stopReason   = message.stop_reason ?? message.subtype
+        if (message.subtype === 'success') finalText = message.result
       }
     }
 
