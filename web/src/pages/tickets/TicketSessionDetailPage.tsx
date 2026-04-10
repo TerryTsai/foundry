@@ -42,36 +42,6 @@ function formatToolCall(name: string | null, inputJson: string | null): string {
   }
 }
 
-// ── Context window meter ──
-
-const fmtTokens = (n: number): string => n >= 1000 ? `${(n / 1000).toFixed(0)}k` : String(n)
-
-// Map a model identifier to its input context window. Defaults to 200k
-// (the common Anthropic limit) for unknown models.
-function contextLimit(model: string): number {
-  if (model.startsWith('anthropic:')) return 200_000
-  if (model.startsWith('openai:gpt-4o'))      return 128_000
-  if (model.startsWith('openai:gpt-4-turbo')) return 128_000
-  if (model.startsWith('openai:gpt-4'))       return 8_192
-  if (model.startsWith('openai:gpt-3.5'))     return 16_385
-  return 200_000
-}
-
-function ContextMeter({ peakIn, limit }: { peakIn: number; limit: number }) {
-  const pct = limit > 0 ? Math.min((peakIn / limit) * 100, 100) : 0
-  return (
-    <div className="flex items-center gap-3 py-2">
-      <span className="text-zinc-600 dark:text-zinc-500 shrink-0 w-20 text-sm">context</span>
-      <div className="flex-1 h-1 rounded-full bg-zinc-200 dark:bg-zinc-800 overflow-hidden">
-        <div className="h-full rounded-full bg-amber-500" style={{ width: `${pct}%` }} />
-      </div>
-      <span className="text-[10px] text-zinc-400 dark:text-zinc-500 shrink-0 font-mono">
-        {fmtTokens(peakIn)} / {fmtTokens(limit)} ({pct < 1 ? '<1' : pct.toFixed(0)}%)
-      </span>
-    </div>
-  )
-}
-
 // ── Execution body (shown when expanded) ──
 
 function ExecutionBody({ e }: { e: Execution }) {
@@ -164,8 +134,6 @@ export function TicketSessionDetailPage() {
   })
   const duration = session.duration_ms !== null ? `${(session.duration_ms / 1000).toFixed(1)}s` : null
   const timeline = buildTimeline(messages, executions)
-  const peakTokensIn = messages.reduce((max, m) => m.tokens_in !== null && m.tokens_in > max ? m.tokens_in : max, 0)
-  const ctxLimit = contextLimit(session.model)
   const execPath = (eId: string) => `/p/${projectId}/tickets/${ticketId}/sessions/${sessionId}/executions/${eId}`
 
   return (
@@ -186,8 +154,6 @@ export function TicketSessionDetailPage() {
         { label: 'ended',       value: session.ended_at ? ts(session.ended_at) : null },
       ]}
     >
-      {peakTokensIn > 0 && <ContextMeter peakIn={peakTokensIn} limit={ctxLimit} />}
-
       {session.error && (
         <div>
           <SectionLabel label="error" />
