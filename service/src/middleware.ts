@@ -15,7 +15,7 @@ declare global {
 export const parse = <T>(schema: ZodType<T>, from: 'body' | 'query' = 'body'): RequestHandler =>
   (req: Request, _res: Response, next: NextFunction) => {
     const result = schema.safeParse(req[from])
-    if (!result.success) throw badRequest(JSON.stringify(result.error.flatten()))
+    if (!result.success) throw badRequest(JSON.stringify(result.error.issues))
     req.data = result.data
     next()
   }

@@ -1,4 +1,5 @@
 import { tool } from 'ai'
+import { tool as sdkTool, createSdkMcpServer } from '@anthropic-ai/claude-agent-sdk'
 import { z } from 'zod'
 import { writeFileSync, mkdirSync } from 'fs'
 import { join, dirname } from 'path'
@@ -26,6 +27,17 @@ const boundedOutput = z.object({
 
 function esc(s: string): string {
   return "'" + s.replace(/'/g, "'\\''") + "'"
+}
+
+// Resolve a tool-supplied path inside the container. Absolute paths are
+// used as-is so the agent can read /tmp, /proc, /etc, or any other readable
+// path in the sandbox. Relative paths are rooted at /work (the workspace
+// bind-mount) for ergonomics: most tool calls target the project source.
+// An empty/undefined path defaults to /work.
+function workPath(p?: string): string {
+  if (!p) return '/work'
+  if (p.startsWith('/')) return p
+  return `/work/${p}`
 }
 
 function bounded(workspace: string, raw: string): { content: string; outputFile?: string; totalLines?: number; totalBytes?: number } {
@@ -120,7 +132,7 @@ export function makeTools(
       inputSchema:  validate.toolRead,
       outputSchema: boundedOutput,
       execute: async (args: { path: string; offset?: number; limit?: number }) => {
-        const path = esc(`/work/${args.path}`)
+        const path = esc(workPath(args.path))
         const command = (args.offset !== undefined || args.limit !== undefined)
           ? `sed -n '${(args.offset ?? 0) + 1},${(args.offset ?? 0) + (args.limit ?? 1_000_000)}p' ${path}`
           : `cat ${path}`
@@ -142,7 +154,7 @@ export function makeTools(
       outputSchema: z.object({ ok: z.boolean(), error: z.string().optional() }),
       execute: async (args) => {
         const tmpRel = writeTmp(workspace, args.content)
-        const dest = esc(`/work/${args.path}`)
+        const dest = esc(workPath(args.path))
         const command = `mkdir -p "$(dirname ${dest})" && mv /work/${esc(tmpRel)} ${dest}`
         try {
           const r = await runCommand(db, config, sessionId, workspace, command, 'write', { path: args.path })
@@ -161,7 +173,7 @@ export function makeTools(
       outputSchema: z.object({ ok: z.boolean(), error: z.string().optional() }),
       execute: async (args) => {
         const meta = writeTmp(workspace, JSON.stringify({
-          path: `/work/${args.path}`,
+          path: workPath(args.path),
           old:  args.old_string,
           new:  args.new_string,
         }), 'json')
@@ -191,7 +203,7 @@ print("ok")
       inputSchema:  validate.toolSearch,
       outputSchema: boundedOutput,
       execute: async (args) => {
-        const searchPath = args.path ? `/work/${args.path}` : '/work'
+        const searchPath = workPath(args.path)
         const parts = ['grep', '-rn', '--color=never']
         if (args.glob) parts.push('--include', esc(args.glob))
         parts.push('-e', esc(args.pattern), esc(searchPath))
@@ -216,7 +228,7 @@ print("ok")
       outputSchema: boundedOutput,
       execute: async (args) => {
         const depth = args.max_depth ?? 3
-        const searchPath = args.path ? `/work/${args.path}` : '/work'
+        const searchPath = workPath(args.path)
         const parts = ['find', esc(searchPath), '-maxdepth', String(depth), '-type', 'f', '-name', esc(args.pattern), '-print']
         const command = `${parts.join(' ')} | sed 's|/work/||g'`
         try {
@@ -330,4 +342,234 @@ print("ok")
     if (name in allRec) filtered[name] = allRec[name]
   }
   return filtered
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// SDK TOOL FACTORY (Claude Agent SDK MCP server)
+// ════════════════════════════════════════════════════════════════════════════
+// Wraps the same Foundry tools as the AI SDK factory above, but as an in-process
+// MCP server for the Claude Agent SDK. The model sees these as
+// `mcp__foundry__<name>` and the SDK loop drives them, but each tool's
+// execution still goes through podman via runCommand → domain.executionCreate →
+// spawnRun. Same isolation, same execution-row tracking, same bounded output.
+
+function asText(value: unknown): { content: [{ type: 'text'; text: string }] } {
+  const text = typeof value === 'string' ? value : JSON.stringify(value)
+  return { content: [{ type: 'text', text }] }
+}
+
+export function makeSdkTools(
+  db: Db, config: Config, sessionId: string, projectId: string, ticketId: string, agentName: string, workspace: string,
+) {
+  const api = `http://host.containers.internal:${config.port}`
+
+  return createSdkMcpServer({
+    name: 'foundry',
+    tools: [
+
+      sdkTool(
+        'exec',
+        'Run a shell command in a sandboxed container with the project repo at /work. Large stdout is written to a file; use the read tool to paginate.',
+        validate.toolExec.shape,
+        async (args) => {
+          const command = args.cwd ? `cd ${esc(args.cwd)} && ${args.command}` : args.command
+          try {
+            const r = await runCommand(db, config, sessionId, workspace, command, 'exec', args, args.network ?? false)
+            return asText({ ...bounded(workspace, r.stdout), stderr: r.stderr, exitCode: r.exitCode })
+          } catch (err) {
+            return asText({ error: err instanceof Error ? err.message : String(err) })
+          }
+        },
+      ),
+
+      sdkTool(
+        'read',
+        'Read the contents of a file from the workspace. Use offset and limit to paginate. Large output is written to a file you can read with offset/limit.',
+        validate.toolRead.shape,
+        async (args) => {
+          const path = esc(workPath(args.path))
+          const command = (args.offset !== undefined || args.limit !== undefined)
+            ? `sed -n '${(args.offset ?? 0) + 1},${(args.offset ?? 0) + (args.limit ?? 1_000_000)}p' ${path}`
+            : `cat ${path}`
+          try {
+            const r = await runCommand(db, config, sessionId, workspace, command, 'read', args)
+            if (r.exitCode !== 0) return asText({ error: r.stderr || 'file not found or unreadable' })
+            return asText(bounded(workspace, r.stdout))
+          } catch (err) {
+            return asText({ error: err instanceof Error ? err.message : String(err) })
+          }
+        },
+      ),
+
+      sdkTool(
+        'write',
+        'Create or overwrite a file in the workspace.',
+        validate.toolWrite.shape,
+        async (args) => {
+          const tmpRel = writeTmp(workspace, args.content)
+          const dest = esc(workPath(args.path))
+          const command = `mkdir -p "$(dirname ${dest})" && mv /work/${esc(tmpRel)} ${dest}`
+          try {
+            const r = await runCommand(db, config, sessionId, workspace, command, 'write', { path: args.path })
+            return asText(r.exitCode === 0 ? { ok: true } : { ok: false, error: r.stderr || 'write failed' })
+          } catch (err) {
+            return asText({ ok: false, error: err instanceof Error ? err.message : String(err) })
+          }
+        },
+      ),
+
+      sdkTool(
+        'patch',
+        'Apply a targeted edit to a file by replacing an exact string match.',
+        validate.toolPatch.shape,
+        async (args) => {
+          const meta = writeTmp(workspace, JSON.stringify({
+            path: workPath(args.path),
+            old:  args.old_string,
+            new:  args.new_string,
+          }), 'json')
+          const command = `python3 -c '
+import json, os, sys
+m = json.load(open("/work/${meta}"))
+os.unlink("/work/${meta}")
+c = open(m["path"]).read()
+if m["old"] not in c:
+    print("old_string not found in file", file=sys.stderr); sys.exit(1)
+open(m["path"],"w").write(c.replace(m["old"],m["new"],1))
+print("ok")
+'`
+          try {
+            const r = await runCommand(db, config, sessionId, workspace, command, 'patch', { path: args.path })
+            return asText(r.exitCode === 0 ? { ok: true } : { ok: false, error: r.stderr || r.stdout || 'patch failed' })
+          } catch (err) {
+            return asText({ ok: false, error: err instanceof Error ? err.message : String(err) })
+          }
+        },
+      ),
+
+      sdkTool(
+        'search',
+        'Search file contents using grep with regex support. Large output is written to a file you can read with offset/limit.',
+        validate.toolSearch.shape,
+        async (args) => {
+          const searchPath = workPath(args.path)
+          const parts = ['grep', '-rn', '--color=never']
+          if (args.glob) parts.push('--include', esc(args.glob))
+          parts.push('-e', esc(args.pattern), esc(searchPath))
+          const command = `${parts.join(' ')} | sed 's|/work/||g' || true`
+          try {
+            const r = await runCommand(db, config, sessionId, workspace, command, 'search', args)
+            const output = r.stdout.trimEnd()
+            if (!output) return asText({ content: '' })
+            return asText(bounded(workspace, output))
+          } catch (err) {
+            return asText({ error: err instanceof Error ? err.message : String(err) })
+          }
+        },
+      ),
+
+      sdkTool(
+        'find',
+        'List files matching a glob pattern in the workspace. Defaults to max_depth 3 for performance — increase or omit to scan deeper. If a deep scan times out, narrow the path or pattern. Large output is written to a file you can read with offset/limit.',
+        validate.toolFind.shape,
+        async (args) => {
+          const depth = args.max_depth ?? 3
+          const searchPath = workPath(args.path)
+          const parts = ['find', esc(searchPath), '-maxdepth', String(depth), '-type', 'f', '-name', esc(args.pattern), '-print']
+          const command = `${parts.join(' ')} | sed 's|/work/||g'`
+          try {
+            const r = await runCommand(db, config, sessionId, workspace, command, 'find', args)
+            const output = r.stdout.trim()
+            if (!output) return asText({ content: '' })
+            return asText(bounded(workspace, output))
+          } catch (err) {
+            return asText({ error: err instanceof Error ? err.message : String(err) })
+          }
+        },
+      ),
+
+      sdkTool(
+        'fetch',
+        'Make an HTTP request and return the response. Large responses are written to a file; use the read tool to paginate.',
+        validate.toolFetch.shape,
+        async (args) => {
+          const curlArgs = ['-s', '-w', '\\n%{http_code}', '-X', args.method ?? 'GET']
+          if (args.headers) {
+            for (const [k, val] of Object.entries(args.headers)) curlArgs.push('-H', `${k}: ${val}`)
+          }
+          if (args.body) curlArgs.push('-d', args.body)
+          curlArgs.push(args.url)
+          const command = `curl ${curlArgs.map(a => esc(a)).join(' ')}`
+          try {
+            const r = await runCommand(db, config, sessionId, workspace, command, 'fetch', args, true)
+            const lines = r.stdout.trimEnd().split('\n')
+            const statusCode = toInt(lines.pop() ?? '0')
+            return asText({ ...bounded(workspace, lines.join('\n')), status: statusCode })
+          } catch (err) {
+            return asText({ status: 0, error: err instanceof Error ? err.message : String(err) })
+          }
+        },
+      ),
+
+      sdkTool(
+        'scrape',
+        'Extract clean readable text from a web page. Large output is written to a file you can read with offset/limit.',
+        validate.toolScrape.shape,
+        async (args) => {
+          const url = esc(args.url)
+          const command = `lynx -dump -nolist -width=120 ${url} 2>/dev/null || curl -sL ${url} | sed 's/<[^>]*>//g' | sed '/^$/d'`
+          try {
+            const r = await runCommand(db, config, sessionId, workspace, command, 'scrape', args, true)
+            return asText(bounded(workspace, r.stdout.trim()))
+          } catch (err) {
+            return asText({ error: err instanceof Error ? err.message : String(err) })
+          }
+        },
+      ),
+
+      sdkTool(
+        'think',
+        'Use this tool to reason, plan, or analyze before taking action. No side effects.',
+        validate.toolThink.shape,
+        async () => asText({ ok: true }),
+      ),
+
+      sdkTool(
+        'agents',
+        'List all agents in the current project. Useful for targeting sub-tickets at a specific agent.',
+        {},
+        async () => {
+          const command = `curl -sf '${api}/agent?projectId=${projectId}'`
+          return asText(await runApi(db, config, sessionId, workspace, command, 'agents', {}))
+        },
+      ),
+
+      sdkTool(
+        'ticket',
+        'Create, read, or list tickets in the current project. Use create to spawn sub-tasks, optionally assigning to an agent by ID. Use the agents tool first to discover agent IDs.',
+        validate.toolTicket.shape,
+        async (args) => {
+          let command: string
+          if (args.action === 'read') {
+            if (!args.id) return asText({ error: 'id is required for read' })
+            command = `curl -sf '${api}/ticket/${args.id}'`
+          } else if (args.action === 'list') {
+            command = `curl -sf '${api}/ticket?projectId=${projectId}'`
+          } else if (args.action === 'create') {
+            if (!args.title || !args.body) return asText({ error: 'title and body are required for create' })
+            const payload = JSON.stringify({
+              project_id: projectId, title: args.title, body: args.body,
+              priority: 0, parent_id: ticketId, created_by: agentName,
+              ...(args.agent_id ? { agent_id: args.agent_id } : {}),
+            })
+            command = `curl -sf -X POST -H 'Content-Type: application/json' -d ${esc(payload)} '${api}/ticket'`
+          } else {
+            return asText({ error: 'unknown action' })
+          }
+          return asText(await runApi(db, config, sessionId, workspace, command, 'ticket', args))
+        },
+      ),
+
+    ],
+  })
 }

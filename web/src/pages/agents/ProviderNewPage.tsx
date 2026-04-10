@@ -7,7 +7,7 @@ import { TextInput } from '../../components/form/TextInput.js'
 import { Select } from '../../components/form/Select.js'
 import { ActionButton } from '../../components/form/ActionButton.js'
 
-const TYPES = ['anthropic', 'openai']
+const TYPES = ['anthropic', 'openai', 'claude-subscription']
 
 export function ProviderNewPage() {
   const { projectId } = useShell()
@@ -38,8 +38,14 @@ export function ProviderNewPage() {
             {TYPES.map(t => <option key={t} value={t}>{t}</option>)}
           </Select>
         </Field>
-        <Field label="api key">
-          <TextInput type="password" value={apiKey} onChange={e => setApiKey(e.target.value)} required placeholder="sk-..." />
+        <Field label={type === 'claude-subscription' ? 'oauth token' : 'api key'}>
+          <TextInput
+            type="password"
+            value={apiKey}
+            onChange={e => setApiKey(e.target.value)}
+            required
+            placeholder={type === 'claude-subscription' ? 'run `claude setup-token` to obtain' : 'sk-...'}
+          />
         </Field>
         <div className="flex gap-2 pt-2">
           <ActionButton label="cancel" variant="secondary" onClick={() => navigate(-1)} className="flex-1" />

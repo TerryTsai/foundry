@@ -1,0 +1,113 @@
+import { query } from '@anthropic-ai/claude-agent-sdk'
+
+import { type Db } from '../database.js'
+import * as database from '../database.js'
+import type { Config } from '../config.js'
+import { type Ticket, type Agent as AgentDef } from '../schema.js'
+import * as domain from '../domain.js'
+import { now, require } from '../functional.js'
+
+import { workspaceClone, workspaceEmpty, workspacePublish, workspaceDestroy } from './workspace.js'
+import { makeSdkTools } from './tool.js'
+
+// ════════════════════════════════════════════════════════════════════════════
+// CLAUDE AGENT SDK BACKEND
+// ════════════════════════════════════════════════════════════════════════════
+// Alternate runtime for agents whose provider.type is 'claude-subscription'.
+// The SDK drives the agent loop and bills against a Claude Pro/Max subscription
+// via CLAUDE_CODE_OAUTH_TOKEN (obtained once via `claude setup-token`). All
+// tool calls still go through Foundry's MCP server (makeSdkTools) which routes
+// to podman via runCommand → executionCreate → spawnRun. Built-in SDK tools
+// are disabled via `tools: []` so the model can only use Foundry's sandboxed
+// surface.
+//
+// Trade-offs vs the managed loop:
+//   - No mid-session comment injection (SDK loop has no per-step pause)
+//   - No per-step assistant message rows (one final message at end)
+//   - No reasoning text as separate rows
+// What's preserved:
+//   - Workspace clone/publish + GitHub forwarding
+//   - Per-execution rows in the execution table with full sandbox stats
+//   - Subscription billing (zero API spend)
+
+export async function runAgentSessionViaSdk(
+  db: Db, config: Config, sessionId: string, agentDef: AgentDef, ticketData: Ticket,
+): Promise<void> {
+  const startTime = Date.now()
+  const provider = require(database.providerGet(db, agentDef.provider_id), 'provider not found')
+  const workDir  = await workspaceClone(db, config, ticketData.project_id).catch(() => workspaceEmpty())
+
+  // Inject the OAuth token. Single-process / single-subscription = no race.
+  const prevToken = process.env.CLAUDE_CODE_OAUTH_TOKEN
+  process.env.CLAUDE_CODE_OAUTH_TOKEN = provider.api_key
+
+  try {
+    domain.commentCreate(db, ticketData.id, { author: agentDef.name, body: 'Session started (SDK)', session_id: sessionId })
+    domain.sessionMessage(db, sessionId, 'user', ticketData.body)
+
+    const mcpServer = makeSdkTools(db, config, sessionId, ticketData.project_id, ticketData.id, agentDef.name, workDir)
+
+    let finalText    = ''
+    let inputTokens  = 0
+    let outputTokens = 0
+    let stopReason: string | null = null
+    let numTurns = 0
+
+    for await (const message of query({
+      prompt: ticketData.body,
+      options: {
+        cwd:             workDir,
+        tools:           [],          // disable all built-ins; only Foundry MCP tools
+        mcpServers:      { foundry: mcpServer },
+        permissionMode:  'bypassPermissions',
+        maxTurns:        agentDef.max_steps,
+        model:           agentDef.model,
+      },
+    })) {
+      if (message.type === 'result') {
+        if (message.subtype === 'success') {
+          finalText    = message.result
+          inputTokens  = message.usage.input_tokens
+          outputTokens = message.usage.output_tokens
+          numTurns     = message.num_turns
+          stopReason   = message.stop_reason ?? message.subtype
+        } else {
+          stopReason   = message.subtype
+          numTurns     = message.num_turns
+        }
+      }
+    }
+
+    // Persist a single assistant message with the final result + token totals.
+    // Granular per-step rows aren't available because the SDK loop is opaque.
+    domain.sessionMessage(db, sessionId, 'assistant', finalText || JSON.stringify({}), outputTokens, inputTokens, 0)
+    if (finalText) {
+      domain.commentCreate(db, ticketData.id, { author: agentDef.name, body: finalText, session_id: sessionId })
+    }
+
+    try { await workspacePublish(workDir) } catch (err) {
+      console.error(`session ${sessionId}: push failed:`, err)
+    }
+
+    domain.ticketComplete(db, ticketData.id, { agentName: agentDef.name, sessionId })
+    database.sessionUpdate(db, sessionId, {
+      status:        'done',
+      ended_at:      now(),
+      duration_ms:   Date.now() - startTime,
+      finish_reason: stopReason ?? `sdk:${numTurns}-turns`,
+    })
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    try { domain.ticketFail(db, ticketData.id, { notes: msg, agentName: agentDef.name, sessionId }) } catch {}
+    database.sessionUpdate(db, sessionId, {
+      status:      'failed',
+      error:       msg,
+      ended_at:    now(),
+      duration_ms: Date.now() - startTime,
+    })
+  } finally {
+    if (prevToken !== undefined) process.env.CLAUDE_CODE_OAUTH_TOKEN = prevToken
+    else delete process.env.CLAUDE_CODE_OAUTH_TOKEN
+    await workspaceDestroy(workDir)
+  }
+}
