@@ -20,13 +20,14 @@ interface DetailShellProps {
   infoRows: InfoRow[]
   primaryCount?: number
   composer?: { placeholder: string; onSubmit: (value: string) => Promise<void> }
+  backLink?: React.ReactNode
   children?: React.ReactNode
 }
 
 export function DetailShell({
   type, id, title, subtitle, status, mono, actions,
   infoRows, primaryCount = 4,
-  composer, children,
+  composer, backLink, children,
 }: DetailShellProps) {
   const [copied, setCopied] = useState(false)
   function handleCopy() {
@@ -60,6 +61,7 @@ export function DetailShell({
   return (
     <PageShell composer={composer}>
       <div className="max-w-2xl mx-auto lg:px-2 py-5 space-y-4">
+        {backLink}
         <DetailHeader type={type} title={title} subtitle={subtitle} status={status} mono={mono} actions={actions} />
         <InfoGroup rows={allRows} primaryCount={primaryCount} />
         <div className="space-y-4">

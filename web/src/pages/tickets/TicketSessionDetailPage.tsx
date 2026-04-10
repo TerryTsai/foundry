@@ -1,6 +1,6 @@
-import { useLoaderData, useParams, useRevalidator } from 'react-router-dom'
+import { Link, useLoaderData, useParams, useRevalidator } from 'react-router-dom'
 import { Terminal, MessageSquare, Brain, FileText } from 'lucide-react'
-import type { Session, Execution, Message, UsageRollup } from '../../types.js'
+import type { Session, Execution, Message, UsageRollup, Ticket } from '../../types.js'
 import { fmtDuration, fmtBytes } from '../../lib/format.js'
 import { SectionLabel } from '../../components/detail/SectionLabel.js'
 import { ActivityRow } from '../../components/detail/ActivityRow.js'
@@ -11,6 +11,7 @@ import { useShell } from '../../Shell.js'
 import { bustCache } from '../../api.js'
 
 interface SessionLoaderData {
+  ticket: Ticket
   session: Session
   executions: Execution[]
   messages: Message[]
@@ -120,7 +121,7 @@ function buildTimeline(messages: Message[], executions: Execution[]): TimelineEn
 // ── Page ──
 
 export function TicketSessionDetailPage() {
-  const { session, executions, messages, usage } = useLoaderData() as SessionLoaderData
+  const { ticket, session, executions, messages, usage } = useLoaderData() as SessionLoaderData
   const { projectId } = useShell()
   const { ticketId, sessionId } = useParams()
   const { revalidate } = useRevalidator()
@@ -135,10 +136,19 @@ export function TicketSessionDetailPage() {
   const duration = session.duration_ms !== null ? `${(session.duration_ms / 1000).toFixed(1)}s` : null
   const timeline = buildTimeline(messages, executions)
   const execPath = (eId: string) => `/p/${projectId}/tickets/${ticketId}/sessions/${sessionId}/executions/${eId}`
+  const ticketPath = `/p/${projectId}/tickets/${ticketId}`
 
   return (
     <DetailShell
       type="session" id={session.id} title={agentName} status={session.status}
+      backLink={
+        <Link
+          to={ticketPath}
+          className="hidden lg:block text-sm text-zinc-400 dark:text-zinc-500 hover:text-zinc-600 dark:hover:text-zinc-300 truncate"
+        >
+          ← {ticket.title}
+        </Link>
+      }
       infoRows={[
         { label: 'model',       value: session.model },
         { label: 'duration',    value: duration },
