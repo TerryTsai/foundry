@@ -17,7 +17,7 @@ import { TicketNewPage } from './pages/tickets/TicketNewPage.js'
 import { TicketDetailPage } from './pages/tickets/TicketDetailPage.js'
 import { TicketSessionDetailPage } from './pages/tickets/TicketSessionDetailPage.js'
 import { ExecutionDetailPage } from './pages/tickets/ExecutionDetailPage.js'
-import { AgentListPage } from './pages/agents/AgentListPage.js'
+import { AgentsSplitLayout, AgentsIndexPlaceholder } from './components/layout/AgentsSplitLayout.js'
 import { AgentNewPage } from './pages/agents/AgentNewPage.js'
 import { AgentDetailPage } from './pages/agents/AgentDetailPage.js'
 import { ProviderListPage } from './pages/agents/ProviderListPage.js'
@@ -126,13 +126,13 @@ export const router = createBrowserRouter([
       // Agents
       {
         path: 'agents',
-        element: <Passthrough />,
+        element: <AgentsSplitLayout />,
         handle: { crumb: 'Agents' },
+        loader: ({ params }) => agentApi.list(pid(params)),
         children: [
           {
             index: true,
-            element: <AgentListPage />,
-            loader: ({ params }) => agentApi.list(pid(params)),
+            element: <AgentsIndexPlaceholder />,
           },
           {
             path: 'new',

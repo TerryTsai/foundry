@@ -1,32 +1,4 @@
-import { Link, useLoaderData } from 'react-router-dom'
-import type { Agent } from '../../types.js'
-import { useShell } from '../../Shell.js'
-import { PageShell } from '../../components/layout/PageShell.js'
-import { ListRow } from '../../components/list/ListRow.js'
-import { EmptyState } from '../../components/list/EmptyState.js'
-
-export function AgentListPage() {
-  const { projectId, revalidate } = useShell()
-  const agents = useLoaderData() as Agent[]
-
-  return (
-    <PageShell
-      action={{ label: 'Agent', onPress: `/p/${projectId}/agents/new` }}
-      onRefresh={async () => { revalidate() }}
-    >
-      <div className="[&>:last-child>*]:border-b-0">
-        <Link to={`/p/${projectId}/agents/providers`} className="block">
-          <ListRow title="Providers" subtitle="API keys and model access" />
-        </Link>
-        {agents.length === 0
-          ? <EmptyState message="no agents" />
-          : agents.map(a => (
-            <Link key={a.id} to={`/p/${projectId}/agents/${a.id}`} className="block">
-              <ListRow title={a.name} subtitle={a.model} />
-            </Link>
-          ))
-        }
-      </div>
-    </PageShell>
-  )
-}
+// AgentListPage has been superseded by AgentsSplitLayout.
+// This file is kept as an empty module to avoid breaking any tooling that
+// might reference it; the router no longer imports from here.
+export {}
