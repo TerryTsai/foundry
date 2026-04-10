@@ -3,7 +3,7 @@ import { drizzle } from 'drizzle-orm/better-sqlite3'
 import { eq, and, sql, type SQL } from 'drizzle-orm'
 import { ulid } from 'ulid'
 import * as schema from './schema.js'
-import type { Agent, Comment, Execution, Message, Project, Provider, Session, Ticket } from './schema.js'
+import type { Account, Agent, AuthSession, Comment, Execution, Message, Project, Provider, Session, Ticket } from './schema.js'
 
 export type Db = ReturnType<typeof drizzle<typeof schema>>
 
@@ -99,6 +99,66 @@ export function projectUpdate(d: Db, id: string, data: Record<string, unknown>):
 
 export function projectRemove(d: Db, id: string): void {
   d.delete(schema.project).where(eq(schema.project.id, id)).run()
+}
+
+// Backfill: claim every project with empty owner_id for the account whose
+// github login matches OWNER_GITHUB_LOGIN. Idempotent — once owner_id is set
+// the row is skipped. Called from server boot after createDatabase.
+export function claimUnownedProjects(d: Db, ownerLogin: string): number {
+  const owner = d.select().from(schema.account).where(eq(schema.account.login, ownerLogin)).get() as Account | undefined
+  if (!owner) return 0
+  const result = d.update(schema.project).set({ owner_id: owner.id }).where(eq(schema.project.owner_id, '')).run()
+  return result.changes
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// ACCOUNT
+// ────────────────────────────────────────────────────────────────────────────
+
+export function accountGet(d: Db, id: string): Account | undefined {
+  return d.select().from(schema.account).where(eq(schema.account.id, id)).get() as Account | undefined
+}
+
+export function accountGetByGithubId(d: Db, githubId: number): Account | undefined {
+  return d.select().from(schema.account).where(eq(schema.account.github_id, githubId)).get() as Account | undefined
+}
+
+export function accountUpsertByGithubId(d: Db, data: {
+  github_id:  number
+  login:      string
+  name:       string | null
+  email:      string | null
+  avatar_url: string | null
+}): Account {
+  const now = new Date().toISOString()
+  const existing = accountGetByGithubId(d, data.github_id)
+  if (existing) {
+    d.update(schema.account)
+      .set({ login: data.login, name: data.name, email: data.email, avatar_url: data.avatar_url, updated_at: now })
+      .where(eq(schema.account.id, existing.id))
+      .run()
+    return accountGet(d, existing.id)!
+  }
+  const id = ulid()
+  d.insert(schema.account).values({ ...data, id, created_at: now, updated_at: now }).run()
+  return accountGet(d, id)!
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// AUTH SESSION
+// ────────────────────────────────────────────────────────────────────────────
+
+export function authSessionGet(d: Db, id: string): AuthSession | undefined {
+  return d.select().from(schema.authSession).where(eq(schema.authSession.id, id)).get() as AuthSession | undefined
+}
+
+export function authSessionInsert(d: Db, data: { id: string; account_id: string; created_at: string; expires_at: string }): AuthSession {
+  d.insert(schema.authSession).values(data).run()
+  return authSessionGet(d, data.id)!
+}
+
+export function authSessionRemove(d: Db, id: string): void {
+  d.delete(schema.authSession).where(eq(schema.authSession.id, id)).run()
 }
 
 // ────────────────────────────────────────────────────────────────────────────

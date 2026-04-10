@@ -16,6 +16,7 @@ export default defineConfig({
       '/session': 'http://localhost:3000',
       '/provider': 'http://localhost:3000',
       '/health': 'http://localhost:3000',
+      '/auth': 'http://localhost:3000',
     },
   },
 })

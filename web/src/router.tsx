@@ -24,10 +24,12 @@ import { ProviderListPage } from './pages/agents/ProviderListPage.js'
 import { ProviderNewPage } from './pages/agents/ProviderNewPage.js'
 import { ProviderDetailPage } from './pages/agents/ProviderDetailPage.js'
 import { FilesPage } from './pages/files/FilesPage.js'
+import { LoginPage } from './pages/auth/LoginPage.js'
 
 const pid = (p: Params) => p.projectId!
 
 export const router = createBrowserRouter([
+  { path: '/login', element: <LoginPage /> },
   { path: '/', element: <RootRedirect /> },
   {
     path: '/projects',

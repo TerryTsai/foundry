@@ -1,22 +1,24 @@
 import { execFile } from 'child_process'
 import { promisify } from 'util'
+import { randomBytes } from 'crypto'
 import { join, dirname } from 'path'
 import { tmpdir } from 'os'
 import { mkdtemp, rm, writeFile as fsWrite, mkdir } from 'fs/promises'
 import { mkdirSync } from 'fs'
 import type { Response } from 'express'
-import { eq, isNull } from 'drizzle-orm'
+import { eq, and, isNull } from 'drizzle-orm'
 
 import { type Db } from './database.js'
 import * as database from './database.js'
 import * as schema from './schema.js'
-import type { Ticket, Comment, Provider, Agent, Session, Message, Execution } from './schema.js'
+import type { Account, Ticket, Comment, Provider, Agent, Session, Message, Execution } from './schema.js'
 import type { Config } from './config.js'
-import { require, assertStatus, slugify, pick, now, AppError, conflict, badRequest } from './functional.js'
+import { require, assertStatus, slugify, pick, now, AppError, conflict, badRequest, notFound } from './functional.js'
 import { supported } from './runtime/model.js'
 import { spawnRun, type RunHandle } from './runtime/sandbox.js'
 import type { z } from 'zod'
 import * as validate from './validate.js'
+import * as github from './github.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -29,18 +31,28 @@ function ts(): { created_at: string; updated_at: string } {
 // PROJECT
 // ════════════════════════════════════════════════════════════════════════════
 
-export function projectList(db: Db, filters: z.infer<typeof validate.projectList>): schema.Project[] {
-  const conditions = filters.status ? [eq(schema.project.status, filters.status)] : []
+// Ownership-aware fetch: 404 (not 403) on mismatch so other accounts can't
+// probe for valid project ids.
+function projectGetOwned(db: Db, id: string, accountId: string): schema.Project {
+  const row = database.projectGet(db, id)
+  if (!row || row.owner_id !== accountId) throw notFound()
+  return row
+}
+
+export function projectList(db: Db, accountId: string, filters: z.infer<typeof validate.projectList>): schema.Project[] {
+  const conditions = [eq(schema.project.owner_id, accountId)]
+  if (filters.status) conditions.push(eq(schema.project.status, filters.status))
   return database.projectAll(db, conditions)
 }
 
-export function projectGet(db: Db, id: string): schema.Project {
-  return require(database.projectGet(db, id))
+export function projectGet(db: Db, accountId: string, id: string): schema.Project {
+  return projectGetOwned(db, id, accountId)
 }
 
-export async function projectCreate(db: Db, config: Config, input: z.infer<typeof validate.projectCreate>): Promise<schema.Project> {
+export async function projectCreate(db: Db, config: Config, accountId: string, input: z.infer<typeof validate.projectCreate>): Promise<schema.Project> {
   const { name, schedule_interval = 600, concurrency_limit = 3 } = input
   const row = database.projectInsert(db, {
+    owner_id: accountId,
     name, status: 'active',
     schedule_interval, concurrency_limit, ...ts(),
   })
@@ -50,8 +62,8 @@ export async function projectCreate(db: Db, config: Config, input: z.infer<typeo
   return row
 }
 
-export function projectUpdate(db: Db, id: string, input: z.infer<typeof validate.projectUpdate>): schema.Project {
-  const prev = require(database.projectGet(db, id))
+export function projectUpdate(db: Db, accountId: string, id: string, input: z.infer<typeof validate.projectUpdate>): schema.Project {
+  const prev = projectGetOwned(db, id, accountId)
   const updates: Record<string, unknown> = {
     ...pick(input, 'name', 'status', 'schedule_interval', 'concurrency_limit'),
     updated_at: now(),
@@ -65,12 +77,65 @@ export function projectUpdate(db: Db, id: string, input: z.infer<typeof validate
   return row
 }
 
-export function projectRun(db: Db, id: string): { ok: true } {
-  const row = assertStatus(require(database.projectGet(db, id)), 'active', 'project is not active')
+export function projectRun(db: Db, accountId: string, id: string): { ok: true } {
+  const row = assertStatus(projectGetOwned(db, id, accountId), 'active', 'project is not active')
   schedulerDispatch(db, row.id).catch((err: unknown) =>
     console.error(`dispatch error for project ${row.id}:`, err))
   return { ok: true }
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// AUTH
+// ════════════════════════════════════════════════════════════════════════════
+
+const STATE_TTL_SEC = 60 * 10  // 10 min for the OAuth state cookie
+
+export function authStart(config: Config): { url: string; state: string } {
+  const state = randomBytes(32).toString('hex')
+  return { url: github.oauthAuthorizeUrl(config, state), state }
+}
+
+export async function authCallback(
+  db: Db,
+  config: Config,
+  input: z.infer<typeof validate.authCallback>,
+  stateCookie: string | undefined,
+): Promise<{ sessionId: string; expiresAt: Date; account: Account }> {
+  if (!stateCookie || stateCookie !== input.state) throw badRequest('invalid oauth state')
+  const token = await github.oauthExchangeCode(config, input.code)
+  const user  = await github.fetchUser(token)
+  const account = database.accountUpsertByGithubId(db, user)
+
+  const sessionId = randomBytes(32).toString('hex')
+  const created   = new Date()
+  const expires   = new Date(created.getTime() + config.sessionMaxAgeSec * 1000)
+  database.authSessionInsert(db, {
+    id:         sessionId,
+    account_id: account.id,
+    created_at: created.toISOString(),
+    expires_at: expires.toISOString(),
+  })
+
+  // First-time bootstrap: if this account matches OWNER_GITHUB_LOGIN, claim
+  // any unowned projects. Idempotent — safe to run on every login.
+  if (config.ownerGitHubLogin && account.login === config.ownerGitHubLogin) {
+    const claimed = database.claimUnownedProjects(db, account.login)
+    if (claimed > 0) console.log(`claimed ${claimed} unowned project(s) for ${account.login}`)
+  }
+
+  return { sessionId, expiresAt: expires, account }
+}
+
+export function authMe(account: Account): { id: string; login: string; name: string | null; avatar_url: string | null } {
+  return { id: account.id, login: account.login, name: account.name, avatar_url: account.avatar_url }
+}
+
+export function authLogout(db: Db, sessionId: string): { ok: true } {
+  database.authSessionRemove(db, sessionId)
+  return { ok: true }
+}
+
+export const AUTH_STATE_TTL_SEC = STATE_TTL_SEC
 
 // ════════════════════════════════════════════════════════════════════════════
 // PROVIDER

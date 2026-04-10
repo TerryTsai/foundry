@@ -1,13 +1,24 @@
-import type { Provider, Project, Ticket, Comment, Agent, Session, Execution, UsageRollup } from './types.js'
+import type { Account, Provider, Project, Ticket, Comment, Agent, Session, Execution, UsageRollup } from './types.js'
 
 const cache = new Map<string, { data: unknown; at: number }>()
 const CACHE_TTL = 30_000 // 30 seconds
 
+// Centralised non-OK handler. 401 means the session is gone — bounce to /login
+// unless we're already there. Returns a never-resolving promise so callers
+// (loaders, components) don't see a thrown error mid-redirect.
+function handleNotOk(res: Response): never {
+  if (res.status === 401 && location.pathname !== '/login') {
+    location.assign('/login')
+    return new Promise<never>(() => {}) as never
+  }
+  throw new Error(`${res.status} ${res.statusText}`)
+}
+
 async function get<T>(url: string): Promise<T> {
   const cached = cache.get(url)
   if (cached && Date.now() - cached.at < CACHE_TTL) return cached.data as T
-  const res = await fetch(url)
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
+  const res = await fetch(url, { credentials: 'include' })
+  if (!res.ok) handleNotOk(res)
   const data = await res.json() as T
   cache.set(url, { data, at: Date.now() })
   return data
@@ -19,10 +30,11 @@ async function post<T>(url: string, body?: unknown): Promise<T> {
   bustCache()
   const res = await fetch(url, {
     method: 'POST',
+    credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
     body: body !== undefined ? JSON.stringify(body) : undefined,
   })
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
+  if (!res.ok) handleNotOk(res)
   return res.json() as Promise<T>
 }
 
@@ -30,17 +42,18 @@ async function put<T>(url: string, body: unknown): Promise<T> {
   bustCache()
   const res = await fetch(url, {
     method: 'PUT',
+    credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
+  if (!res.ok) handleNotOk(res)
   return res.json() as Promise<T>
 }
 
 async function del<T>(url: string): Promise<T> {
   bustCache()
-  const res = await fetch(url, { method: 'DELETE' })
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
+  const res = await fetch(url, { method: 'DELETE', credentials: 'include' })
+  if (!res.ok) handleNotOk(res)
   return res.json() as Promise<T>
 }
 
@@ -126,8 +139,14 @@ export const logsApi = {
 export const fileApi = {
   listFiles: (projectId: string) => get<string[]>(`/file/${projectId}`),
   readFile: async (projectId: string, path: string): Promise<string> => {
-    const res = await fetch(`/file/${projectId}/${path}`)
-    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
+    const res = await fetch(`/file/${projectId}/${path}`, { credentials: 'include' })
+    if (!res.ok) handleNotOk(res)
     return res.text()
   },
+}
+
+// Auth
+export const authApi = {
+  me: () => get<Account>('/auth/me'),
+  logout: () => post<void>('/auth/logout'),
 }

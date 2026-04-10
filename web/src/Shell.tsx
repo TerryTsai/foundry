@@ -7,7 +7,7 @@ import { useTheme, type ThemeMode } from './theme.js'
 import { MobileBreadcrumb } from './Breadcrumb.js'
 import { ProjectSwitcher } from './components/ProjectSwitcher.js'
 // ── Foundry Mark ──
-function FoundryMark() {
+export function FoundryMark() {
   return (
     <svg width="20" height="20" viewBox="0 0 20 20" fill="none" className="shrink-0 text-amber-400">
       <path d="M10 1 L19 10 L10 19 L1 10 Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />

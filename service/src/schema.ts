@@ -1,11 +1,41 @@
 import { sqliteTable, text, integer, real } from 'drizzle-orm/sqlite-core'
 
 // ════════════════════════════════════════════════════════════════════════════
+// AUTH
+// ════════════════════════════════════════════════════════════════════════════
+
+export const account = sqliteTable('account', {
+  id:         text('id').primaryKey(),
+  github_id:  integer('github_id').notNull().unique(),
+  login:      text('login').notNull(),
+  name:       text('name'),
+  email:      text('email'),
+  avatar_url: text('avatar_url'),
+  created_at: text('created_at').notNull(),
+  updated_at: text('updated_at').notNull(),
+})
+
+export type Account = typeof account.$inferSelect
+
+// Cookie value is the row id; rows are deleted on logout/expiry. No HMAC needed.
+export const authSession = sqliteTable('auth_session', {
+  id:         text('id').primaryKey(),
+  account_id: text('account_id').notNull().references(() => account.id, { onDelete: 'cascade' }),
+  created_at: text('created_at').notNull(),
+  expires_at: text('expires_at').notNull(),
+})
+
+export type AuthSession = typeof authSession.$inferSelect
+
+// ════════════════════════════════════════════════════════════════════════════
 // PROJECT
 // ════════════════════════════════════════════════════════════════════════════
 
+// owner_id default '' lets drizzle-kit add the column to existing rows; the
+// runtime backfill in createDatabase claims unowned rows on boot.
 export const project = sqliteTable('project', {
   id:                text('id').primaryKey(),
+  owner_id:          text('owner_id').notNull().default('').references(() => account.id),
   name:              text('name').notNull(),
   status:            text('status').notNull().default('active'),
   schedule_interval: integer('schedule_interval').notNull().default(600),

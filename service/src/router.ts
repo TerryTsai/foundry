@@ -5,9 +5,65 @@ import type { Db } from './database.js'
 import type { Config } from './config.js'
 import * as domain from './domain.js'
 import * as validate from './validate.js'
-import { slugify } from './functional.js'
-import { parse, run, send, sendText } from './middleware.js'
+import { slugify, AppError } from './functional.js'
+import { parse, run, send, sendText, parseCookie, serializeCookie, requireAuth } from './middleware.js'
 import { TOOL_NAMES } from './runtime/tool.js'
+
+// Each project handler resolves the caller's account from req (set by
+// requireAuth) and forwards it to the domain layer for ownership checks.
+function accountId(req: Request): string {
+  if (!req.account) throw new AppError(401, 'unauthorized')
+  return req.account.id
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// AUTH
+// ════════════════════════════════════════════════════════════════════════════
+
+export function auth(db: Db, config: Config) {
+  const r = Router()
+
+  // Begin OAuth: stash a random `state` in a short-lived cookie, redirect to GitHub.
+  r.get('/github', (_req, res) => {
+    const { url, state } = domain.authStart(config)
+    res.setHeader('Set-Cookie', serializeCookie('oauth_state', state, {
+      maxAge: domain.AUTH_STATE_TTL_SEC, secure: config.cookieSecure, sameSite: 'Lax',
+    }))
+    res.redirect(302, url)
+  })
+
+  // OAuth callback: validate state, exchange code, upsert account, mint session.
+  r.get('/github/callback', parse(validate.authCallback, 'query'), async (req, res, next) => {
+    try {
+      const stateCookie = parseCookie(req.headers.cookie, 'oauth_state')
+      const { sessionId, expiresAt } = await domain.authCallback(db, config, req.data, stateCookie)
+      const maxAge = Math.floor((expiresAt.getTime() - Date.now()) / 1000)
+      res.setHeader('Set-Cookie', [
+        // Clear the state cookie now that we've consumed it.
+        serializeCookie('oauth_state', '', { maxAge: 0, secure: config.cookieSecure, sameSite: 'Lax' }),
+        serializeCookie('foundry_session', sessionId, { maxAge, secure: config.cookieSecure, sameSite: 'Lax' }),
+      ])
+      res.redirect(302, '/')
+    } catch (err) {
+      next(err)
+    }
+  })
+
+  r.get('/me', requireAuth(db), (req, res) => {
+    res.json(domain.authMe(req.account!))
+  })
+
+  r.post('/logout', (req, res) => {
+    const sid = parseCookie(req.headers.cookie, 'foundry_session')
+    if (sid) domain.authLogout(db, sid)
+    res.setHeader('Set-Cookie', serializeCookie('foundry_session', '', {
+      maxAge: 0, secure: config.cookieSecure, sameSite: 'Lax',
+    }))
+    res.status(204).end()
+  })
+
+  return r
+}
 
 // ════════════════════════════════════════════════════════════════════════════
 // PROJECT
@@ -15,11 +71,11 @@ import { TOOL_NAMES } from './runtime/tool.js'
 
 export function project(db: Db, config: Config) {
   const r = Router()
-  r.get   ('/',         parse(validate.projectList, 'query'), run(req => domain.projectList(db, req.data)),                          send())
-  r.post  ('/',         parse(validate.projectCreate),        run(req => domain.projectCreate(db, config, req.data)),                send(201))
-  r.get   ('/:id',                                            run(req => domain.projectGet(db, req.params.id)),                     send())
-  r.put   ('/:id',      parse(validate.projectUpdate),        run(req => domain.projectUpdate(db, req.params.id, req.data)),        send())
-  r.post  ('/:id/run',                                        run(req => domain.projectRun(db, req.params.id)),                     send(202))
+  r.get   ('/',         parse(validate.projectList, 'query'), run(req => domain.projectList(db, accountId(req), req.data)),                       send())
+  r.post  ('/',         parse(validate.projectCreate),        run(req => domain.projectCreate(db, config, accountId(req), req.data)),             send(201))
+  r.get   ('/:id',                                            run(req => domain.projectGet(db, accountId(req), req.params.id)),                   send())
+  r.put   ('/:id',      parse(validate.projectUpdate),        run(req => domain.projectUpdate(db, accountId(req), req.params.id, req.data)),      send())
+  r.post  ('/:id/run',                                        run(req => domain.projectRun(db, accountId(req), req.params.id)),                   send(202))
   return r
 }
 
@@ -102,9 +158,9 @@ export function execution(db: Db, config: Config) {
 
 export function file(config: Config, db: Db) {
   const r = Router({ mergeParams: true })
-  r.get ('/:id',   run(req => { const p = domain.projectGet(db, req.params.id); return domain.fileList(config.repoBase, slugify(p.name)) }),   send())
-  r.get ('/:id/*', run(req => { const p = domain.projectGet(db, req.params.id); return domain.fileRead(config.repoBase, slugify(p.name), req.params[0]) }), sendText)
-  r.post('/:id/*', parse(validate.fileWrite), run(req => { const p = domain.projectGet(db, req.params.id); return domain.fileWrite(config.repoBase, slugify(p.name), req.params[0], req.data.content, req.data.message ?? `update ${req.params[0]}`) }), send(201))
+  r.get ('/:id',   run(req => { const p = domain.projectGet(db, accountId(req), req.params.id); return domain.fileList(config.repoBase, slugify(p.name)) }),   send())
+  r.get ('/:id/*', run(req => { const p = domain.projectGet(db, accountId(req), req.params.id); return domain.fileRead(config.repoBase, slugify(p.name), req.params[0]) }), sendText)
+  r.post('/:id/*', parse(validate.fileWrite), run(req => { const p = domain.projectGet(db, accountId(req), req.params.id); return domain.fileWrite(config.repoBase, slugify(p.name), req.params[0], req.data.content, req.data.message ?? `update ${req.params[0]}`) }), send(201))
   return r
 }
 

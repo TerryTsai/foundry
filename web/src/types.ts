@@ -1,3 +1,10 @@
+export interface Account {
+  id: string
+  login: string
+  name: string | null
+  avatar_url: string | null
+}
+
 export interface Provider {
   id: string
   name: string
