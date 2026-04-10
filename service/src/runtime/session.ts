@@ -14,14 +14,6 @@ import { makeTools } from './tool.js'
 
 type StepResult = Awaited<ReturnType<typeof generateText<ToolSet>>>
 
-export interface LoopStats {
-  tokens_in:     number
-  tokens_out:    number
-  step_count:    number
-  tool_calls:    number
-  finish_reason: string | null
-}
-
 // ════════════════════════════════════════════════════════════════════════════
 // SYSTEM PROMPT
 // ════════════════════════════════════════════════════════════════════════════
@@ -95,12 +87,15 @@ function formatInjectedMessage(comments: Comment[]): string {
 // ════════════════════════════════════════════════════════════════════════════
 
 // Assistant text goes to ticket.comment (durable conversation). Reasoning
-// and tool calls/results go to session.message (internal work log).
+// and tool calls/results go to session.message (internal work log). The
+// assistant message is always written even when there are no tool calls,
+// so per-step tokens always have a home for aggregation at read time.
 function persistStep(db: Db, sessionId: string, ticketId: string, agentName: string, result: StepResult): string | null {
   const { inputTokens: tIn, outputTokens: tOut } = result.usage ?? {}
+  const toolCallCount = result.toolCalls?.length ?? 0
   if (result.reasoningText)       domain.sessionMessage(db, sessionId, 'reasoning', result.reasoningText)
-  if (result.toolCalls?.length)   domain.sessionMessage(db, sessionId, 'assistant', JSON.stringify(result.toolCalls), tOut, tIn)
-  if (result.toolResults?.length) domain.sessionMessage(db, sessionId, 'user',      JSON.stringify(result.toolResults))
+  domain.sessionMessage(db, sessionId, 'assistant', JSON.stringify(result.toolCalls ?? []), tOut, tIn, toolCallCount)
+  if (result.toolResults?.length) domain.sessionMessage(db, sessionId, 'user', JSON.stringify(result.toolResults))
   if (!result.text) return null
   return domain.commentCreate(db, ticketId, { author: agentName, body: result.text, session_id: sessionId }).id
 }
@@ -110,13 +105,11 @@ function beginSession(db: Db, sessionId: string, ticketId: string, agentName: st
   domain.sessionMessage(db, sessionId, 'user', body)
 }
 
-function completeSession(db: Db, sessionId: string, ticketId: string, agentName: string, stats: LoopStats, startTime: number): void {
+function completeSession(db: Db, sessionId: string, ticketId: string, agentName: string, finishReason: string | null, startTime: number): void {
   domain.ticketComplete(db, ticketId, { agentName, sessionId })
   database.sessionUpdate(db, sessionId, {
     status: 'done', ended_at: now(), duration_ms: Date.now() - startTime,
-    tokens_in:  stats.tokens_in  || null, tokens_out: stats.tokens_out || null,
-    step_count: stats.step_count || null, tool_calls: stats.tool_calls || null,
-    finish_reason: stats.finish_reason,
+    finish_reason: finishReason,
   })
 }
 
@@ -132,22 +125,14 @@ function failSession(db: Db, sessionId: string, ticketId: string, agentName: str
 // LOOP
 // ════════════════════════════════════════════════════════════════════════════
 
-function tallyStep(stats: LoopStats, result: StepResult): void {
-  stats.tokens_in    += result.usage?.inputTokens  ?? 0
-  stats.tokens_out   += result.usage?.outputTokens ?? 0
-  stats.tool_calls   += result.toolCalls?.length ?? 0
-  stats.step_count   += 1
-  stats.finish_reason = result.finishReason ?? null
-}
-
 async function runLoop(db: Db, args: {
   model: LanguageModelV3, system: string, tools: ToolSet, agentDef: AgentDef,
   sessionId: string, ticketId: string, agentName: string, initialMessage: string,
-}): Promise<LoopStats> {
+}): Promise<string | null> {
   const { model, system, tools, agentDef, sessionId, ticketId, agentName, initialMessage } = args
   const seen: Set<string>        = seedSeenComments(db, sessionId, ticketId)
   const messages: ModelMessage[] = [{ role: 'user', content: initialMessage }]
-  const stats: LoopStats         = { tokens_in: 0, tokens_out: 0, step_count: 0, tool_calls: 0, finish_reason: null }
+  let finishReason: string | null = null
 
   for (let step = 0; step < agentDef.max_steps; step++) {
     const fresh = findFreshComments(db, ticketId, agentName, seen)
@@ -161,10 +146,10 @@ async function runLoop(db: Db, args: {
     const commentId = persistStep(db, sessionId, ticketId, agentName, result)
     if (commentId) seen.add(commentId)
     messages.push(...result.response.messages)
-    tallyStep(stats, result)
-    if (result.finishReason === 'stop') break
+    finishReason = result.finishReason ?? null
+    if (finishReason === 'stop') break
   }
-  return stats
+  return finishReason
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -180,12 +165,12 @@ export async function runAgentSession(
     const { system, tools } = await buildContext(db, config, sessionId, ticketData, agentDef, workDir)
     beginSession(db, sessionId, ticketData.id, agentDef.name, ticketData.body)
     const model = resolveModelWithDefaults(db, agentDef)
-    const stats = await runLoop(db, {
+    const finishReason = await runLoop(db, {
       model, system, tools, agentDef, sessionId,
       ticketId: ticketData.id, agentName: agentDef.name, initialMessage: ticketData.body,
     })
     await workspacePublish(workDir).catch(err => console.error(`session ${sessionId}: push failed:`, err))
-    completeSession(db, sessionId, ticketData.id, agentDef.name, stats, startTime)
+    completeSession(db, sessionId, ticketData.id, agentDef.name, finishReason, startTime)
   } catch (err) {
     failSession(db, sessionId, ticketData.id, agentDef.name, err, startTime)
   } finally {

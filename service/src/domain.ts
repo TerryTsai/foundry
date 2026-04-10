@@ -332,8 +332,8 @@ export function agentRemove(db: Db, id: string): { ok: true } {
 // SESSION
 // ════════════════════════════════════════════════════════════════════════════
 
-export function sessionGet(db: Db, id: string): Session {
-  return require(database.sessionGet(db, id))
+export function sessionGet(db: Db, id: string) {
+  return require(database.sessionGetAggregated(db, id))
 }
 
 export function sessionStatus(db: Db, id: string): { status: string } {
@@ -346,11 +346,13 @@ export function sessionKill(db: Db, id: string): { ok: true } {
   return { ok: true }
 }
 
-export function sessionMessage(db: Db, sessionId: string, role: string, content: string, tokens?: number, tokensIn?: number): Message {
+export function sessionMessage(db: Db, sessionId: string, role: string, content: string, tokens?: number, tokensIn?: number, toolCallCount?: number): Message {
   require(database.sessionGet(db, sessionId))
   return database.messageInsert(db, {
     session_id: sessionId, role, content,
-    tokens: tokens ?? null, tokens_in: tokensIn ?? null, created_at: now(),
+    tokens: tokens ?? null, tokens_in: tokensIn ?? null,
+    tool_call_count: toolCallCount ?? null,
+    created_at: now(),
   })
 }
 
@@ -581,17 +583,26 @@ function rollupExecutions(executions: Execution[]): { exec_count: number; cpu_ms
   return { exec_count: executions.length, cpu_ms, peak_memory_mb: peak || null, net_bytes }
 }
 
-function rollupSessions(db: Db, sessions: Session[]): UsageRollup {
+interface SessionUsageRow {
+  id:          string
+  duration_ms: number | null
+  tokens_in:   number | null
+  tokens_out:  number | null
+  step_count:  number | null
+  tool_calls:  number | null
+}
+
+function rollupSessions(db: Db, sessions: SessionUsageRow[]): UsageRollup {
   let tokens_in = 0, tokens_out = 0, duration_ms = 0, step_count = 0, tool_calls = 0
   let cpu_ms = 0, net_bytes = 0, peak = 0, exec_count = 0
   for (const s of sessions) {
-    tokens_in += s.tokens_in ?? 0
-    tokens_out += s.tokens_out ?? 0
+    tokens_in   += s.tokens_in   ?? 0
+    tokens_out  += s.tokens_out  ?? 0
     duration_ms += s.duration_ms ?? 0
-    step_count += s.step_count ?? 0
-    tool_calls += s.tool_calls ?? 0
+    step_count  += s.step_count  ?? 0
+    tool_calls  += s.tool_calls  ?? 0
     const e = rollupExecutions(database.executionBySession(db, s.id))
-    cpu_ms += e.cpu_ms
+    cpu_ms    += e.cpu_ms
     net_bytes += e.net_bytes
     exec_count += e.exec_count
     if ((e.peak_memory_mb ?? 0) > peak) peak = e.peak_memory_mb ?? 0
@@ -605,17 +616,15 @@ function rollupSessions(db: Db, sessions: Session[]): UsageRollup {
 
 export function ticketUsage(db: Db, id: string): UsageRollup {
   require(database.ticketGet(db, id))
-  const sessions = database.sessionAll(db, [eq(schema.session.ticket_id, id)])
-  return rollupSessions(db, sessions)
+  return rollupSessions(db, database.sessionAggregateAll(db, [eq(schema.session.ticket_id, id)]))
 }
 
 export function agentUsage(db: Db, id: string): UsageRollup {
   require(database.agentGet(db, id))
-  const sessions = database.sessionAll(db, [eq(schema.session.agent_id, id)])
-  return rollupSessions(db, sessions)
+  return rollupSessions(db, database.sessionAggregateAll(db, [eq(schema.session.agent_id, id)]))
 }
 
 export function sessionUsage(db: Db, id: string): UsageRollup {
-  const s = require(database.sessionGet(db, id))
+  const s = require(database.sessionGetAggregated(db, id))
   return rollupSessions(db, [s])
 }

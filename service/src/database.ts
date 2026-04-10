@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3'
 import { drizzle } from 'drizzle-orm/better-sqlite3'
-import { eq, and, type SQL } from 'drizzle-orm'
+import { eq, and, sql, type SQL } from 'drizzle-orm'
 import { nanoid } from 'nanoid'
 import * as schema from './schema.js'
 import type { Agent, Comment, Execution, Message, Project, Provider, Session, Ticket } from './schema.js'
@@ -30,6 +30,15 @@ export function createDatabase(path: string): Db {
     CREATE INDEX IF NOT EXISTS idx_ticket_status         ON ticket(status);
     CREATE INDEX IF NOT EXISTS idx_ticket_project_status ON ticket(project_id, status);
     CREATE INDEX IF NOT EXISTS idx_agent_project_id      ON agent(project_id);
+  `)
+
+  // One-shot backfill: pre-existing assistant messages stored their tool calls
+  // as a JSON array in `content` but didn't track tool_call_count. Derive it
+  // from json_array_length so historical data still rolls up correctly. Idempotent.
+  sqlite.exec(`
+    UPDATE message
+    SET tool_call_count = json_array_length(content)
+    WHERE role = 'assistant' AND tool_call_count IS NULL AND content LIKE '[%'
   `)
 
   return drizzle(sqlite, { schema })
@@ -178,6 +187,9 @@ export function agentRemove(d: Db, id: string): void {
 // SESSION
 // ────────────────────────────────────────────────────────────────────────────
 
+// All session selects that need rolled-up usage go through this column map.
+// tokens_in/tokens_out/step_count/tool_calls are derived from the message
+// table at read time — there is no cached copy on the session row.
 const sessionWithAgentColumns = {
   id:            schema.session.id,
   ticket_id:     schema.session.ticket_id,
@@ -186,15 +198,15 @@ const sessionWithAgentColumns = {
   status:        schema.session.status,
   model:         schema.session.model,
   error:         schema.session.error,
-  tokens_in:     schema.session.tokens_in,
-  tokens_out:    schema.session.tokens_out,
   cost_usd:      schema.session.cost_usd,
   duration_ms:   schema.session.duration_ms,
-  step_count:    schema.session.step_count,
-  tool_calls:    schema.session.tool_calls,
   finish_reason: schema.session.finish_reason,
   started_at:    schema.session.started_at,
   ended_at:      schema.session.ended_at,
+  tokens_in:  sql<number | null>`SUM(${schema.message.tokens_in})`.as('tokens_in'),
+  tokens_out: sql<number | null>`SUM(${schema.message.tokens})`.as('tokens_out'),
+  step_count: sql<number | null>`NULLIF(COUNT(CASE WHEN ${schema.message.role} = 'assistant' THEN 1 END), 0)`.as('step_count'),
+  tool_calls: sql<number | null>`SUM(${schema.message.tool_call_count})`.as('tool_calls'),
 }
 
 export function sessionGet(d: Db, id: string): Session | undefined {
@@ -221,23 +233,31 @@ export function sessionRemove(d: Db, id: string): void {
   d.delete(schema.session).where(eq(schema.session.id, id)).run()
 }
 
-export function sessionByTicket(d: Db, ticketId: string) {
+export function sessionGetAggregated(d: Db, id: string) {
   return d.select(sessionWithAgentColumns)
     .from(schema.session)
-    .leftJoin(schema.agent, eq(schema.session.agent_id, schema.agent.id))
-    .where(eq(schema.session.ticket_id, ticketId))
-    .orderBy(schema.session.started_at)
-    .all()
+    .leftJoin(schema.agent,   eq(schema.session.agent_id, schema.agent.id))
+    .leftJoin(schema.message, eq(schema.message.session_id, schema.session.id))
+    .where(eq(schema.session.id, id))
+    .groupBy(schema.session.id)
+    .get()
+}
+
+export function sessionAggregateAll(d: Db, conditions?: SQL[]) {
+  const base = d.select(sessionWithAgentColumns)
+    .from(schema.session)
+    .leftJoin(schema.agent,   eq(schema.session.agent_id, schema.agent.id))
+    .leftJoin(schema.message, eq(schema.message.session_id, schema.session.id))
+  const filtered = conditions?.length ? base.where(and(...conditions)) : base
+  return filtered.groupBy(schema.session.id).orderBy(schema.session.started_at).all()
+}
+
+export function sessionByTicket(d: Db, ticketId: string) {
+  return sessionAggregateAll(d, [eq(schema.session.ticket_id, ticketId)])
 }
 
 export function sessionListWithAgent(d: Db) {
-  return d.select(sessionWithAgentColumns)
-    .from(schema.session)
-    .leftJoin(schema.agent, eq(schema.session.agent_id, schema.agent.id))
-    .orderBy(schema.session.started_at)
-    .all()
-    .reverse()
-    .slice(0, 200)
+  return sessionAggregateAll(d).reverse().slice(0, 200)
 }
 
 // ────────────────────────────────────────────────────────────────────────────

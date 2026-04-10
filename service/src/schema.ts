@@ -91,12 +91,8 @@ export const session = sqliteTable('session', {
   model:         text('model').notNull(),
   system_prompt: text('system_prompt'),
   error:         text('error'),
-  tokens_in:     integer('tokens_in'),
-  tokens_out:    integer('tokens_out'),
   cost_usd:      real('cost_usd'),
   duration_ms:   integer('duration_ms'),
-  step_count:    integer('step_count'),
-  tool_calls:    integer('tool_calls'),
   finish_reason: text('finish_reason'),
   started_at:    text('started_at').notNull(),
   ended_at:      text('ended_at'),
@@ -105,13 +101,14 @@ export const session = sqliteTable('session', {
 export type Session = typeof session.$inferSelect
 
 export const message = sqliteTable('message', {
-  id:         text('id').primaryKey(),
-  session_id: text('session_id').notNull().references(() => session.id),
-  role:       text('role').notNull(),
-  content:    text('content').notNull(),
-  tokens:     integer('tokens'),
-  tokens_in:  integer('tokens_in'),
-  created_at: text('created_at').notNull(),
+  id:              text('id').primaryKey(),
+  session_id:      text('session_id').notNull().references(() => session.id),
+  role:            text('role').notNull(),
+  content:         text('content').notNull(),
+  tokens:          integer('tokens'),
+  tokens_in:       integer('tokens_in'),
+  tool_call_count: integer('tool_call_count'),
+  created_at:      text('created_at').notNull(),
 })
 
 export type Message = typeof message.$inferSelect
