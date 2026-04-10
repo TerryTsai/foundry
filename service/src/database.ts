@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3'
 import { drizzle } from 'drizzle-orm/better-sqlite3'
 import { eq, and, sql, type SQL } from 'drizzle-orm'
-import { nanoid } from 'nanoid'
+import { ulid } from 'ulid'
 import * as schema from './schema.js'
 import type { Agent, Comment, Execution, Message, Project, Provider, Session, Ticket } from './schema.js'
 
@@ -87,7 +87,7 @@ export function projectAll(d: Db, conditions?: SQL[]): Project[] {
 }
 
 export function projectInsert(d: Db, data: Record<string, unknown>): Project {
-  const id = nanoid()
+  const id = ulid()
   d.insert(schema.project).values({ ...data, id } as any).run()
   return d.select().from(schema.project).where(eq(schema.project.id, id)).get() as Project
 }
@@ -115,7 +115,7 @@ export function providerAll(d: Db, conditions?: SQL[]): Provider[] {
 }
 
 export function providerInsert(d: Db, data: Record<string, unknown>): Provider {
-  const id = nanoid()
+  const id = ulid()
   d.insert(schema.provider).values({ ...data, id } as any).run()
   return d.select().from(schema.provider).where(eq(schema.provider.id, id)).get() as Provider
 }
@@ -147,7 +147,7 @@ export function ticketAll(d: Db, conditions?: SQL[]): Ticket[] {
 }
 
 export function ticketInsert(d: Db, data: Record<string, unknown>): Ticket {
-  const id = nanoid()
+  const id = ulid()
   d.insert(schema.ticket).values({ ...data, id } as any).run()
   return d.select().from(schema.ticket).where(eq(schema.ticket.id, id)).get() as Ticket
 }
@@ -175,7 +175,7 @@ export function commentAll(d: Db, conditions?: SQL[]): Comment[] {
 }
 
 export function commentInsert(d: Db, data: Record<string, unknown>): Comment {
-  const id = nanoid()
+  const id = ulid()
   d.insert(schema.comment).values({ ...data, id } as any).run()
   return d.select().from(schema.comment).where(eq(schema.comment.id, id)).get() as Comment
 }
@@ -198,7 +198,7 @@ export function agentAll(d: Db, conditions?: SQL[]): Agent[] {
 }
 
 export function agentInsert(d: Db, data: Record<string, unknown>): Agent {
-  const id = nanoid()
+  const id = ulid()
   d.insert(schema.agent).values({ ...data, id } as any).run()
   return d.select().from(schema.agent).where(eq(schema.agent.id, id)).get() as Agent
 }
@@ -252,7 +252,7 @@ export function sessionAll(d: Db, conditions?: SQL[]): Session[] {
 }
 
 export function sessionInsert(d: Db, data: Record<string, unknown>): Session {
-  const id = nanoid()
+  const id = ulid()
   d.insert(schema.session).values({ ...data, id } as any).run()
   return d.select().from(schema.session).where(eq(schema.session.id, id)).get() as Session
 }
@@ -307,7 +307,7 @@ export function messageAll(d: Db, conditions?: SQL[]): Message[] {
 }
 
 export function messageInsert(d: Db, data: Record<string, unknown>): Message {
-  const id = nanoid()
+  const id = ulid()
   d.insert(schema.message).values({ ...data, id } as any).run()
   return d.select().from(schema.message).where(eq(schema.message.id, id)).get() as Message
 }
@@ -330,7 +330,7 @@ export function executionAll(d: Db, conditions?: SQL[]): Execution[] {
 }
 
 export function executionInsert(d: Db, data: Record<string, unknown>): Execution {
-  const id = nanoid()
+  const id = ulid()
   d.insert(schema.execution).values({ ...data, id } as any).run()
   return d.select().from(schema.execution).where(eq(schema.execution.id, id)).get() as Execution
 }

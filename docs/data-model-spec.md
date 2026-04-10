@@ -40,9 +40,9 @@ Always. No abbreviations. No aliases. The FK column name tells you exactly which
 
 Self-referential FKs use a domain-specific name: `parent_id` on `ticket`.
 
-## Law 5: Primary Key Is Always `id`, TEXT, nanoid
+## Law 5: Primary Key Is Always `id`, TEXT, ulid
 
-Every table has a column named `id`. It is `TEXT`. It is populated with `nanoid()`. No UUIDs (too long). No auto-increment integers (no portability, no distributed safety). No composite primary keys.
+Every table has a column named `id`. It is `TEXT`. It is populated with `ulid()`. No UUIDs (too long). No auto-increment integers (no portability, no distributed safety). No composite primary keys.
 
 ## Law 6: Timestamps Are ISO-8601 TEXT, Named `{past_tense_verb}_at`
 
@@ -80,7 +80,7 @@ The foundational model stores facts. Derived values are for views, APIs, and cac
 
 ## Law 9: No Application-Level Concerns
 
-`slug` is a URL-routing concern derived from `name` by a deterministic function. It does not belong in the data model. nanoid is already URL-safe.
+`slug` is a URL-routing concern derived from `name` by a deterministic function. It does not belong in the data model. ulid is already URL-safe.
 
 Configuration fields that are user-specified and cannot be derived (`schedule_interval`, `concurrency_limit`) DO belong.
 

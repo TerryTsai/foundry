@@ -3,7 +3,7 @@ import { tool as sdkTool, createSdkMcpServer } from '@anthropic-ai/claude-agent-
 import { z } from 'zod'
 import { writeFileSync, mkdirSync } from 'fs'
 import { join, dirname } from 'path'
-import { nanoid } from 'nanoid'
+import { ulid } from 'ulid'
 import type { Db } from '../database.js'
 import type { Config } from '../config.js'
 import * as validate from '../validate.js'
@@ -46,7 +46,7 @@ function bounded(workspace: string, raw: string): { content: string; outputFile?
 
   const outputDir = join(workspace, '.foundry', 'output')
   mkdirSync(outputDir, { recursive: true })
-  const filename = `${nanoid(12)}.txt`
+  const filename = `${ulid()}.txt`
   writeFileSync(join(outputDir, filename), raw, 'utf-8')
 
   const lines = raw.split('\n')
@@ -60,7 +60,7 @@ function bounded(workspace: string, raw: string): { content: string; outputFile?
 
 /** Write a temp file into the workspace (visible to container via bind mount). */
 function writeTmp(workspace: string, content: string, ext = 'txt'): string {
-  const relPath = `.foundry/.tmp/${nanoid(8)}.${ext}`
+  const relPath = `.foundry/.tmp/${ulid()}.${ext}`
   const absPath = join(workspace, relPath)
   mkdirSync(dirname(absPath), { recursive: true })
   writeFileSync(absPath, content, 'utf-8')

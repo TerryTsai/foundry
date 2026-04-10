@@ -43,7 +43,7 @@ FILE :3003 — git is the database. No tables.
 
 | Column | Type | Nullable | Default | Notes |
 |--------|------|----------|---------|-------|
-| `id` | TEXT | NOT NULL | — | PK. nanoid. |
+| `id` | TEXT | NOT NULL | — | PK. ulid. |
 | `name` | TEXT | NOT NULL | — | Human-readable project name. |
 | `status` | TEXT | NOT NULL | `'active'` | `active` or `archived`. |
 | `schedule_interval` | INTEGER | NOT NULL | `600` | Seconds between dispatch cycles. |
@@ -59,7 +59,7 @@ FILE :3003 — git is the database. No tables.
 
 | Column | Type | Nullable | Default | Notes |
 |--------|------|----------|---------|-------|
-| `id` | TEXT | NOT NULL | — | PK. nanoid. |
+| `id` | TEXT | NOT NULL | — | PK. ulid. |
 | `project_id` | TEXT | NOT NULL | — | FK → `project.id` (logical). |
 | `agent_id` | TEXT | NULL | — | FK → `agent.id` (logical). NULL if unassigned. |
 | `title` | TEXT | NOT NULL | — | Short description. |
@@ -80,7 +80,7 @@ Immutable. No `updated_at`.
 
 | Column | Type | Nullable | Default | Notes |
 |--------|------|----------|---------|-------|
-| `id` | TEXT | NOT NULL | — | PK. nanoid. |
+| `id` | TEXT | NOT NULL | — | PK. ulid. |
 | `ticket_id` | TEXT | NOT NULL | — | FK → `ticket.id` (enforced). |
 | `author` | TEXT | NOT NULL | — | `'founder'`, `'system'`, or agent name. |
 | `body` | TEXT | NOT NULL | — | Markdown content. |
@@ -94,7 +94,7 @@ Immutable. No `updated_at`.
 
 | Column | Type | Nullable | Default | Notes |
 |--------|------|----------|---------|-------|
-| `id` | TEXT | NOT NULL | — | PK. nanoid. |
+| `id` | TEXT | NOT NULL | — | PK. ulid. |
 | `project_id` | TEXT | NOT NULL | — | FK → `project.id` (logical). |
 | `name` | TEXT | NOT NULL | — | Unique within project. |
 | `model` | TEXT | NOT NULL | — | Model identifier, e.g. `'claude-sonnet-4-20250514'`. |
@@ -110,7 +110,7 @@ Process lifecycle: `started_at` / `ended_at`. No `created_at` / `updated_at`.
 
 | Column | Type | Nullable | Default | Notes |
 |--------|------|----------|---------|-------|
-| `id` | TEXT | NOT NULL | — | PK. nanoid. |
+| `id` | TEXT | NOT NULL | — | PK. ulid. |
 | `ticket_id` | TEXT | NOT NULL | — | FK → `ticket.id` (logical). |
 | `agent_id` | TEXT | NOT NULL | — | FK → `agent.id` (enforced). |
 | `status` | TEXT | NOT NULL | `'running'` | `running`, `done`, `failed`. |
@@ -129,7 +129,7 @@ Immutable. No `updated_at`.
 
 | Column | Type | Nullable | Default | Notes |
 |--------|------|----------|---------|-------|
-| `id` | TEXT | NOT NULL | — | PK. nanoid. |
+| `id` | TEXT | NOT NULL | — | PK. ulid. |
 | `session_id` | TEXT | NOT NULL | — | FK → `session.id` (enforced). |
 | `role` | TEXT | NOT NULL | — | `'user'`, `'assistant'`, `'founder'`. |
 | `content` | TEXT | NOT NULL | — | Message content. |
@@ -146,7 +146,7 @@ Process lifecycle: `started_at` / `ended_at`. No `created_at` / `updated_at`.
 
 | Column | Type | Nullable | Default | Notes |
 |--------|------|----------|---------|-------|
-| `id` | TEXT | NOT NULL | — | PK. nanoid. |
+| `id` | TEXT | NOT NULL | — | PK. ulid. |
 | `session_id` | TEXT | NULL | — | FK → `session.id` (logical). NULL for ad-hoc. |
 | `command` | TEXT | NOT NULL | — | Shell command executed. |
 | `status` | TEXT | NOT NULL | `'running'` | `running`, `done`, `failed`. |
