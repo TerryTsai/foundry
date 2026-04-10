@@ -13,10 +13,12 @@ const schema = z.object({
   sandboxNofileSoft:   z.coerce.number().int().default(1024),
   sandboxNofileHard:   z.coerce.number().int().default(2048),
   sandboxTmpfsMb:      z.coerce.number().int().default(64),
-  // Auth — GitHub OAuth + cookie session
+  // Auth — GitHub OAuth + cookie session. The OAuth callback URL is derived
+  // from the incoming request host, so the same binary works on localhost,
+  // a tailnet name, or a public domain — only GitHub's registered callback
+  // has to match whatever URL you actually use.
   gitHubClientId:      z.string().min(1),
   gitHubClientSecret:  z.string().min(1),
-  publicBaseUrl:       z.string().url(),
   ownerGitHubLogin:    z.string().optional(),
   cookieSecure:        z.coerce.boolean().default(true),
   sessionMaxAgeSec:    z.coerce.number().int().default(60 * 60 * 24 * 7),
@@ -36,7 +38,6 @@ export const config = schema.parse({
   sandboxTmpfsMb:     process.env.SANDBOX_TMPFS_MB,
   gitHubClientId:     process.env.GITHUB_CLIENT_ID,
   gitHubClientSecret: process.env.GITHUB_CLIENT_SECRET,
-  publicBaseUrl:      process.env.PUBLIC_BASE_URL,
   ownerGitHubLogin:   process.env.OWNER_GITHUB_LOGIN,
   cookieSecure:       process.env.COOKIE_SECURE,
   sessionMaxAgeSec:   process.env.SESSION_MAX_AGE_SEC,

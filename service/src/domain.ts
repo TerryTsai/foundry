@@ -90,9 +90,9 @@ export function projectRun(db: Db, accountId: string, id: string): { ok: true } 
 
 const STATE_TTL_SEC = 60 * 10  // 10 min for the OAuth state cookie
 
-export function authStart(config: Config): { url: string; state: string } {
+export function authStart(config: Config, baseUrl: string): { url: string; state: string } {
   const state = randomBytes(32).toString('hex')
-  return { url: github.oauthAuthorizeUrl(config, state), state }
+  return { url: github.oauthAuthorizeUrl(config, baseUrl, state), state }
 }
 
 export async function authCallback(

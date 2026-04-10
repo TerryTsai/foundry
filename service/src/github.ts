@@ -9,10 +9,10 @@ export interface GitHubUser {
   avatar_url: string | null
 }
 
-export function oauthAuthorizeUrl(config: Config, state: string): string {
+export function oauthAuthorizeUrl(config: Config, baseUrl: string, state: string): string {
   const params = new URLSearchParams({
     client_id:    config.gitHubClientId,
-    redirect_uri: `${config.publicBaseUrl}/auth/github/callback`,
+    redirect_uri: `${baseUrl}/auth/github/callback`,
     state,
     scope:        'read:user user:email',
   })

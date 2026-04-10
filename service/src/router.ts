@@ -20,12 +20,25 @@ function accountId(req: Request): string {
 // AUTH
 // ════════════════════════════════════════════════════════════════════════════
 
+// Build the user-facing base URL from the incoming request. Honours
+// X-Forwarded-* headers so a reverse proxy in front of the service still
+// produces the right callback. No PUBLIC_BASE_URL config required — the
+// OAuth callback URL just has to match whatever's registered in the GitHub
+// OAuth app for the host you're using.
+function requestBaseUrl(req: Request): string {
+  const proto = (req.headers['x-forwarded-proto'] as string)?.split(',')[0]?.trim()
+            ?? (req.secure ? 'https' : 'http')
+  const host  = (req.headers['x-forwarded-host']  as string)?.split(',')[0]?.trim()
+            ?? req.headers.host
+  return `${proto}://${host}`
+}
+
 export function auth(db: Db, config: Config) {
   const r = Router()
 
   // Begin OAuth: stash a random `state` in a short-lived cookie, redirect to GitHub.
-  r.get('/github', (_req, res) => {
-    const { url, state } = domain.authStart(config)
+  r.get('/github', (req, res) => {
+    const { url, state } = domain.authStart(config, requestBaseUrl(req))
     res.setHeader('Set-Cookie', serializeCookie('oauth_state', state, {
       maxAge: domain.AUTH_STATE_TTL_SEC, secure: config.cookieSecure, sameSite: 'Lax',
     }))
