@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { readFileSync } from 'fs'
 
 const schema = z.object({
   port:                z.coerce.number().int().default(3000),
@@ -13,18 +14,25 @@ const schema = z.object({
   sandboxNofileSoft:   z.coerce.number().int().default(1024),
   sandboxNofileHard:   z.coerce.number().int().default(2048),
   sandboxTmpfsMb:      z.coerce.number().int().default(64),
-  // Auth — GitHub OAuth + cookie session. The OAuth callback URL is derived
-  // from the incoming request host, so the same binary works on localhost,
-  // a tailnet name, or a public domain — only GitHub's registered callback
-  // has to match whatever URL you actually use.
-  gitHubClientId:      z.string().min(1),
-  gitHubClientSecret:  z.string().min(1),
-  ownerGitHubLogin:    z.string().optional(),
-  cookieSecure:        z.coerce.boolean().default(true),
-  sessionMaxAgeSec:    z.coerce.number().int().default(60 * 60 * 24 * 7),
+  // Auth — GitHub App user OAuth + cookie session. The OAuth callback URL is
+  // derived from the incoming request host, so the same binary works on
+  // localhost, a tailnet name, or a public domain — only GitHub's registered
+  // callback has to match whatever URL you actually use.
+  //
+  // gitHubClientId / gitHubClientSecret come from the GitHub App's "Client ID"
+  // and a generated client secret. gitHubAppId + the PEM at gitHubAppPrivateKeyPath
+  // are only needed for installation-token (repo) operations, not for login —
+  // they stay optional until repo features land.
+  gitHubClientId:           z.string().min(1),
+  gitHubClientSecret:       z.string().min(1),
+  gitHubAppId:              z.coerce.number().int().positive().optional(),
+  gitHubAppPrivateKeyPath:  z.string().optional(),
+  ownerGitHubLogin:         z.string().optional(),
+  cookieSecure:             z.coerce.boolean().default(true),
+  sessionMaxAgeSec:         z.coerce.number().int().default(60 * 60 * 24 * 7),
 })
 
-export const config = schema.parse({
+const parsed = schema.parse({
   port:               process.env.PORT,
   dbPath:             process.env.DB_PATH,
   repoBase:           process.env.REPO_BASE,
@@ -36,11 +44,20 @@ export const config = schema.parse({
   sandboxNofileSoft:  process.env.SANDBOX_NOFILE_SOFT,
   sandboxNofileHard:  process.env.SANDBOX_NOFILE_HARD,
   sandboxTmpfsMb:     process.env.SANDBOX_TMPFS_MB,
-  gitHubClientId:     process.env.GITHUB_CLIENT_ID,
-  gitHubClientSecret: process.env.GITHUB_CLIENT_SECRET,
-  ownerGitHubLogin:   process.env.OWNER_GITHUB_LOGIN,
-  cookieSecure:       process.env.COOKIE_SECURE,
-  sessionMaxAgeSec:   process.env.SESSION_MAX_AGE_SEC,
+  gitHubClientId:          process.env.GITHUB_CLIENT_ID,
+  gitHubClientSecret:      process.env.GITHUB_CLIENT_SECRET,
+  gitHubAppId:             process.env.GITHUB_APP_ID,
+  gitHubAppPrivateKeyPath: process.env.GITHUB_APP_PRIVATE_KEY_PATH,
+  ownerGitHubLogin:        process.env.OWNER_GITHUB_LOGIN,
+  cookieSecure:            process.env.COOKIE_SECURE,
+  sessionMaxAgeSec:        process.env.SESSION_MAX_AGE_SEC,
 })
 
+// Read the App private key eagerly so a malformed/missing path fails at boot,
+// not on the first installation-token call. The PEM stays in memory.
+const gitHubAppPrivateKey = parsed.gitHubAppPrivateKeyPath
+  ? readFileSync(parsed.gitHubAppPrivateKeyPath, 'utf-8')
+  : undefined
+
+export const config = { ...parsed, gitHubAppPrivateKey }
 export type Config = typeof config
