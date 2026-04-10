@@ -22,7 +22,29 @@ export function ProjectSwitcher({ current, projectId, className }: Props) {
   function handleOpen() {
     if (open) { setOpen(false); return }
     const rect = btnRef.current?.getBoundingClientRect()
-    if (rect) setPos({ top: rect.bottom + 6, left: rect.left, width: rect.width })
+    if (rect) {
+      // Calculate position while ensuring it stays within viewport bounds
+      const minWidth = Math.max(rect.width, 200)
+      const gap = 6
+      const padding = 8 // padding from screen edge
+      
+      // Adjust horizontal position to prevent overflow on right edge
+      let left = rect.left
+      if (left + minWidth > window.innerWidth - padding) {
+        left = Math.max(padding, window.innerWidth - minWidth - padding)
+      }
+      
+      // Calculate vertical position and check for bottom overflow
+      let top = rect.bottom + gap
+      const maxHeight = window.innerHeight - top - padding
+      
+      // If not enough space below, position above if there's more room
+      if (maxHeight < 150 && rect.top > window.innerHeight - rect.bottom) {
+        top = rect.top - gap
+      }
+      
+      setPos({ top, left, width: rect.width })
+    }
     setOpen(true)
     // Lazy fetch on first open. Refetch on every open keeps the list fresh
     // without requiring eager loading in the Shell loader.
@@ -37,8 +59,16 @@ export function ProjectSwitcher({ current, projectId, className }: Props) {
     <>
       <div onClick={handleClose} style={{ position: 'fixed', inset: 0, zIndex: 9998 }} />
       <div
-        style={{ position: 'fixed', top: pos.top, left: pos.left, minWidth: Math.max(pos.width, 200), zIndex: 9999 }}
-        className="bg-white dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700/60 rounded-lg shadow-xl overflow-hidden py-1"
+        style={{ 
+          position: 'fixed', 
+          top: pos.top, 
+          left: pos.left, 
+          minWidth: Math.max(pos.width, 200),
+          maxWidth: `calc(100vw - ${pos.left}px - 8px)`,
+          maxHeight: `calc(100vh - ${pos.top}px - 8px)`,
+          zIndex: 9999 
+        }}
+        className="bg-white dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700/60 rounded-lg shadow-xl overflow-auto py-1"
       >
         {projects === null ? (
           <div className="px-3 py-2 text-xs text-zinc-500">loading…</div>
