@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { createPortal } from 'react-dom'
+import { Expand } from 'lucide-react'
 import { inputCls } from './TextInput.js'
 
 interface TextAreaProps extends React.TextareaHTMLAttributes<HTMLTextAreaElement> {
@@ -52,11 +53,17 @@ export function TextArea({ label, onChange, value, ...props }: TextAreaProps) {
         <textarea
           value={value}
           onChange={onChange}
-          onFocus={() => setExpanded(true)}
           className={`${inputCls} resize-none`}
-          readOnly={expanded}
           {...props}
         />
+        <button
+          type="button"
+          onClick={() => setExpanded(true)}
+          className="absolute bottom-2 right-2 p-0.5 rounded text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+          aria-label="Expand editor"
+        >
+          <Expand size={14} />
+        </button>
       </div>
       {overlay}
     </>
