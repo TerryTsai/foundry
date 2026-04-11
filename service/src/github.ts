@@ -117,6 +117,37 @@ export async function repoCloneUrl(config: Config, owner: string, repo: string):
   return `https://x-access-token:${token}@github.com/${owner}/${repo}.git`
 }
 
+// Open a pull request. Draft by default — session branches should land as
+// drafts so a human flips them to Ready only after reviewing the agent's work.
+// Returns the PR's html_url.
+export async function pullRequestCreate(
+  config: Config,
+  owner: string,
+  repo: string,
+  input: { title: string; head: string; base: string; body: string; draft?: boolean },
+): Promise<string> {
+  const installationId = await installationForRepo(config, owner, repo)
+  const { token }      = await installationToken(config, installationId)
+  const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/pulls`, {
+    method:  'POST',
+    headers: {
+      Authorization:  `Bearer ${token}`,
+      Accept:         'application/vnd.github+json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      title: input.title,
+      head:  input.head,
+      base:  input.base,
+      body:  input.body,
+      draft: input.draft ?? true,
+    }),
+  })
+  if (!res.ok) throw new Error(`pull request create failed: ${res.status} ${await res.text()}`)
+  const json = await res.json() as { html_url: string }
+  return json.html_url
+}
+
 // List installations the signed-in user can access. Called with a fresh user
 // access token (the one we throw away after login). Useful when we later need
 // to discover which installation_id to mint tokens against on the user's behalf.

@@ -192,7 +192,15 @@ export async function runAgentSession(
       model, system, tools, agentDef, sessionId,
       ticketId: ticketData.id, agentName: agentDef.name, initialMessage: ticketData.body,
     })
-    await workspacePublish(db, config, ticketData.project_id, workDir).catch(err => console.error(`session ${sessionId}: push failed:`, err))
+    const pubResult = await workspacePublish(db, config, sessionId, ticketData, workDir)
+      .catch(err => { console.error(`session ${sessionId}: publish failed:`, err); return null })
+    if (pubResult) {
+      domain.commentCreate(db, ticketData.id, {
+        author:     agentDef.name,
+        body:       `Draft PR opened: ${pubResult.prUrl}`,
+        session_id: sessionId,
+      })
+    }
     completeSession(db, sessionId, ticketData.id, agentDef.name, finishReason, startTime)
   } catch (err) {
     failSession(db, sessionId, ticketData.id, agentDef.name, err, startTime)

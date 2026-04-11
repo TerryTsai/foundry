@@ -7,7 +7,7 @@ import { type Ticket, type Agent as AgentDef } from '../schema.js'
 import * as domain from '../domain.js'
 import { now, require } from '../functional.js'
 
-import { workspaceClone, workspacePublish, workspaceDestroy } from './workspace.js'
+import { workspaceClone, workspacePublish, workspaceDestroy, type PublishResult } from './workspace.js'
 import { makeSdkTools } from './tool.js'
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -101,8 +101,16 @@ export async function runAgentSessionViaSdk(
       domain.commentCreate(db, ticketData.id, { author: agentDef.name, body: finalText, session_id: sessionId })
     }
 
-    try { await workspacePublish(db, config, ticketData.project_id, workDir) } catch (err) {
-      console.error(`session ${sessionId}: push failed:`, err)
+    let pubResult: PublishResult | null = null
+    try { pubResult = await workspacePublish(db, config, sessionId, ticketData, workDir) } catch (err) {
+      console.error(`session ${sessionId}: publish failed:`, err)
+    }
+    if (pubResult) {
+      domain.commentCreate(db, ticketData.id, {
+        author:     agentDef.name,
+        body:       `Draft PR opened: ${pubResult.prUrl}`,
+        session_id: sessionId,
+      })
     }
 
     domain.ticketComplete(db, ticketData.id, { agentName: agentDef.name, sessionId })
