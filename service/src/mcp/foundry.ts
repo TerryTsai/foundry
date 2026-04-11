@@ -157,7 +157,7 @@ const DESC = {
   ticketList:    'List tickets in the current project. Optionally filter by status or assigned agent.',
   ticketGet:     'Fetch a ticket by id, including its title, body, status, and parent chain.',
   ticketCreate:  'Create a new ticket in the current project. The new ticket is parented to the current session\'s ticket by default, so sub-tasks chain back to the originating work.',
-  ticketComment: 'Post a comment on a ticket. Used for status updates, questions, or communicating with the founder.',
+  ticketComment: 'Post a comment on a ticket. Used for status updates, questions, or communicating with the Founder.',
   agentsList:    'List agents configured in the current project. Useful for targeting sub-tickets at a specific agent.',
   sessionList:   'List agent sessions for a ticket. Defaults to the current session\'s ticket if omitted.',
   connectionList:  'List configured LLM providers (model backends). Secrets are masked.',

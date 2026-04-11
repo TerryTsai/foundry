@@ -1,5 +1,12 @@
 // Shared formatters for resource usage display
 
+// Format an actor identifier (e.g. 'founder', 'system', an agent name)
+// for display — capitalizes the first letter so roles read as proper
+// nouns in the UI while the underlying identifier stays lowercase.
+export function fmtActor(s: string): string {
+  return s.length > 0 ? s[0].toUpperCase() + s.slice(1) : s
+}
+
 export function fmtTokens(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`
