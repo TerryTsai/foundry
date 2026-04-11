@@ -487,6 +487,14 @@ export function sessionListAll(db: Db) {
 export async function sessionStart(db: Db, config: Config, agentDefId: string, ticketId: string): Promise<Session> {
   const agentDef = require(database.agentGet(db, agentDefId), 'agent not found')
   ticketClaim(db, ticketId)
+  // Backfill ticket.agent_id on the first session so the ticket reflects
+  // who's actually working on it. Don't overwrite if the founder already
+  // pre-assigned it — that's an explicit routing preference for the
+  // scheduler and we preserve it.
+  const existing = ticketGet(db, ticketId)
+  if (!existing.agent_id) {
+    database.ticketUpdate(db, ticketId, { agent_id: agentDefId, updated_at: now() })
+  }
   const t = ticketGet(db, ticketId)
 
   const row = database.sessionInsert(db, {
