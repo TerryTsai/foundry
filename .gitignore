@@ -2,6 +2,8 @@
 .env
 .env.local
 .env.*.local
+foundry-app.env
+*.pem
 
 # Runtime data
 *.db

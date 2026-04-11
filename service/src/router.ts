@@ -1,12 +1,10 @@
-import { Router, type Request, type Response } from 'express'
-// @ts-ignore — no types for node-git-server
-import { Git as Server } from 'node-git-server'
+import { Router, type Request } from 'express'
 import type { Db } from './database.js'
 import type { Config } from './config.js'
 import * as domain from './domain.js'
 import * as validate from './validate.js'
-import { slugify, AppError } from './functional.js'
-import { parse, run, send, sendText, parseCookie, serializeCookie, requireAuth } from './middleware.js'
+import { AppError } from './functional.js'
+import { parse, run, send, parseCookie, serializeCookie, requireAuth } from './middleware.js'
 import { TOOL_NAMES } from './runtime/tool.js'
 
 // Each project handler resolves the caller's account from req (set by
@@ -82,10 +80,10 @@ export function auth(db: Db, config: Config) {
 // PROJECT
 // ════════════════════════════════════════════════════════════════════════════
 
-export function project(db: Db, config: Config) {
+export function project(db: Db) {
   const r = Router()
   r.get   ('/',         parse(validate.projectList, 'query'), run(req => domain.projectList(db, accountId(req), req.data)),                       send())
-  r.post  ('/',         parse(validate.projectCreate),        run(req => domain.projectCreate(db, config, accountId(req), req.data)),             send(201))
+  r.post  ('/',         parse(validate.projectCreate),        run(req => domain.projectCreate(db, accountId(req), req.data)),                     send(201))
   r.get   ('/:id',                                            run(req => domain.projectGet(db, accountId(req), req.params.id)),                   send())
   r.put   ('/:id',      parse(validate.projectUpdate),        run(req => domain.projectUpdate(db, accountId(req), req.params.id, req.data)),      send())
   r.post  ('/:id/run',                                        run(req => domain.projectRun(db, accountId(req), req.params.id)),                   send(202))
@@ -165,28 +163,3 @@ export function execution(db: Db, config: Config) {
   return r
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-// FILES
-// ════════════════════════════════════════════════════════════════════════════
-
-export function file(config: Config, db: Db) {
-  const r = Router({ mergeParams: true })
-  r.get ('/:id',   run(req => { const p = domain.projectGet(db, accountId(req), req.params.id); return domain.fileList(config.repoBase, slugify(p.name)) }),   send())
-  r.get ('/:id/*', run(req => { const p = domain.projectGet(db, accountId(req), req.params.id); return domain.fileRead(config.repoBase, slugify(p.name), req.params[0]) }), sendText)
-  r.post('/:id/*', parse(validate.fileWrite), run(req => { const p = domain.projectGet(db, accountId(req), req.params.id); return domain.fileWrite(config.repoBase, slugify(p.name), req.params[0], req.data.content, req.data.message ?? `update ${req.params[0]}`) }), send(201))
-  return r
-}
-
-export function git(config: Config) {
-  const repos = new Server(config.repoBase, { autoCreate: false })
-  repos.on('push',  (push: { accept: () => void })  => push.accept())
-  repos.on('fetch', (fetch: { accept: () => void }) => fetch.accept())
-  repos.on('info',  (info: { accept: () => void })  => info.accept())
-
-  const r = Router()
-  r.all('/:slug\\.git*', (req: Request, res: Response) => {
-    req.url = req.url.replace(/^\/git/, '')
-    repos.handle(req, res)
-  })
-  return r
-}

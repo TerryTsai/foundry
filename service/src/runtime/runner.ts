@@ -1,5 +1,7 @@
 import { generateText, stepCountIs, type ModelMessage, type ToolSet } from 'ai'
 import type { LanguageModelV3 } from '@ai-sdk/provider'
+import { readFile } from 'fs/promises'
+import { join } from 'path'
 
 import { type Db } from '../database.js'
 import * as database from '../database.js'
@@ -7,9 +9,9 @@ import type { Config } from '../config.js'
 import { type Ticket, type Agent as AgentDef, type Comment } from '../schema.js'
 import * as domain from '../domain.js'
 import type { TicketChainEntry } from '../domain.js'
-import { now, slugify } from '../functional.js'
+import { now } from '../functional.js'
 
-import { workspaceClone, workspaceEmpty, workspacePublish, workspaceDestroy } from './workspace.js'
+import { workspaceClone, workspacePublish, workspaceDestroy } from './workspace.js'
 import { resolveModelWithDefaults } from './model.js'
 import { makeTools } from './tool.js'
 
@@ -41,17 +43,17 @@ function readChain(db: Db, ticketId: string): TicketChainEntry[] {
   try { return domain.ticketChain(db, ticketId) } catch { return [] }
 }
 
-async function readAgentMd(config: Config, slug: string): Promise<string> {
-  try { return await domain.fileRead(config.repoBase, slug, 'AGENT.md') } catch { return '' }
+// AGENT.md lives at the root of the cloned workspace — it's a real checkout
+// now, so plain fs.read instead of going through git internals.
+async function readAgentMd(workDir: string): Promise<string> {
+  try { return await readFile(join(workDir, 'AGENT.md'), 'utf-8') } catch { return '' }
 }
 
 async function buildContext(
   db: Db, config: Config, sessionId: string, ticketData: Ticket, agentDef: AgentDef, workDir: string,
 ): Promise<{ system: string; tools: ReturnType<typeof makeTools> }> {
-  const proj         = database.projectGet(db, ticketData.project_id)
-  const slug         = proj ? slugify(proj.name) : ''
   const chain        = readChain(db, ticketData.id)
-  const agentMd      = proj ? await readAgentMd(config, slug) : ''
+  const agentMd      = await readAgentMd(workDir)
   const priorHistory = domain.ticketPriorHistory(db, ticketData.id, sessionId, agentDef.name)
   const system       = buildSystemPrompt(agentDef.prompt, agentMd, chain, ticketData, priorHistory)
   database.sessionUpdate(db, sessionId, { system_prompt: system })
@@ -171,7 +173,17 @@ export async function runAgentSession(
   }
 
   const startTime = Date.now()
-  const workDir   = await workspaceClone(db, config, ticketData.project_id).catch(() => workspaceEmpty())
+  // Surface clone failures as session errors instead of dropping the agent
+  // into an empty tmpdir. The previous fallback hid real problems (bad
+  // installation token, app not installed on the repo, network) by letting
+  // the agent run against an empty /work and produce nothing.
+  let workDir: string
+  try {
+    workDir = await workspaceClone(db, config, ticketData.project_id)
+  } catch (err) {
+    failSession(db, sessionId, ticketData.id, agentDef.name, err, startTime)
+    return
+  }
   try {
     const { system, tools } = await buildContext(db, config, sessionId, ticketData, agentDef, workDir)
     beginSession(db, sessionId, ticketData.id, agentDef.name, ticketData.body)
@@ -180,7 +192,7 @@ export async function runAgentSession(
       model, system, tools, agentDef, sessionId,
       ticketId: ticketData.id, agentName: agentDef.name, initialMessage: ticketData.body,
     })
-    await workspacePublish(workDir).catch(err => console.error(`session ${sessionId}: push failed:`, err))
+    await workspacePublish(db, config, ticketData.project_id, workDir).catch(err => console.error(`session ${sessionId}: push failed:`, err))
     completeSession(db, sessionId, ticketData.id, agentDef.name, finishReason, startTime)
   } catch (err) {
     failSession(db, sessionId, ticketData.id, agentDef.name, err, startTime)

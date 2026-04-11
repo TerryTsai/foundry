@@ -4,7 +4,6 @@ import { readFileSync } from 'fs'
 const schema = z.object({
   port:                z.coerce.number().int().default(3000),
   dbPath:              z.string().default('./foundry.db'),
-  repoBase:            z.string().default('/home/terry/repos'),
   sandboxImage:        z.string().default('foundry-sandbox'),
   sandboxTimeout:      z.coerce.number().int().default(300000),
   // Resource caps — every sandbox execution is bounded by these
@@ -28,14 +27,18 @@ const schema = z.object({
   gitHubAppId:              z.coerce.number().int().positive().optional(),
   gitHubAppPrivateKeyPath:  z.string().optional(),
   ownerGitHubLogin:         z.string().optional(),
-  cookieSecure:             z.coerce.boolean().default(true),
+  // z.coerce.boolean uses Boolean(), which makes the string "false" truthy.
+  // Preprocess so the env var actually behaves like a boolean.
+  cookieSecure:             z.preprocess(
+    v => typeof v === 'string' ? v.toLowerCase() === 'true' : v,
+    z.boolean(),
+  ).default(true),
   sessionMaxAgeSec:         z.coerce.number().int().default(60 * 60 * 24 * 7),
 })
 
 const parsed = schema.parse({
   port:               process.env.PORT,
   dbPath:             process.env.DB_PATH,
-  repoBase:           process.env.REPO_BASE,
   sandboxImage:       process.env.SANDBOX_IMAGE,
   sandboxTimeout:     process.env.SANDBOX_TIMEOUT,
   sandboxMemoryMb:    process.env.SANDBOX_MEMORY_MB,

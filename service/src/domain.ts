@@ -1,9 +1,4 @@
-import { execFile } from 'child_process'
-import { promisify } from 'util'
 import { randomBytes } from 'crypto'
-import { join, dirname } from 'path'
-import { tmpdir } from 'os'
-import { mkdtemp, rm, writeFile as fsWrite, mkdir } from 'fs/promises'
 import { mkdirSync } from 'fs'
 import type { Response } from 'express'
 import { eq, and, isNull } from 'drizzle-orm'
@@ -13,14 +8,12 @@ import * as database from './database.js'
 import * as schema from './schema.js'
 import type { Account, Ticket, Comment, Provider, Agent, Session, Message, Execution } from './schema.js'
 import type { Config } from './config.js'
-import { require, assertStatus, slugify, pick, now, AppError, conflict, badRequest, notFound } from './functional.js'
+import { require, assertStatus, pick, now, AppError, conflict, badRequest, notFound } from './functional.js'
 import { supported } from './runtime/model.js'
 import { spawnRun, type RunHandle } from './runtime/sandbox.js'
 import type { z } from 'zod'
 import * as validate from './validate.js'
 import * as github from './github.js'
-
-const execFileAsync = promisify(execFile)
 
 function ts(): { created_at: string; updated_at: string } {
   const t = now()
@@ -49,15 +42,13 @@ export function projectGet(db: Db, accountId: string, id: string): schema.Projec
   return projectGetOwned(db, id, accountId)
 }
 
-export async function projectCreate(db: Db, config: Config, accountId: string, input: z.infer<typeof validate.projectCreate>): Promise<schema.Project> {
-  const { name, schedule_interval = 600, concurrency_limit = 3 } = input
+export function projectCreate(db: Db, accountId: string, input: z.infer<typeof validate.projectCreate>): schema.Project {
+  const { name, repo, schedule_interval = 600, concurrency_limit = 3 } = input
   const row = database.projectInsert(db, {
     owner_id: accountId,
-    name, status: 'active',
+    repo, name, status: 'active',
     schedule_interval, concurrency_limit, ...ts(),
   })
-  const bare = join(config.repoBase, `${slugify(name)}.git`)
-  await execFileAsync('git', ['init', '--bare', bare])
   schedulerStart(db, row.id, row.schedule_interval)
   return row
 }
@@ -65,7 +56,7 @@ export async function projectCreate(db: Db, config: Config, accountId: string, i
 export function projectUpdate(db: Db, accountId: string, id: string, input: z.infer<typeof validate.projectUpdate>): schema.Project {
   const prev = projectGetOwned(db, id, accountId)
   const updates: Record<string, unknown> = {
-    ...pick(input, 'name', 'status', 'schedule_interval', 'concurrency_limit'),
+    ...pick(input, 'name', 'repo', 'status', 'schedule_interval', 'concurrency_limit'),
     updated_at: now(),
   }
   if (Object.keys(updates).length <= 1) return prev
@@ -596,58 +587,6 @@ export function executionStream(db: Db, id: string, res: Response): void {
     handle.emitter.off('stderr', onStderr)
     handle.emitter.off('exit', onExit)
   })
-}
-
-// ════════════════════════════════════════════════════════════════════════════
-// FILES
-// ════════════════════════════════════════════════════════════════════════════
-
-async function gitExec(args: string[], cwd: string): Promise<string> {
-  const { stdout } = await execFileAsync('git', args, { cwd })
-  return stdout
-}
-
-function bareDir(repoBase: string, slug: string): string {
-  return join(repoBase, `${slug}.git`)
-}
-
-export async function fileList(repoBase: string, slug: string): Promise<string[]> {
-  try {
-    const out = await gitExec(['ls-tree', '-r', 'HEAD', '--name-only'], bareDir(repoBase, slug))
-    return out.trim() ? out.trim().split('\n') : []
-  } catch {
-    throw new AppError(404, 'project not found or has no commits')
-  }
-}
-
-export async function fileRead(repoBase: string, slug: string, path: string): Promise<string> {
-  try {
-    return await gitExec(['show', `HEAD:${path}`], bareDir(repoBase, slug))
-  } catch {
-    throw new AppError(404, 'file not found')
-  }
-}
-
-export async function fileWrite(repoBase: string, slug: string, path: string, content: string, message: string): Promise<{ ok: true }> {
-  const workDir = await mkdtemp(join(tmpdir(), 'foundry-work-'))
-  try {
-    const bare = bareDir(repoBase, slug)
-    await execFileAsync('git', ['clone', bare, workDir])
-    await execFileAsync('git', ['-C', workDir, 'config', 'user.email', 'foundry@localhost'])
-    await execFileAsync('git', ['-C', workDir, 'config', 'user.name', 'Foundry'])
-    const target = join(workDir, path)
-    await mkdir(dirname(target), { recursive: true })
-    await fsWrite(target, content, 'utf8')
-    await execFileAsync('git', ['-C', workDir, 'add', path])
-    await execFileAsync('git', ['-C', workDir, 'commit', '-m', message, '--allow-empty'])
-    const { stdout: branchOut } = await execFileAsync('git', ['-C', workDir, 'rev-parse', '--abbrev-ref', 'HEAD'])
-    await execFileAsync('git', ['-C', workDir, 'push', 'origin', `HEAD:${branchOut.trim()}`])
-    return { ok: true }
-  } catch (err) {
-    throw new AppError(500, err instanceof Error ? err.message : String(err))
-  } finally {
-    await rm(workDir, { recursive: true, force: true })
-  }
 }
 
 // ════════════════════════════════════════════════════════════════════════════

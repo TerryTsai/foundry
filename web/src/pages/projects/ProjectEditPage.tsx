@@ -10,6 +10,7 @@ export function ProjectEditPage() {
   const { projectId, project, revalidate } = useShell()
   const navigate = useNavigate()
   const [name, setName] = useState('')
+  const [repo, setRepo] = useState('')
   const [interval, setInterval] = useState('')
   const [maxAgents, setMaxAgents] = useState('')
   const [error, setError] = useState('')
@@ -17,6 +18,7 @@ export function ProjectEditPage() {
   useEffect(() => {
     if (project) {
       setName(project.name)
+      setRepo(project.repo)
       setInterval(String(project.schedule_interval))
       setMaxAgents(String(project.concurrency_limit))
     }
@@ -28,7 +30,7 @@ export function ProjectEditPage() {
     e.preventDefault()
     setError('')
     try {
-      await projectApi.update(projectId, { schedule_interval: +interval, concurrency_limit: +maxAgents })
+      await projectApi.update(projectId, { repo, schedule_interval: +interval, concurrency_limit: +maxAgents })
       revalidate()
       navigate(`/p/${projectId}/tickets`)
     } catch (err) { setError(err instanceof Error ? err.message : 'failed') }
@@ -40,6 +42,9 @@ export function ProjectEditPage() {
         {error && <div className="text-sm text-red-400">{error}</div>}
         <Field label="name">
           <TextInput value={name} disabled className="disabled:opacity-40" />
+        </Field>
+        <Field label="github repo (owner/name)">
+          <TextInput value={repo} onChange={e => setRepo(e.target.value)} placeholder="TerryTsai/foundry" pattern="^[\w.-]+/[\w.-]+$" required />
         </Field>
         <div className="grid grid-cols-2 gap-3">
           <Field label="interval (s)">

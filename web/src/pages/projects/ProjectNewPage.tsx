@@ -8,6 +8,7 @@ import { ActionButton } from '../../components/form/ActionButton.js'
 export function ProjectNewPage() {
   const navigate = useNavigate()
   const [name, setName] = useState('')
+  const [repo, setRepo] = useState('')
   const [interval, setInterval] = useState('600')
   const [maxAgents, setMaxAgents] = useState('3')
   const [error, setError] = useState('')
@@ -16,7 +17,7 @@ export function ProjectNewPage() {
     e.preventDefault()
     setError('')
     try {
-      const saved = await projectApi.create({ name, schedule_interval: +interval, concurrency_limit: +maxAgents })
+      const saved = await projectApi.create({ name, repo, schedule_interval: +interval, concurrency_limit: +maxAgents })
       navigate(`/p/${saved.id}/agents/new`)
     } catch (err) { setError(err instanceof Error ? err.message : 'failed') }
   }
@@ -32,6 +33,9 @@ export function ProjectNewPage() {
             {error && <div className="text-sm text-red-400">{error}</div>}
             <Field label="name">
               <TextInput value={name} onChange={e => setName(e.target.value)} required />
+            </Field>
+            <Field label="github repo (owner/name)">
+              <TextInput value={repo} onChange={e => setRepo(e.target.value)} placeholder="TerryTsai/foundry" pattern="^[\w.-]+/[\w.-]+$" required />
             </Field>
             <div className="grid grid-cols-2 gap-3">
               <Field label="interval (s)">

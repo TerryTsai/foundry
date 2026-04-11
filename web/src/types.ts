@@ -17,6 +17,7 @@ export interface Provider {
 export interface Project {
   id: string
   name: string
+  repo: string
   status: 'active' | 'archived'
   schedule_interval: number
   concurrency_limit: number

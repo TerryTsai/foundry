@@ -17,14 +17,18 @@ export const projectList = z.object({
   status: z.string().optional(),
 })
 
+const repoSpec = z.string().regex(/^[\w.-]+\/[\w.-]+$/, 'repo must be "owner/name"')
+
 export const projectCreate = z.object({
   name:               z.string().min(1),
+  repo:               repoSpec,
   schedule_interval:  z.number().int().positive().optional(),
   concurrency_limit:  z.number().int().positive().optional(),
 })
 
 export const projectUpdate = z.object({
   name:               z.string().min(1).optional(),
+  repo:               repoSpec.optional(),
   status:             z.enum(['active', 'archived']).optional(),
   schedule_interval:  z.number().int().positive().optional(),
   concurrency_limit:  z.number().int().positive().optional(),
@@ -191,11 +195,3 @@ export const toolTicket = z.object({
   agent_id: z.string().optional().describe('Agent ID to assign the ticket to (for create). Use the agents tool to get agent IDs.'),
 })
 
-// ════════════════════════════════════════════════════════════════════════════
-// FILES
-// ════════════════════════════════════════════════════════════════════════════
-
-export const fileWrite = z.object({
-  content: z.string(),
-  message: z.string().optional(),
-})

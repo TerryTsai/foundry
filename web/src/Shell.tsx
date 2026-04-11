@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Outlet, NavLink, ScrollRestoration, useParams, useLoaderData, useRevalidator } from 'react-router-dom'
-import { Ticket, Bot, FolderOpen, Pause, Play, Sun, Moon, Monitor, type LucideIcon } from 'lucide-react'
+import { Ticket, Bot, Pause, Play, Sun, Moon, Monitor, type LucideIcon } from 'lucide-react'
 import { projectApi } from './api.js'
 import type { Project } from './types.js'
 import { useTheme, type ThemeMode } from './theme.js'
@@ -19,7 +19,6 @@ export function FoundryMark() {
 const navItems: Array<{ to: string; label: string; Icon: LucideIcon }> = [
   { to: 'tickets', label: 'Tickets', Icon: Ticket },
   { to: 'agents',  label: 'Agents',  Icon: Bot },
-  { to: 'files',   label: 'Files',   Icon: FolderOpen },
 ]
 const THEME_CYCLE: ThemeMode[] = ['system', 'light', 'dark']
 // ── Desktop Top Bar ──

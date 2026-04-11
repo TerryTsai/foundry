@@ -31,11 +31,12 @@ export type AuthSession = typeof authSession.$inferSelect
 // PROJECT
 // ════════════════════════════════════════════════════════════════════════════
 
-// owner_id default '' lets drizzle-kit add the column to existing rows; the
-// runtime backfill in createDatabase claims unowned rows on boot.
+// repo is "owner/repo" — the GitHub repo each session clones from. owner_id
+// default '' lets the runtime backfill claim legacy rows on first login.
 export const project = sqliteTable('project', {
   id:                text('id').primaryKey(),
   owner_id:          text('owner_id').notNull().default('').references(() => account.id),
+  repo:              text('repo').notNull().default(''),
   name:              text('name').notNull(),
   status:            text('status').notNull().default('active'),
   schedule_interval: integer('schedule_interval').notNull().default(600),

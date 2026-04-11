@@ -7,7 +7,7 @@ import { type Ticket, type Agent as AgentDef } from '../schema.js'
 import * as domain from '../domain.js'
 import { now, require } from '../functional.js'
 
-import { workspaceClone, workspaceEmpty, workspacePublish, workspaceDestroy } from './workspace.js'
+import { workspaceClone, workspacePublish, workspaceDestroy } from './workspace.js'
 import { makeSdkTools } from './tool.js'
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -35,7 +35,18 @@ export async function runAgentSessionViaSdk(
 ): Promise<void> {
   const startTime = Date.now()
   const provider = require(database.providerGet(db, agentDef.provider_id), 'provider not found')
-  const workDir  = await workspaceClone(db, config, ticketData.project_id).catch(() => workspaceEmpty())
+
+  let workDir: string
+  try {
+    workDir = await workspaceClone(db, config, ticketData.project_id)
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    try { domain.ticketFail(db, ticketData.id, { notes: msg, agentName: agentDef.name, sessionId }) } catch {}
+    database.sessionUpdate(db, sessionId, {
+      status: 'failed', error: msg, ended_at: now(), duration_ms: Date.now() - startTime,
+    })
+    return
+  }
 
   // Inject the OAuth token. Single-process / single-subscription = no race.
   const prevToken = process.env.CLAUDE_CODE_OAUTH_TOKEN
@@ -90,7 +101,7 @@ export async function runAgentSessionViaSdk(
       domain.commentCreate(db, ticketData.id, { author: agentDef.name, body: finalText, session_id: sessionId })
     }
 
-    try { await workspacePublish(workDir) } catch (err) {
+    try { await workspacePublish(db, config, ticketData.project_id, workDir) } catch (err) {
       console.error(`session ${sessionId}: push failed:`, err)
     }
 

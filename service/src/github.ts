@@ -62,15 +62,17 @@ export async function fetchUser(token: string): Promise<GitHubUser> {
 
 // ── GitHub App: installation tokens ──
 
-// JWT signed with the App's private key, valid for ~9 minutes (GitHub allows up
-// to 10). Used as a Bearer token to mint installation access tokens.
+// JWT signed with the App's private key. GitHub caps exp at 10 minutes from
+// iat; we use a tight 2-minute window so any local clock skew (this machine's
+// clock has drifted ~minute ahead of GitHub's before) still leaves headroom.
+// The token only needs to live long enough for one /app/installations call.
 export function appJwt(config: Config): string {
   if (!config.gitHubAppId || !config.gitHubAppPrivateKey) {
     throw new Error('GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY_PATH must be set for App operations')
   }
   const now = Math.floor(Date.now() / 1000)
   const header  = { alg: 'RS256', typ: 'JWT' }
-  const payload = { iat: now - 60, exp: now + 9 * 60, iss: config.gitHubAppId }
+  const payload = { iat: now - 60, exp: now + 60, iss: config.gitHubAppId }
   const b64     = (obj: object) => Buffer.from(JSON.stringify(obj)).toString('base64url')
   const data    = `${b64(header)}.${b64(payload)}`
   const sig     = createSign('RSA-SHA256').update(data).sign(config.gitHubAppPrivateKey, 'base64url')
@@ -89,6 +91,30 @@ export async function installationToken(config: Config, installationId: number):
   })
   if (!res.ok) throw new Error(`installation token mint failed: ${res.status} ${await res.text()}`)
   return res.json() as Promise<{ token: string; expires_at: string }>
+}
+
+// Look up which installation gives access to a given repo. Used at session
+// start to find the right installation_id without storing it on the project.
+export async function installationForRepo(config: Config, owner: string, repo: string): Promise<number> {
+  const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/installation`, {
+    headers: {
+      Authorization: `Bearer ${appJwt(config)}`,
+      Accept:        'application/vnd.github+json',
+    },
+  })
+  if (res.status === 404) throw new Error(`GitHub App is not installed on ${owner}/${repo}`)
+  if (!res.ok) throw new Error(`installation lookup failed: ${res.status} ${await res.text()}`)
+  const json = await res.json() as { id: number }
+  return json.id
+}
+
+// Mint a fresh clone URL for the repo with the installation token embedded as
+// the basic-auth user. Token is short-lived (~1h) so this URL must not be
+// persisted anywhere.
+export async function repoCloneUrl(config: Config, owner: string, repo: string): Promise<string> {
+  const installationId = await installationForRepo(config, owner, repo)
+  const { token } = await installationToken(config, installationId)
+  return `https://x-access-token:${token}@github.com/${owner}/${repo}.git`
 }
 
 // List installations the signed-in user can access. Called with a fresh user

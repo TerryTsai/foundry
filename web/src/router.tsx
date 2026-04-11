@@ -23,7 +23,6 @@ import { AgentDetailPage } from './pages/agents/AgentDetailPage.js'
 import { ProviderListPage } from './pages/agents/ProviderListPage.js'
 import { ProviderNewPage } from './pages/agents/ProviderNewPage.js'
 import { ProviderDetailPage } from './pages/agents/ProviderDetailPage.js'
-import { FilesPage } from './pages/files/FilesPage.js'
 import { LoginPage } from './pages/auth/LoginPage.js'
 
 const pid = (p: Params) => p.projectId!
@@ -181,8 +180,6 @@ export const router = createBrowserRouter([
       },
 
       // Files
-      { path: 'files', element: <FilesPage />, handle: { crumb: 'Files' } },
-      { path: 'files/*', element: <FilesPage />, handle: { crumb: 'Files' } },
     ],
   },
 ])

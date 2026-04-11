@@ -13,11 +13,13 @@ export default defineConfig({
   server: {
     port: 3006,
     host: true,
+    // LAN access: vite blocks unknown Host headers by default since 5.x.
+    // List the hostnames Foundry is reachable on so dogfooding from phones
+    // and other LAN devices works.
+    allowedHosts: ['t470.lan', 'localhost'],
     proxy: {
       '/project':   passthrough,
       '/ticket':    passthrough,
-      '/file':      passthrough,
-      '/git':       passthrough,
       '/execution': passthrough,
       '/agent':     passthrough,
       '/session':   passthrough,

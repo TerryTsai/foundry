@@ -17,14 +17,12 @@ app.use('/auth', router.auth(db, config))
 // ── Authenticated routes ──
 app.use(requireAuth(db))
 
-app.use('/project',   router.project(db, config))
+app.use('/project',   router.project(db))
 app.use('/provider',  router.provider(db))
 app.use('/ticket',    router.ticket(db))
 app.use('/agent',     router.agent(db, config))
 app.use('/session',   router.session(db))
 app.use('/execution', router.execution(db, config))
-app.use('/file',      router.file(config, db))
-app.use('/git',       router.git(config))
 
 app.use(errors)
 
