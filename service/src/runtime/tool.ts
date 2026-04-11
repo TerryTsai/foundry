@@ -105,6 +105,10 @@ export function makeTools(
   db: Db, config: Config, sessionId: string, projectId: string, ticketId: string, agentName: string, workspace: string, enabledTools?: string[],
 ) {
   const api = `http://host.containers.internal:${config.port}`
+  // Sandboxed curl calls carry this header so requireAuth lets them through
+  // without a session cookie. The token lives only for the lifetime of this
+  // process and is regenerated on every boot.
+  const authHeader = `Authorization: Bearer ${config.internalApiToken}`
 
   const all = {
 
@@ -301,7 +305,7 @@ print("ok")
       inputSchema:  z.object({}),
       outputSchema: boundedOutput,
       execute: async () => {
-        const command = `curl -sf '${api}/agent?projectId=${projectId}'`
+        const command = `curl -sf -H ${esc(authHeader)} '${api}/agent?projectId=${projectId}'`
         return runApi(db, config, sessionId, workspace, command, 'agents', {})
       },
     }),
@@ -316,9 +320,9 @@ print("ok")
         let command: string
         if (args.action === 'read') {
           if (!args.id) return { content: '', error: 'id is required for read' }
-          command = `curl -sf '${api}/ticket/${args.id}'`
+          command = `curl -sf -H ${esc(authHeader)} '${api}/ticket/${args.id}'`
         } else if (args.action === 'list') {
-          command = `curl -sf '${api}/ticket?projectId=${projectId}'`
+          command = `curl -sf -H ${esc(authHeader)} '${api}/ticket?projectId=${projectId}'`
         } else if (args.action === 'create') {
           if (!args.title || !args.body) return { content: '', error: 'title and body are required for create' }
           const payload = JSON.stringify({
@@ -326,7 +330,7 @@ print("ok")
             priority: 0, parent_id: ticketId, created_by: agentName,
             ...(args.agent_id ? { agent_id: args.agent_id } : {}),
           })
-          command = `curl -sf -X POST -H 'Content-Type: application/json' -d ${esc(payload)} '${api}/ticket'`
+          command = `curl -sf -X POST -H ${esc(authHeader)} -H 'Content-Type: application/json' -d ${esc(payload)} '${api}/ticket'`
         } else {
           return { content: '', error: 'unknown action' }
         }
@@ -362,6 +366,7 @@ export function makeSdkTools(
   db: Db, config: Config, sessionId: string, projectId: string, ticketId: string, agentName: string, workspace: string,
 ) {
   const api = `http://host.containers.internal:${config.port}`
+  const authHeader = `Authorization: Bearer ${config.internalApiToken}`
 
   return createSdkMcpServer({
     name: 'foundry',
@@ -539,7 +544,7 @@ print("ok")
         'List all agents in the current project. Useful for targeting sub-tickets at a specific agent.',
         {},
         async () => {
-          const command = `curl -sf '${api}/agent?projectId=${projectId}'`
+          const command = `curl -sf -H ${esc(authHeader)} '${api}/agent?projectId=${projectId}'`
           return asText(await runApi(db, config, sessionId, workspace, command, 'agents', {}))
         },
       ),
@@ -552,9 +557,9 @@ print("ok")
           let command: string
           if (args.action === 'read') {
             if (!args.id) return asText({ error: 'id is required for read' })
-            command = `curl -sf '${api}/ticket/${args.id}'`
+            command = `curl -sf -H ${esc(authHeader)} '${api}/ticket/${args.id}'`
           } else if (args.action === 'list') {
-            command = `curl -sf '${api}/ticket?projectId=${projectId}'`
+            command = `curl -sf -H ${esc(authHeader)} '${api}/ticket?projectId=${projectId}'`
           } else if (args.action === 'create') {
             if (!args.title || !args.body) return asText({ error: 'title and body are required for create' })
             const payload = JSON.stringify({
@@ -562,7 +567,7 @@ print("ok")
               priority: 0, parent_id: ticketId, created_by: agentName,
               ...(args.agent_id ? { agent_id: args.agent_id } : {}),
             })
-            command = `curl -sf -X POST -H 'Content-Type: application/json' -d ${esc(payload)} '${api}/ticket'`
+            command = `curl -sf -X POST -H ${esc(authHeader)} -H 'Content-Type: application/json' -d ${esc(payload)} '${api}/ticket'`
           } else {
             return asText({ error: 'unknown action' })
           }

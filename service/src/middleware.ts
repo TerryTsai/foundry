@@ -4,6 +4,7 @@ import { AppError, badRequest } from './functional.js'
 import type { Account } from './schema.js'
 import * as database from './database.js'
 import type { Db } from './database.js'
+import type { Config } from './config.js'
 
 declare global {
   namespace Express {
@@ -45,8 +46,20 @@ export function serializeCookie(name: string, value: string, opts: {
 
 // ── Auth ──
 
-export const requireAuth = (db: Db): RequestHandler =>
+// Two credentials are accepted:
+//   1. `foundry_session` cookie — real users logging in via GitHub OAuth.
+//   2. `Authorization: Bearer <config.internalApiToken>` — sandboxed tools
+//      (agents/ticket) curl'ing back into the service from inside a podman
+//      container. Presenting the token authenticates the request but does
+//      NOT populate req.account, so any handler that needs an owner still
+//      401s via accountId(req). Only the handful of project-scoped tool
+//      endpoints (agent list, ticket list/get/create) work without one.
+export const requireAuth = (db: Db, config: Config): RequestHandler =>
   (req: Request, _res: Response, next: NextFunction) => {
+    const authHeader = req.headers.authorization
+    if (authHeader && authHeader.startsWith('Bearer ') && authHeader.slice(7) === config.internalApiToken) {
+      return next()
+    }
     const sid = parseCookie(req.headers.cookie, 'foundry_session')
     if (!sid) return next(new AppError(401, 'unauthorized'))
     const session = database.authSessionGet(db, sid)

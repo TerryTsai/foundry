@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { readFileSync } from 'fs'
+import { randomBytes } from 'crypto'
 
 const schema = z.object({
   port:                z.coerce.number().int().default(3000),
@@ -30,6 +31,11 @@ const schema = z.object({
   ownerGitHubLogin:         z.string().optional(),
   cookieSecure:             z.coerce.boolean().default(true),
   sessionMaxAgeSec:         z.coerce.number().int().default(60 * 60 * 24 * 7),
+  // Shared secret the sandboxed tool curls use to call the service's own
+  // authenticated endpoints (agents tool, ticket tool). Generated fresh per
+  // boot when unset — only needs to outlive the current process because the
+  // sandboxes it authorises are children of this process.
+  internalApiToken:         z.string().min(16).default(randomBytes(32).toString('hex')),
 })
 
 const parsed = schema.parse({
@@ -51,6 +57,7 @@ const parsed = schema.parse({
   ownerGitHubLogin:        process.env.OWNER_GITHUB_LOGIN,
   cookieSecure:            process.env.COOKIE_SECURE,
   sessionMaxAgeSec:        process.env.SESSION_MAX_AGE_SEC,
+  internalApiToken:        process.env.INTERNAL_API_TOKEN,
 })
 
 // Read the App private key eagerly so a malformed/missing path fails at boot,
