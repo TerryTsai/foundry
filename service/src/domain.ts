@@ -11,6 +11,7 @@ import type { Config } from './config.js'
 import { require, assertStatus, pick, now, AppError, conflict, badRequest, notFound } from './functional.js'
 import { supported } from './runtime/model.js'
 import { spawnRun, type RunHandle } from './runtime/sandbox.js'
+import { scrubSecrets } from './mcp/_shared.js'
 import type { z } from 'zod'
 import * as validate from './validate.js'
 import * as github from './github.js'
@@ -566,12 +567,16 @@ export function executionCreate(db: Db, config: Config, input: {
   handle.emitter.on('stdout', (line: string) => stdoutBuf.push(line))
   handle.emitter.on('stderr', (line: string) => stderrBuf.push(line))
   handle.emitter.on('exit', (code: number, stats: import('./runtime/sandbox.js').ContainerStats | null) => {
+    // Scrub any secret patterns from captured output before persistence.
+    // Primary isolation is that tier-2 tools don't share an env with the
+    // agent; this catches the narrow case where a command (e.g. git push
+    // on failure) echoes a credential it received in its own env.
     database.executionUpdate(db, row.id, {
       status: code === 0 ? 'done' : 'failed',
       exit_code: code, ended_at: now(),
       duration_ms: Date.now() - startTime,
-      stdout: stdoutBuf.join('\n') || null,
-      stderr: stderrBuf.join('\n') || null,
+      stdout: scrubSecrets(stdoutBuf.join('\n') || null),
+      stderr: scrubSecrets(stderrBuf.join('\n') || null),
       exit_signal: stats?.exitSignal ?? null,
       peak_memory_mb: stats?.peakMemoryMb ?? null,
       cpu_ms: stats?.cpuMs ?? null,

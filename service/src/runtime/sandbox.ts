@@ -116,18 +116,28 @@ function parseStats(lines: string[], timedOut: boolean): ContainerStats {
   }
 }
 
-function finalize(stdout: string[], emitter: EventEmitter, code: number): void {
-  const delimIdx = stdout.indexOf(STATS_DELIM)
-  const userLines  = delimIdx >= 0 ? stdout.slice(0, delimIdx) : stdout
-  const statsLines = delimIdx >= 0 ? stdout.slice(delimIdx + 1) : []
-  userLines.forEach(l => emitter.emit('stdout', l))
+function finalize(stdoutRaw: string, emitter: EventEmitter, code: number): void {
+  // Split the accumulated raw stdout by newlines ONCE at the end, then
+  // locate the stats sentinel. Splitting per-chunk in the data handler
+  // was buggy: chunk boundaries mid-line injected fake newlines into
+  // payloads (broke long JSON responses from curl, for example).
+  const allLines = stdoutRaw.split('\n')
+  const delimIdx = allLines.indexOf(STATS_DELIM)
+  const userLines  = delimIdx >= 0 ? allLines.slice(0, delimIdx) : allLines
+  const statsLines = delimIdx >= 0 ? allLines.slice(delimIdx + 1) : []
+  // Emit as one join — the consumer will re-join with '\n' anyway, so
+  // preserving the original boundaries (or lack thereof) matters more
+  // than emitting one event per line.
+  const userOut = userLines.join('\n').replace(/\n+$/, '')
+  if (userOut) emitter.emit('stdout', userOut)
   emitter.emit('exit', code, parseStats(statsLines, false))
 }
 
 export function spawnRun(opts: RunOptions): RunHandle {
   const child   = spawn('podman', podmanArgs(opts))
   const emitter = new EventEmitter()
-  const stdout: string[] = []
+  let stdoutRaw = ''
+  let stderrRaw = ''
   let timedOut = false
 
   const timeout = setTimeout(() => {
@@ -136,11 +146,16 @@ export function spawnRun(opts: RunOptions): RunHandle {
     emitter.emit('exit', -1, { ...emptyStats(), exitSignal: 'timeout' })
   }, opts.timeoutMs)
 
-  child.stdout.on('data', (d: Buffer) => d.toString().split('\n').forEach(l => l && stdout.push(l)))
-  child.stderr.on('data', (d: Buffer) => d.toString().split('\n').forEach(l => l && emitter.emit('stderr', l)))
+  // Accumulate raw bytes rather than splitting per-chunk. Chunk boundaries
+  // don't align with line boundaries — splitting on each data event would
+  // inject fake newlines at buffer cutoffs.
+  child.stdout.on('data', (d: Buffer) => { stdoutRaw += d.toString() })
+  child.stderr.on('data', (d: Buffer) => { stderrRaw += d.toString() })
   child.on('close', (code) => {
     clearTimeout(timeout)
-    if (!timedOut) finalize(stdout, emitter, code ?? -1)
+    if (timedOut) return
+    if (stderrRaw) emitter.emit('stderr', stderrRaw.replace(/\n+$/, ''))
+    finalize(stdoutRaw, emitter, code ?? -1)
   })
 
   return { emitter, kill: () => child.kill('SIGKILL') }

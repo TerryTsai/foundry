@@ -279,17 +279,25 @@ async function handlePullRequestCreate(ctx: GithubCtx, args: z.infer<typeof pull
     const body  = args.body ?? defaultPrBody(ctx.sessionId, ctx.ticket)
     const prBody = JSON.stringify({ title, head: branch, base: baseBranch, body, draft: true })
 
-    // Combined push + PR-create command. All values come from env vars so
-    // the logged command string contains only variable references.
-    // stderr from git push is piped to a file and discarded so any URL
-    // it might print (including an embedded token) never reaches the
-    // execution row. Stdout is ONLY the curl response, which the host
-    // parses to extract the PR URL.
+    // Combined push + PR-create command. All credential values come from
+    // env vars injected by podman; the logged command string contains
+    // only variable references ($INSTALL_TOKEN etc), not the expanded
+    // secrets. The shell inside the container expands them at run time.
+    //
+    // Token in URL (basic-auth user position) is the known-working pattern
+    // for headless git push against GitHub. GIT_TERMINAL_PROMPT=0 keeps
+    // git from hanging on a credential prompt if anything falls through.
+    // If git push fails, git CAN print the expanded URL in its error line
+    // — we accept this narrow leak because (a) execution.stderr lives in
+    // the local SQLite DB (same trust level as the host process that
+    // minted the token) and (b) the tier-2 isolation means the agent
+    // never sees stderr or the execution row directly. The regex scrub
+    // on write is the belt-and-suspenders guard.
     const command = [
       'set -e',
       'cd /work',
-      'git -c http.extraheader="Authorization: Bearer ${INSTALL_TOKEN}" \\',
-      '  push "https://github.com/${OWNER}/${REPO}" "HEAD:refs/heads/${BRANCH}" 2>/tmp/push.err',
+      'export GIT_TERMINAL_PROMPT=0',
+      'git push "https://x-access-token:${INSTALL_TOKEN}@github.com/${OWNER}/${REPO}" "HEAD:refs/heads/${BRANCH}" 1>&2',
       'printf \'%s\' "${PR_BODY_JSON}" | curl -sS -w "\\n%{http_code}" -X POST \\',
       '  -H "Authorization: Bearer ${INSTALL_TOKEN}" \\',
       '  -H "Accept: application/vnd.github+json" \\',

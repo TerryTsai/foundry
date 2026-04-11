@@ -56,6 +56,28 @@ export function esc(s: string): string {
   return "'" + s.replace(/'/g, "'\\''") + "'"
 }
 
+// ── Secret scrubbing ──
+// Belt-and-suspenders regex pass over anything about to be persisted to
+// an execution row. Primary defense is "secrets never enter the sandbox"
+// via tier-2 isolation; this catches the narrow failure modes where git
+// or another tool might echo a token it received in its env (e.g. git
+// printing the push URL on failure). The patterns are intentionally
+// loose — false positives are fine, false negatives are not.
+
+const SECRET_PATTERNS: Array<[RegExp, string]> = [
+  // Basic-auth tokens embedded in URLs (github install tokens, anything else)
+  [/x-access-token:[^@\s'"]+@/g, 'x-access-token:[REDACTED]@'],
+  // Bearer tokens for common providers
+  [/Bearer\s+(ghs_[A-Za-z0-9]+|gho_[A-Za-z0-9]+|ghp_[A-Za-z0-9]+|github_pat_[A-Za-z0-9_]+|sk-ant-[A-Za-z0-9_-]+|xoxb-[A-Za-z0-9-]+|xoxp-[A-Za-z0-9-]+)/g, 'Bearer [REDACTED]'],
+]
+
+export function scrubSecrets(s: string | null | undefined): string | null {
+  if (!s) return s ?? null
+  let out = s
+  for (const [pat, rep] of SECRET_PATTERNS) out = out.replace(pat, rep)
+  return out
+}
+
 // ── MCP content envelope ──
 // Anthropic's sdkTool handlers must return { content: [{ type, text }] }.
 // This wrapper lets core handlers return plain objects; the buildSdk
