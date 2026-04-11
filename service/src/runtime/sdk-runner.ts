@@ -9,6 +9,7 @@ import { now, require } from '../functional.js'
 
 import { workspaceClone, workspacePublish, workspaceDestroy, type PublishResult } from './workspace.js'
 import { makeSdkTools } from './tool.js'
+import * as sandboxServer from '../mcp/sandbox.js'
 
 // ════════════════════════════════════════════════════════════════════════════
 // CLAUDE AGENT SDK BACKEND
@@ -61,6 +62,7 @@ export async function runAgentSessionViaSdk(
     domain.sessionMessage(db, sessionId, 'user', prompt)
 
     const mcpServer = makeSdkTools(db, config, sessionId, ticketData.project_id, ticketData.id, agentDef.name, workDir)
+    const sandboxMcp = sandboxServer.build(db, config, sessionId, workDir)
 
     let finalText    = ''
     let inputTokens  = 0
@@ -73,7 +75,7 @@ export async function runAgentSessionViaSdk(
       options: {
         cwd:             workDir,
         tools:           [],          // disable all built-ins; only Foundry MCP tools
-        mcpServers:      { foundry: mcpServer },
+        mcpServers:      { foundry: mcpServer, sandbox: sandboxMcp },
         permissionMode:  'bypassPermissions',
         maxTurns:        agentDef.max_steps,
         model:           agentDef.model,
