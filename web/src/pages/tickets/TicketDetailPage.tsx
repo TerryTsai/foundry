@@ -11,7 +11,7 @@ import { Field } from '../../components/form/Field.js'
 import { TextArea } from '../../components/form/TextArea.js'
 import { ActionButton } from '../../components/form/ActionButton.js'
 import { useBreadcrumbLabel } from '../../Breadcrumb.js'
-import { fmtDuration, fmtBytes } from '../../lib/format.js'
+import { fmtDuration, fmtBytes, fmtActor } from '../../lib/format.js'
 
 // ── Comments Section ──
 
@@ -108,7 +108,7 @@ export function TicketDetailPage() {
       ) : undefined}
       infoRows={[
         { label: 'agent',    value: agentName },
-        { label: 'creator',  value: ticket.created_by },
+        { label: 'creator',  value: fmtActor(ticket.created_by) },
         { label: 'created',  value: ts(ticket.created_at) },
         { label: 'priority', value: ticket.priority > 0 ? String(ticket.priority) : null },
         { label: 'claimed',  value: ticket.claimed_at ? ts(ticket.claimed_at) : null },

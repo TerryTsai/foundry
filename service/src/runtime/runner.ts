@@ -96,7 +96,7 @@ function findFreshComments(db: Db, ticketId: string, agentName: string, seen: Se
 
 function formatInjectedMessage(comments: Comment[]): string {
   const text = comments.map(c => `[${c.author}]: ${c.body}`).join('\n\n')
-  return `New feedback from founder:\n${text}`
+  return `New feedback from Founder:\n${text}`
 }
 
 // ════════════════════════════════════════════════════════════════════════════

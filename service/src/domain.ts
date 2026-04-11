@@ -391,7 +391,7 @@ export function ticketPriorHistory(db: Db, ticketId: string, sessionId: string, 
   }
   if (feedback.length > 0) {
     sections.push(
-      '## Feedback from the founder\n\n' +
+      '## Feedback from the Founder\n\n' +
       feedback.map(c => `[${c.author}]: ${c.body}`).join('\n\n') +
       '\n\nThe feedback above takes precedence over the original ticket body when they conflict. Address the most recent feedback in this run.',
     )
