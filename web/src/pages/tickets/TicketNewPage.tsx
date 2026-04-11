@@ -30,7 +30,7 @@ export function TicketNewPage() {
   }
 
   return (
-    <div className="max-w-2xl mx-auto px-3 lg:px-6 py-5">
+    <div className="max-w-2xl mx-auto lg:px-6 py-5">
       <form onSubmit={handleSubmit} className="space-y-4">
         {error && <div className="text-sm text-red-400">{error}</div>}
         <Field label="agent">
