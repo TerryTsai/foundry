@@ -62,7 +62,7 @@ export function auth(db: Db, config: Config) {
     }
   })
 
-  r.get('/me', requireAuth(db, config), (req, res) => {
+  r.get('/me', requireAuth(db), (req, res) => {
     res.json(domain.authMe(req.account!))
   })
 

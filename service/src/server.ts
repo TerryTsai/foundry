@@ -15,7 +15,7 @@ app.get('/health', (_req, res) => res.json({ ok: true }))
 app.use('/auth', router.auth(db, config))
 
 // ── Authenticated routes ──
-app.use(requireAuth(db, config))
+app.use(requireAuth(db))
 
 app.use('/project',   router.project(db, config))
 app.use('/provider',  router.provider(db))
