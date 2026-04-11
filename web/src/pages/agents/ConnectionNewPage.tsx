@@ -27,7 +27,7 @@ export function ConnectionNewPage() {
   }
 
   return (
-    <div className="max-w-2xl mx-auto lg:px-6 py-5">
+    <div className="py-5 lg:max-w-2xl lg:mx-auto lg:px-6">
       <form onSubmit={handleSubmit} className="space-y-4">
         {error && <div className="text-sm text-red-400">{error}</div>}
         <Field label="name">
