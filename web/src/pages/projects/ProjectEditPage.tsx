@@ -37,7 +37,7 @@ export function ProjectEditPage() {
   }
 
   return (
-    <div className="max-w-2xl mx-auto px-4 lg:px-6 py-5">
+    <div className="max-w-2xl mx-auto px-3 lg:px-6 py-5">
       <form onSubmit={handleSave} className="space-y-4">
         {error && <div className="text-sm text-red-400">{error}</div>}
         <Field label="name">
