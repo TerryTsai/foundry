@@ -5,14 +5,14 @@ const schema = z.object({
   port:                z.coerce.number().int().default(3000),
   dbPath:              z.string().default('./foundry.db'),
   sandboxImage:        z.string().default('foundry-sandbox'),
-  sandboxTimeout:      z.coerce.number().int().default(300000),
+  sandboxTimeout:      z.coerce.number().int().default(1200000),
   // Resource caps — every sandbox execution is bounded by these
-  sandboxMemoryMb:     z.coerce.number().int().default(512),
-  sandboxCpus:         z.coerce.number().default(1.0),
-  sandboxPidsLimit:    z.coerce.number().int().default(128),
-  sandboxNofileSoft:   z.coerce.number().int().default(1024),
-  sandboxNofileHard:   z.coerce.number().int().default(2048),
-  sandboxTmpfsMb:      z.coerce.number().int().default(64),
+  sandboxMemoryMb:     z.coerce.number().int().default(4096),
+  sandboxCpus:         z.coerce.number().default(4.0),
+  sandboxPidsLimit:    z.coerce.number().int().default(1024),
+  sandboxNofileSoft:   z.coerce.number().int().default(4096),
+  sandboxNofileHard:   z.coerce.number().int().default(8192),
+  sandboxTmpfsMb:      z.coerce.number().int().default(512),
   // Auth — GitHub App user OAuth + cookie session. The OAuth callback URL is
   // derived from the incoming request host, so the same binary works on
   // localhost, a tailnet name, or a public domain — only GitHub's registered
