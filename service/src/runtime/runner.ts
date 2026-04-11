@@ -67,7 +67,7 @@ async function buildContext(
   // so collision isn't an issue.
   const tools: ToolSet = {
     ...foundryServer.buildAi({ db, projectId: ticketData.project_id, ticketId: ticketData.id, agentName: agentDef.name }),
-    ...githubServer.buildAi({ db, config, sessionId, workDir, ticket: ticketData, agentName: agentDef.name }),
+    ...githubServer.buildAi({ db, config, sessionId, workspace: workDir, ticket: ticketData, agentName: agentDef.name }),
     ...sandboxServer.buildAi({ db, config, sessionId, workspace: workDir }),
     ...browserServer.buildAi({ db, config, sessionId, workspace: workDir }),
   }

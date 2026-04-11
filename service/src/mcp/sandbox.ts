@@ -90,7 +90,7 @@ function assertSafeWritePath(p: string): void {
 async function handleExec(ctx: SandboxCtx, args: z.infer<typeof validate.toolExec>) {
   const command = args.cwd ? `cd ${esc(args.cwd)} && ${args.command}` : args.command
   try {
-    const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace, command, 'exec', args, args.network ?? false)
+    const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace, command, 'exec', args, { network: args.network ?? false })
     return { ...bounded(ctx.workspace, r.stdout), stderr: r.stderr, exitCode: r.exitCode }
   } catch (err) {
     return { content: '', stderr: '', exitCode: -1, error: err instanceof Error ? err.message : String(err) }

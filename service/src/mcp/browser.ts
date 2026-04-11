@@ -47,7 +47,7 @@ async function handleFetch(ctx: BrowserCtx, args: z.infer<typeof validate.toolFe
   curlArgs.push(args.url)
   const command = `curl ${curlArgs.map(a => esc(a)).join(' ')}`
   try {
-    const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace, command, 'fetch', args, true)
+    const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace, command, 'fetch', args, { network: true })
     const lines = r.stdout.trimEnd().split('\n')
     const statusCode = toInt(lines.pop() ?? '0')
     return { ...bounded(ctx.workspace, lines.join('\n')), status: statusCode }
@@ -60,7 +60,7 @@ async function handleScrape(ctx: BrowserCtx, args: z.infer<typeof validate.toolS
   const url = esc(args.url)
   const command = `lynx -dump -nolist -width=120 ${url} 2>/dev/null || curl -sL ${url} | sed 's/<[^>]*>//g' | sed '/^$/d'`
   try {
-    const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace, command, 'scrape', args, true)
+    const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace, command, 'scrape', args, { network: true })
     return bounded(ctx.workspace, r.stdout.trim())
   } catch (err) {
     return { content: '', error: err instanceof Error ? err.message : String(err) }

@@ -528,8 +528,17 @@ export function executionCreate(db: Db, config: Config, input: {
   memory_mb?:  number
   network?:    boolean
   workspace?:  string
+  // env is passed directly to podman and NEVER serialized to the DB —
+  // tier-2 secret-using tools pass credentials here, so leaking them to
+  // the execution row would defeat the whole isolation strategy. The
+  // command string should reference env vars by name ($TOKEN), not
+  // interpolate values.
+  env?:        Record<string, string>
+  // Mount mode for the workspace bind mount. Defaults to 'rw' (tier-1).
+  // Tier-2 secret-using tools use 'ro' or 'none'.
+  mount?:      'rw' | 'ro' | 'none'
 }): { id: string; emitter: RunHandle['emitter'] } {
-  const { command, session_id, tool_name, tool_input, timeout_ms = config.sandboxTimeout, memory_mb, network = false } = input
+  const { command, session_id, tool_name, tool_input, timeout_ms = config.sandboxTimeout, memory_mb, network = false, env = {}, mount = 'rw' } = input
   const row = database.executionInsert(db, {
     session_id: session_id ?? null, tool_name: tool_name ?? null,
     tool_input: tool_input !== undefined ? JSON.stringify(tool_input) : null,
@@ -541,8 +550,8 @@ export function executionCreate(db: Db, config: Config, input: {
   mkdirSync(workspace, { recursive: true })
   const handle = spawnRun({
     command, workspace,
-    image: config.sandboxImage, env: {},
-    network, timeoutMs: timeout_ms,
+    image: config.sandboxImage, env,
+    network, mount, timeoutMs: timeout_ms,
     memoryMb:   memory_mb ?? config.sandboxMemoryMb,
     cpus:       config.sandboxCpus,
     pidsLimit:  config.sandboxPidsLimit,

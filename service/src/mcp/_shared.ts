@@ -71,14 +71,29 @@ export function asText(value: unknown): { content: [{ type: 'text'; text: string
 // runCommand spawns a podman container with the workspace bind-mounted,
 // runs the command, captures stdout/stderr, and creates an execution row
 // in the DB for audit. Used by every tool that runs inside the sandbox
-// (exec, read, write, patch, remove, search, find, fetch, scrape).
+// (exec, read, write, patch, remove, search, find, fetch, scrape, and
+// the git tools in mcp/github.ts).
+//
+// The options object supports the tier-2 model: secret-using tools pass
+// env vars (never serialized to the execution row) and can downgrade the
+// workspace mount to 'ro' or remove it entirely.
+
+export interface RunCommandOptions {
+  network?: boolean
+  env?:     Record<string, string>   // passed to podman; NOT logged to DB
+  mount?:   'rw' | 'ro' | 'none'     // workspace bind mode, default 'rw'
+}
 
 export function runCommand(
   db: Db, config: Config, sessionId: string, workspace: string,
-  command: string, toolName: string, toolInput: unknown, network = false,
+  command: string, toolName: string, toolInput: unknown, options: RunCommandOptions = {},
 ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
   const { emitter } = domain.executionCreate(db, config, {
-    command, session_id: sessionId, tool_name: toolName, tool_input: toolInput, network, workspace,
+    command, session_id: sessionId, tool_name: toolName, tool_input: toolInput,
+    network: options.network ?? false,
+    env:     options.env ?? {},
+    mount:   options.mount ?? 'rw',
+    workspace,
   })
   const stdout: string[] = []
   const stderr: string[] = []

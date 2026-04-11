@@ -13,6 +13,7 @@ export interface RunOptions {
   image:      string
   env:        Record<string, string>
   network:    boolean
+  mount:      'rw' | 'ro' | 'none'
   timeoutMs:  number
   memoryMb:   number
   cpus:       number
@@ -60,8 +61,18 @@ function wrapCommand(command: string): string {
 }
 
 function podmanArgs(opts: RunOptions): string[] {
-  const { workspace, image, env, network, memoryMb, cpus, pidsLimit, nofileSoft, nofileHard, tmpfsMb, command } = opts
+  const { workspace, image, env, network, mount, memoryMb, cpus, pidsLimit, nofileSoft, nofileHard, tmpfsMb, command } = opts
   const envArgs = Object.entries(env).flatMap(([k, v]) => ['-e', `${k}=${v}`])
+  // Mount modes:
+  //   'rw'   → bind-mount workspace to /work, read-write (tier-1 default)
+  //   'ro'   → bind-mount workspace to /work, read-only (tier-2 for tools
+  //            that need to read workspace state but must not mutate it —
+  //            e.g., secret-using tools reading .git state to push)
+  //   'none' → no workspace mount at all (tier-2 for pure-API tools like
+  //            Slack/Notion; nothing from /work is visible to the container)
+  const mountArgs = mount === 'none'
+    ? [] as string[]
+    : ['-v', `${workspace}:/work${mount === 'ro' ? ':ro' : ''}`, '-w', '/work']
   return [
     'run', '--rm',
     ...(network ? [] : ['--network=none']),
@@ -70,7 +81,7 @@ function podmanArgs(opts: RunOptions): string[] {
     '--ulimit', `nofile=${nofileSoft}:${nofileHard}`,
     '--cap-drop', 'ALL', '--read-only',
     '--tmpfs', `/tmp:rw,size=${tmpfsMb}m`, '--tmpfs', `/run:rw,size=8m`,
-    '-v', `${workspace}:/work`, '-w', '/work',
+    ...mountArgs,
     ...envArgs,
     image, 'sh', '-c', wrapCommand(command),
   ]

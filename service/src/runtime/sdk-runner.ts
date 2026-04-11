@@ -76,7 +76,7 @@ export async function runAgentSessionViaSdk(
       db, projectId: ticketData.project_id, ticketId: ticketData.id, agentName: agentDef.name,
     })
     const githubMcp  = githubServer.buildSdk({
-      db, config, sessionId, workDir, ticket: ticketData, agentName: agentDef.name,
+      db, config, sessionId, workspace: workDir, ticket: ticketData, agentName: agentDef.name,
     })
     const sandboxMcp = sandboxServer.buildSdk({ db, config, sessionId, workspace: workDir })
     const browserMcp = browserServer.buildSdk({ db, config, sessionId, workspace: workDir })
