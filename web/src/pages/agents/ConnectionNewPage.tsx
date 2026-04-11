@@ -1,19 +1,19 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { providerApi } from '../../api.js'
+import { connectionApi } from '../../api.js'
 import { useShell } from '../../Shell.js'
 import { Field } from '../../components/form/Field.js'
 import { TextInput } from '../../components/form/TextInput.js'
 import { Select } from '../../components/form/Select.js'
 import { ActionButton } from '../../components/form/ActionButton.js'
 
-const TYPES = ['anthropic', 'openai', 'anthropic-subscription']
+const KINDS = ['anthropic', 'openai', 'anthropic-subscription']
 
-export function ProviderNewPage() {
+export function ConnectionNewPage() {
   const { projectId } = useShell()
   const navigate = useNavigate()
   const [name, setName] = useState('')
-  const [type, setType] = useState('anthropic')
+  const [kind, setKind] = useState('anthropic')
   const [apiKey, setApiKey] = useState('')
   const [error, setError] = useState('')
 
@@ -21,8 +21,8 @@ export function ProviderNewPage() {
     e.preventDefault()
     setError('')
     try {
-      await providerApi.create({ name, type, api_key: apiKey })
-      navigate(`/p/${projectId}/agents/providers`)
+      await connectionApi.create({ name, kind, secrets: { api_key: apiKey } })
+      navigate(`/p/${projectId}/agents/connections`)
     } catch (err) { setError(err instanceof Error ? err.message : 'failed') }
   }
 
@@ -33,18 +33,18 @@ export function ProviderNewPage() {
         <Field label="name">
           <TextInput value={name} onChange={e => setName(e.target.value)} required placeholder="e.g. personal-anthropic" />
         </Field>
-        <Field label="type">
-          <Select value={type} onChange={e => setType(e.target.value)}>
-            {TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+        <Field label="kind">
+          <Select value={kind} onChange={e => setKind(e.target.value)}>
+            {KINDS.map(k => <option key={k} value={k}>{k}</option>)}
           </Select>
         </Field>
-        <Field label={type === 'anthropic-subscription' ? 'oauth token' : 'api key'}>
+        <Field label={kind === 'anthropic-subscription' ? 'oauth token' : 'api key'}>
           <TextInput
             type="password"
             value={apiKey}
             onChange={e => setApiKey(e.target.value)}
             required
-            placeholder={type === 'anthropic-subscription' ? 'run `claude setup-token` to obtain' : 'sk-...'}
+            placeholder={kind === 'anthropic-subscription' ? 'run `claude setup-token` to obtain' : 'sk-...'}
           />
         </Field>
         <div className="flex gap-2 pt-2">

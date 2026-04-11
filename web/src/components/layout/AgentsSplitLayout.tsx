@@ -26,19 +26,19 @@ export function AgentsSplitLayout() {
   // Used on mobile to decide: show list OR show the outlet.
   const isIndex = useMatch('/p/:projectId/agents')
 
-  // Detect if we're on any providers sub-route (for Providers row active highlight).
-  const isProviders = !!useMatch({ path: '/p/:projectId/agents/providers', end: false })
+  // Detect if we're on any connections sub-route (for Connections row active highlight).
+  const isConnections = !!useMatch({ path: '/p/:projectId/agents/connections', end: false })
 
   // ── Shared row list (desktop left panel & mobile full-screen list) ────────
   function renderRows(hideChevron: boolean) {
     return (
       <div className="[&>:last-child>*]:border-b-0">
-        {/* Providers row always at the top */}
-        <Link to={`/p/${projectId}/agents/providers`} className="block">
+        {/* Connections row always at the top */}
+        <Link to={`/p/${projectId}/agents/connections`} className="block">
           <ListRow
-            title="Providers"
-            subtitle="API keys and model access"
-            active={isProviders}
+            title="Connections"
+            subtitle="credentials for LLMs and integrations"
+            active={isConnections}
             hideChevron={hideChevron}
           />
         </Link>

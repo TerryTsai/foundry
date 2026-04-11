@@ -6,7 +6,7 @@ import { eq, and, isNull } from 'drizzle-orm'
 import { type Db } from './database.js'
 import * as database from './database.js'
 import * as schema from './schema.js'
-import type { Account, Ticket, Comment, Provider, Agent, Session, Message, Execution } from './schema.js'
+import type { Account, Ticket, Comment, Connection, Agent, Session, Message, Execution } from './schema.js'
 import type { Config } from './config.js'
 import { require, assertStatus, pick, now, AppError, conflict, badRequest, notFound } from './functional.js'
 import { supported } from './runtime/model.js'
@@ -132,38 +132,61 @@ export const AUTH_STATE_TTL_SEC = STATE_TTL_SEC
 // PROVIDER
 // ════════════════════════════════════════════════════════════════════════════
 
+// Masked shape returned by the API — secrets are never serialized directly.
+// A preview of api_key (when present in secrets) is shown so the UI can help
+// operators confirm they're looking at the right credential.
+type MaskedConnection = Omit<Connection, 'secrets'> & { api_key_preview: string | null }
+
 function maskKey(key: string): string {
   if (key.length <= 8) return '****'
   return key.slice(0, 4) + '...' + key.slice(-4)
 }
 
-type MaskedProvider = Omit<Provider, 'api_key'> & { api_key_preview: string }
-
-export function providerList(db: Db): MaskedProvider[] {
-  return database.providerAll(db).map(({ api_key, ...rest }) => ({ ...rest, api_key_preview: maskKey(api_key) }))
+function maskConnection(c: Connection): MaskedConnection {
+  const { secrets, ...rest } = c
+  let preview: string | null = null
+  try {
+    const parsed = JSON.parse(secrets) as Record<string, unknown>
+    const key = parsed.api_key
+    if (typeof key === 'string' && key.length > 0) preview = maskKey(key)
+  } catch { /* secrets not JSON — leave preview null */ }
+  return { ...rest, api_key_preview: preview }
 }
 
-export function providerCreate(db: Db, input: z.infer<typeof validate.providerCreate>): MaskedProvider {
-  if (!supported.includes(input.type)) throw badRequest(`unsupported provider type '${input.type}' — supported: ${supported.join(', ')}`)
-  if (database.providerGetByName(db, input.name)) throw conflict(`provider '${input.name}' already exists`)
-  const { api_key, ...rest } = database.providerInsert(db, {
-    name: input.name, type: input.type, api_key: input.api_key, ...ts(),
+export function connectionList(db: Db): MaskedConnection[] {
+  return database.connectionAll(db).map(maskConnection)
+}
+
+export function connectionGet(db: Db, id: string): MaskedConnection {
+  return maskConnection(require(database.connectionGet(db, id), `connection '${id}' not found`))
+}
+
+export function connectionCreate(db: Db, input: z.infer<typeof validate.connectionCreate>): MaskedConnection {
+  if (!supported.includes(input.kind)) throw badRequest(`unsupported connection kind '${input.kind}' — supported: ${supported.join(', ')}`)
+  if (database.connectionGetByName(db, input.name)) throw conflict(`connection '${input.name}' already exists`)
+  const row = database.connectionInsert(db, {
+    project_id: input.project_id ?? null,
+    kind:       input.kind,
+    name:       input.name,
+    config:     JSON.stringify(input.config ?? {}),
+    secrets:    JSON.stringify(input.secrets ?? {}),
+    ...ts(),
   })
-  return { ...rest, api_key_preview: maskKey(api_key) }
+  return maskConnection(row)
 }
 
-export function providerUpdate(db: Db, id: string, input: z.infer<typeof validate.providerUpdate>): MaskedProvider {
-  require(database.providerGet(db, id))
+export function connectionUpdate(db: Db, id: string, input: z.infer<typeof validate.connectionUpdate>): MaskedConnection {
+  require(database.connectionGet(db, id), `connection '${id}' not found`)
   const data: Record<string, unknown> = { updated_at: now() }
   if (input.name    !== undefined) data.name    = input.name
-  if (input.api_key !== undefined) data.api_key = input.api_key
-  const { api_key, ...rest } = database.providerUpdate(db, id, data)
-  return { ...rest, api_key_preview: maskKey(api_key) }
+  if (input.config  !== undefined) data.config  = JSON.stringify(input.config)
+  if (input.secrets !== undefined) data.secrets = JSON.stringify(input.secrets)
+  return maskConnection(database.connectionUpdate(db, id, data))
 }
 
-export function providerRemove(db: Db, id: string): { ok: true } {
-  require(database.providerGet(db, id))
-  database.providerRemove(db, id)
+export function connectionRemove(db: Db, id: string): { ok: true } {
+  require(database.connectionGet(db, id), `connection '${id}' not found`)
+  database.connectionRemove(db, id)
   return { ok: true }
 }
 
@@ -389,13 +412,13 @@ export function agentGet(db: Db, id: string): Agent {
 }
 
 export function agentCreate(db: Db, input: z.infer<typeof validate.agentCreate>): Agent {
-  const { project_id, provider_id, name, model, prompt, max_tokens, max_steps, temperature, reasoning_budget, tools } = input
-  require(database.providerGet(db, provider_id), `provider '${provider_id}' not found`)
+  const { project_id, connection_id, name, model, prompt, max_tokens, max_steps, temperature, reasoning_budget, tools } = input
+  require(database.connectionGet(db, connection_id), `connection '${connection_id}' not found`)
   if (database.agentAll(db, [eq(schema.agent.project_id, project_id), eq(schema.agent.name, name)]).length > 0) {
     throw conflict(`agent '${name}' already exists in project '${project_id}'`)
   }
   return database.agentInsert(db, {
-    project_id, provider_id, name, model, prompt,
+    project_id, connection_id, name, model, prompt,
     max_tokens: max_tokens ?? 8192, max_steps: max_steps ?? 20,
     temperature: temperature ?? null,
     reasoning_budget: reasoning_budget ?? null,
@@ -406,8 +429,8 @@ export function agentCreate(db: Db, input: z.infer<typeof validate.agentCreate>)
 
 export function agentUpdate(db: Db, id: string, input: z.infer<typeof validate.agentUpdate>): Agent {
   require(database.agentGet(db, id))
-  if (input.provider_id) require(database.providerGet(db, input.provider_id), `provider '${input.provider_id}' not found`)
-  const data: Record<string, unknown> = { ...pick(input, 'provider_id', 'model', 'prompt', 'max_tokens', 'max_steps', 'temperature', 'reasoning_budget'), updated_at: now() }
+  if (input.connection_id) require(database.connectionGet(db, input.connection_id), `connection '${input.connection_id}' not found`)
+  const data: Record<string, unknown> = { ...pick(input, 'connection_id', 'model', 'prompt', 'max_tokens', 'max_steps', 'temperature', 'reasoning_budget'), updated_at: now() }
   if (input.tools !== undefined) data.tools = JSON.stringify(input.tools)
   return database.agentUpdate(db, id, data)
 }

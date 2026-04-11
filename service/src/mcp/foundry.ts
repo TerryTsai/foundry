@@ -1,5 +1,5 @@
 // Foundry harness introspection server. Exposes read-mostly access to the
-// Foundry DB: tickets, agents, sessions, providers. Also hosts `think`,
+// Foundry DB: tickets, agents, sessions, connections. Also hosts `think`,
 // the no-side-effect scratch reasoning tool.
 //
 // Structure: handler functions are SDK-agnostic. buildSdk wraps them as
@@ -23,7 +23,7 @@ import type { McpServerInfo } from './registry.js'
 export const info: McpServerInfo = {
   id:          'foundry',
   name:        'Foundry',
-  description: 'Foundry harness introspection: tickets, agents, sessions, providers.',
+  description: 'Foundry harness introspection: tickets, agents, sessions, connections.',
   tools: [
     { name: 'ticketList',    description: 'List tickets in the current project.' },
     { name: 'ticketGet',     description: 'Fetch a ticket by id.' },
@@ -31,7 +31,7 @@ export const info: McpServerInfo = {
     { name: 'ticketComment', description: 'Post a comment on a ticket.' },
     { name: 'agentsList',    description: 'List agents configured in the current project.' },
     { name: 'sessionList',   description: 'List agent sessions for a ticket.' },
-    { name: 'providerList',  description: 'List configured LLM providers.' },
+    { name: 'connectionList',  description: 'List configured external connections (LLM backends, integrations).' },
     { name: 'think',         description: 'Scratch reasoning pad. No side effects.' },
   ],
 }
@@ -70,7 +70,7 @@ const agentsListArgs  = z.object({})
 const sessionListArgs = z.object({
   ticket_id: z.string().optional().describe('Ticket id. Defaults to the current ticket.'),
 })
-const providerListArgs = z.object({})
+const connectionListArgs = z.object({})
 const thinkArgs        = z.object({
   thought: z.string().describe('The reasoning step.'),
 })
@@ -141,9 +141,9 @@ async function handleSessionList(ctx: FoundryCtx, args: z.infer<typeof sessionLi
   }
 }
 
-async function handleProviderList(ctx: FoundryCtx, _args: z.infer<typeof providerListArgs>) {
+async function handleConnectionList(ctx: FoundryCtx, _args: z.infer<typeof connectionListArgs>) {
   try {
-    return domain.providerList(ctx.db)
+    return domain.connectionList(ctx.db)
   } catch (err) {
     return { error: err instanceof Error ? err.message : String(err) }
   }
@@ -160,7 +160,7 @@ const DESC = {
   ticketComment: 'Post a comment on a ticket. Used for status updates, questions, or communicating with the founder.',
   agentsList:    'List agents configured in the current project. Useful for targeting sub-tickets at a specific agent.',
   sessionList:   'List agent sessions for a ticket. Defaults to the current session\'s ticket if omitted.',
-  providerList:  'List configured LLM providers (model backends). Secrets are masked.',
+  connectionList:  'List configured LLM providers (model backends). Secrets are masked.',
   think:         'Use this tool to reason, plan, or analyze before taking action. No side effects.',
 }
 
@@ -176,7 +176,7 @@ export function buildSdk(ctx: FoundryCtx) {
       sdkTool('ticketComment', DESC.ticketComment, ticketCommentArgs.shape, async a => asText(await handleTicketComment(ctx, a))),
       sdkTool('agentsList',    DESC.agentsList,    agentsListArgs.shape,    async a => asText(await handleAgentsList(ctx, a))),
       sdkTool('sessionList',   DESC.sessionList,   sessionListArgs.shape,   async a => asText(await handleSessionList(ctx, a))),
-      sdkTool('providerList',  DESC.providerList,  providerListArgs.shape,  async a => asText(await handleProviderList(ctx, a))),
+      sdkTool('connectionList',  DESC.connectionList,  connectionListArgs.shape,  async a => asText(await handleConnectionList(ctx, a))),
       sdkTool('think',         DESC.think,         thinkArgs.shape,         async a => asText(await handleThink(ctx, a))),
     ],
   })
@@ -216,10 +216,10 @@ export function buildAi(ctx: FoundryCtx) {
       inputSchema: sessionListArgs,
       execute:     (args: z.infer<typeof sessionListArgs>) => handleSessionList(ctx, args),
     }),
-    providerList: tool({
-      description: DESC.providerList,
-      inputSchema: providerListArgs,
-      execute:     (args: z.infer<typeof providerListArgs>) => handleProviderList(ctx, args),
+    connectionList: tool({
+      description: DESC.connectionList,
+      inputSchema: connectionListArgs,
+      execute:     (args: z.infer<typeof connectionListArgs>) => handleConnectionList(ctx, args),
     }),
     think: tool({
       description: DESC.think,

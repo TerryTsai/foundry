@@ -176,10 +176,10 @@ async function runLoop(db: Db, args: {
 export async function runAgentSession(
   db: Db, config: Config, sessionId: string, agentDef: AgentDef, ticketData: Ticket,
 ): Promise<void> {
-  // Backend dispatch: 'anthropic-subscription' providers route to the Claude
-  // Agent SDK runner. Everything else uses the managed loop below.
-  const provider = database.providerGet(db, agentDef.provider_id)
-  if (provider?.type === 'anthropic-subscription') {
+  // Backend dispatch: 'anthropic-subscription' connections route to the Claude
+  // Agent SDK runner. Everything else uses the managed ai-SDK loop below.
+  const conn = database.connectionGet(db, agentDef.connection_id)
+  if (conn?.kind === 'anthropic-subscription') {
     const { runAgentSessionViaSdk } = await import('./sdk-runner.js')
     return runAgentSessionViaSdk(db, config, sessionId, agentDef, ticketData)
   }

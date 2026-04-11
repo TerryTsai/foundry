@@ -34,15 +34,22 @@ export const projectUpdate = z.object({
   concurrency_limit:  z.number().int().positive().optional(),
 })
 
-export const providerCreate = z.object({
-  name:    z.string().min(1),
-  type:    z.string().min(1),
-  api_key: z.string().min(1),
+// Connection (generalized provider + integration).
+// `config` and `secrets` are free-form JSON blobs whose shape is interpreted
+// by the kind-specific resolver at session start. The validator only enforces
+// top-level shape; kind-specific validation happens in kind modules.
+export const connectionCreate = z.object({
+  project_id: z.string().optional(),               // NULL = global
+  kind:       z.string().min(1),
+  name:       z.string().min(1),
+  config:     z.record(z.string(), z.unknown()).optional(),
+  secrets:    z.record(z.string(), z.unknown()).optional(),
 })
 
-export const providerUpdate = z.object({
+export const connectionUpdate = z.object({
   name:    z.string().min(1).optional(),
-  api_key: z.string().min(1).optional(),
+  config:  z.record(z.string(), z.unknown()).optional(),
+  secrets: z.record(z.string(), z.unknown()).optional(),
 })
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -86,7 +93,7 @@ export const commentCreate = z.object({
 // AGENT
 // ════════════════════════════════════════════════════════════════════════════
 
-const modelId = z.string().min(1).refine(s => !s.includes(':'), { message: 'model must be just the model id, no provider prefix (use provider_id to select the provider)' })
+const modelId = z.string().min(1).refine(s => !s.includes(':'), { message: 'model must be just the model id, no connection prefix (use connection_id to select the backend)' })
 
 export const agentList = z.object({
   projectId: z.string().optional(),
@@ -94,7 +101,7 @@ export const agentList = z.object({
 
 export const agentCreate = z.object({
   project_id:       z.string(),
-  provider_id:      z.string().min(1),
+  connection_id:    z.string().min(1),
   name:             z.string().min(1),
   model:            modelId,
   prompt:           z.string().min(1),
@@ -106,7 +113,7 @@ export const agentCreate = z.object({
 })
 
 export const agentUpdate = z.object({
-  provider_id:      z.string().min(1).optional(),
+  connection_id:    z.string().min(1).optional(),
   model:            modelId.optional(),
   prompt:           z.string().min(1).optional(),
   max_tokens:       z.number().int().positive().optional(),

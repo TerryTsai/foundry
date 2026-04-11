@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate, useLoaderData } from 'react-router-dom'
-import { providerApi } from '../../api.js'
-import type { Provider } from '../../types.js'
+import { connectionApi } from '../../api.js'
+import type { Connection } from '../../types.js'
 import { useShell } from '../../Shell.js'
 import { DetailShell } from '../../components/layout/DetailShell.js'
 import { Field } from '../../components/form/Field.js'
@@ -9,33 +9,33 @@ import { TextInput } from '../../components/form/TextInput.js'
 import { ActionButton } from '../../components/form/ActionButton.js'
 import { useBreadcrumbLabel } from '../../Breadcrumb.js'
 
-export function ProviderDetailPage() {
+export function ConnectionDetailPage() {
   const { projectId } = useShell()
   const navigate = useNavigate()
-  const provider = useLoaderData() as Provider
-  const [name, setName] = useState(provider.name)
+  const connection = useLoaderData() as Connection
+  const [name, setName] = useState(connection.name)
   const [apiKey, setApiKey] = useState('')
   const [error, setError] = useState('')
 
-  useBreadcrumbLabel(provider.name)
+  useBreadcrumbLabel(connection.name)
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault()
     setError('')
     try {
-      const data: { name?: string; api_key?: string } = {}
-      if (name && name !== provider.name) data.name    = name
-      if (apiKey)                          data.api_key = apiKey
+      const data: { name?: string; secrets?: Record<string, unknown> } = {}
+      if (name && name !== connection.name) data.name    = name
+      if (apiKey)                            data.secrets = { api_key: apiKey }
       if (Object.keys(data).length === 0) { setError('nothing to update'); return }
-      await providerApi.update(provider.id, data)
-      navigate(`/p/${projectId}/agents/providers`)
+      await connectionApi.update(connection.id, data)
+      navigate(`/p/${projectId}/agents/connections`)
     } catch (err) { setError(err instanceof Error ? err.message : 'failed') }
   }
 
   async function handleDelete() {
-    if (!confirm('Remove this provider?')) return
-    await providerApi.delete(provider.id)
-    navigate(`/p/${projectId}/agents/providers`)
+    if (!confirm('Remove this connection?')) return
+    await connectionApi.delete(connection.id)
+    navigate(`/p/${projectId}/agents/connections`)
   }
 
   const ts = (s: string) => new Date(s).toLocaleString(undefined, {
@@ -44,12 +44,13 @@ export function ProviderDetailPage() {
 
   return (
     <DetailShell
-      type="provider" id={provider.id} title={provider.name}
+      type="connection" id={connection.id} title={connection.name}
       infoRows={[
-        { label: 'type',    value: provider.type },
-        { label: 'key',     value: provider.api_key_preview },
-        { label: 'added',   value: ts(provider.created_at) },
-        { label: 'updated', value: provider.updated_at !== provider.created_at ? ts(provider.updated_at) : null },
+        { label: 'kind',    value: connection.kind },
+        { label: 'scope',   value: connection.project_id ? 'project' : 'global' },
+        { label: 'key',     value: connection.api_key_preview },
+        { label: 'added',   value: ts(connection.created_at) },
+        { label: 'updated', value: connection.updated_at !== connection.created_at ? ts(connection.updated_at) : null },
       ]}
     >
       <form onSubmit={handleSave} className="space-y-4">
@@ -65,7 +66,7 @@ export function ProviderDetailPage() {
           <ActionButton label="save" type="submit" className="flex-1" />
         </div>
       </form>
-      <ActionButton label="remove provider" variant="destructive" onClick={handleDelete} className="w-full" />
+      <ActionButton label="remove connection" variant="destructive" onClick={handleDelete} className="w-full" />
     </DetailShell>
   )
 }

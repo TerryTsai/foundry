@@ -16,7 +16,7 @@ import * as browserServer from '../mcp/browser.js'
 // ════════════════════════════════════════════════════════════════════════════
 // CLAUDE AGENT SDK BACKEND
 // ════════════════════════════════════════════════════════════════════════════
-// Alternate runtime for agents whose provider.type is 'anthropic-subscription'.
+// Alternate runtime for agents whose connection.kind is 'anthropic-subscription'.
 // The SDK drives the agent loop and bills against a Claude Pro/Max subscription
 // via CLAUDE_CODE_OAUTH_TOKEN (obtained once via `claude setup-token`). Tool
 // calls go through Foundry's four in-process MCP servers (foundry, github,
@@ -32,7 +32,19 @@ export async function runAgentSessionViaSdk(
   db: Db, config: Config, sessionId: string, agentDef: AgentDef, ticketData: Ticket,
 ): Promise<void> {
   const startTime = Date.now()
-  const provider = require(database.providerGet(db, agentDef.provider_id), 'provider not found')
+  const conn = require(database.connectionGet(db, agentDef.connection_id), 'connection not found')
+  const oauthToken = (() => {
+    try {
+      const secrets = JSON.parse(conn.secrets) as Record<string, unknown>
+      // Legacy rows from the provider-era migration store the token under api_key.
+      // New rows should use access_token. Accept either.
+      const v = secrets.access_token ?? secrets.api_key
+      if (typeof v !== 'string' || !v) throw new Error('missing access_token in connection secrets')
+      return v
+    } catch (err) {
+      throw new Error(`connection '${conn.id}' secrets invalid: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  })()
 
   let workDir: string
   try {
@@ -48,7 +60,7 @@ export async function runAgentSessionViaSdk(
 
   // Inject the OAuth token. Single-process / single-subscription = no race.
   const prevToken = process.env.CLAUDE_CODE_OAUTH_TOKEN
-  process.env.CLAUDE_CODE_OAUTH_TOKEN = provider.api_key
+  process.env.CLAUDE_CODE_OAUTH_TOKEN = oauthToken
 
   try {
     domain.commentCreate(db, ticketData.id, { author: agentDef.name, body: 'Session started (SDK)', session_id: sessionId })

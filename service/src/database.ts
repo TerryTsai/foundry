@@ -3,7 +3,7 @@ import { drizzle } from 'drizzle-orm/better-sqlite3'
 import { eq, and, sql, type SQL } from 'drizzle-orm'
 import { ulid } from 'ulid'
 import * as schema from './schema.js'
-import type { Account, Agent, AuthSession, Comment, Execution, Message, Project, Provider, Session, Ticket } from './schema.js'
+import type { Account, Agent, AuthSession, Comment, Connection, Execution, Message, Project, Session, Ticket } from './schema.js'
 
 export type Db = ReturnType<typeof drizzle<typeof schema>>
 
@@ -39,35 +39,6 @@ export function createDatabase(path: string): Db {
     UPDATE message
     SET tool_call_count = json_array_length(content)
     WHERE role = 'assistant' AND tool_call_count IS NULL AND content LIKE '[%'
-  `)
-
-  // Provider type column was added after the original schema. For pre-existing
-  // rows, the SDK identifier was stored in the name field, so seed type from
-  // name. Idempotent — only updates rows where type is still NULL/empty.
-  sqlite.exec(`
-    UPDATE provider
-    SET type = name
-    WHERE type IS NULL OR type = ''
-  `)
-
-  // Agent.provider_id was added after the original schema. Pre-existing rows
-  // stored the provider as a prefix on model ("anthropic:claude-..."). Look up
-  // the matching provider by type and link it, then strip the prefix from
-  // model. Both updates are idempotent — once provider_id is set, the model
-  // strip skips the row.
-  sqlite.exec(`
-    UPDATE agent
-    SET provider_id = (
-      SELECT id FROM provider
-      WHERE type = substr(agent.model, 1, instr(agent.model, ':') - 1)
-      LIMIT 1
-    )
-    WHERE (provider_id IS NULL OR provider_id = '') AND instr(model, ':') > 0
-  `)
-  sqlite.exec(`
-    UPDATE agent
-    SET model = substr(model, instr(model, ':') + 1)
-    WHERE provider_id IS NOT NULL AND provider_id != '' AND instr(model, ':') > 0
   `)
 
   return drizzle(sqlite, { schema })
@@ -162,35 +133,35 @@ export function authSessionRemove(d: Db, id: string): void {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// PROVIDER
+// CONNECTION (generalized provider — LLMs, integrations, anything with creds)
 // ────────────────────────────────────────────────────────────────────────────
 
-export function providerGet(d: Db, id: string): Provider | undefined {
-  return d.select().from(schema.provider).where(eq(schema.provider.id, id)).get() as Provider | undefined
+export function connectionGet(d: Db, id: string): Connection | undefined {
+  return d.select().from(schema.connection).where(eq(schema.connection.id, id)).get() as Connection | undefined
 }
 
-export function providerAll(d: Db, conditions?: SQL[]): Provider[] {
-  const q = conditions?.length ? d.select().from(schema.provider).where(and(...conditions)) : d.select().from(schema.provider)
-  return q.all() as Provider[]
+export function connectionAll(d: Db, conditions?: SQL[]): Connection[] {
+  const q = conditions?.length ? d.select().from(schema.connection).where(and(...conditions)) : d.select().from(schema.connection)
+  return q.all() as Connection[]
 }
 
-export function providerInsert(d: Db, data: Record<string, unknown>): Provider {
+export function connectionInsert(d: Db, data: Record<string, unknown>): Connection {
   const id = ulid()
-  d.insert(schema.provider).values({ ...data, id } as any).run()
-  return d.select().from(schema.provider).where(eq(schema.provider.id, id)).get() as Provider
+  d.insert(schema.connection).values({ ...data, id } as any).run()
+  return d.select().from(schema.connection).where(eq(schema.connection.id, id)).get() as Connection
 }
 
-export function providerUpdate(d: Db, id: string, data: Record<string, unknown>): Provider {
-  if (Object.keys(data).length > 0) d.update(schema.provider).set(data as any).where(eq(schema.provider.id, id)).run()
-  return d.select().from(schema.provider).where(eq(schema.provider.id, id)).get() as Provider
+export function connectionUpdate(d: Db, id: string, data: Record<string, unknown>): Connection {
+  if (Object.keys(data).length > 0) d.update(schema.connection).set(data as any).where(eq(schema.connection.id, id)).run()
+  return d.select().from(schema.connection).where(eq(schema.connection.id, id)).get() as Connection
 }
 
-export function providerRemove(d: Db, id: string): void {
-  d.delete(schema.provider).where(eq(schema.provider.id, id)).run()
+export function connectionRemove(d: Db, id: string): void {
+  d.delete(schema.connection).where(eq(schema.connection.id, id)).run()
 }
 
-export function providerGetByName(d: Db, name: string): Provider | undefined {
-  return d.select().from(schema.provider).where(eq(schema.provider.name, name)).get() as Provider | undefined
+export function connectionGetByName(d: Db, name: string): Connection | undefined {
+  return d.select().from(schema.connection).where(eq(schema.connection.name, name)).get() as Connection | undefined
 }
 
 // ════════════════════════════════════════════════════════════════════════════

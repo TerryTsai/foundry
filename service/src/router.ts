@@ -90,12 +90,13 @@ export function project(db: Db) {
   return r
 }
 
-export function provider(db: Db) {
+export function connection(db: Db) {
   const r = Router()
-  r.get   ('/',                                       run(()  => domain.providerList(db)),                              send())
-  r.post  ('/',    parse(validate.providerCreate),    run(req => domain.providerCreate(db, req.data)),                  send(201))
-  r.put   ('/:id', parse(validate.providerUpdate),    run(req => domain.providerUpdate(db, req.params.id, req.data)),   send())
-  r.delete('/:id',                                    run(req => domain.providerRemove(db, req.params.id)),             send())
+  r.get   ('/',                                       run(()  => domain.connectionList(db)),                              send())
+  r.get   ('/:id',                                    run(req => domain.connectionGet(db, req.params.id)),                send())
+  r.post  ('/',    parse(validate.connectionCreate),  run(req => domain.connectionCreate(db, req.data)),                  send(201))
+  r.put   ('/:id', parse(validate.connectionUpdate),  run(req => domain.connectionUpdate(db, req.params.id, req.data)),   send())
+  r.delete('/:id',                                    run(req => domain.connectionRemove(db, req.params.id)),             send())
   return r
 }
 

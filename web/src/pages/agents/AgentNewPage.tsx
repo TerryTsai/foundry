@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, useLoaderData } from 'react-router-dom'
 import { agentApi } from '../../api.js'
-import type { Provider } from '../../types.js'
+import type { Connection } from '../../types.js'
 import { useShell } from '../../Shell.js'
 import { Field } from '../../components/form/Field.js'
 import { TextInput } from '../../components/form/TextInput.js'
@@ -13,9 +13,9 @@ import { ToolPicker } from '../../components/form/ToolPicker.js'
 export function AgentNewPage() {
   const { projectId } = useShell()
   const navigate = useNavigate()
-  const providers = useLoaderData() as Provider[]
+  const connections = useLoaderData() as Connection[]
   const [name, setName] = useState('')
-  const [providerId, setProviderId] = useState(providers[0]?.id ?? '')
+  const [connectionId, setConnectionId] = useState(connections[0]?.id ?? '')
   const [model, setModel] = useState('claude-sonnet-4-20250514')
   const [prompt, setPrompt] = useState('')
   const [maxTokens, setMaxTokens] = useState('8192')
@@ -31,11 +31,11 @@ export function AgentNewPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError('')
-    if (!providerId) { setError('select a provider'); return }
+    if (!connectionId) { setError('select a connection'); return }
     try {
       const tools = selectedTools.size > 0 ? [...selectedTools] : undefined
       await agentApi.create({
-        project_id: projectId, provider_id: providerId, name, model, prompt,
+        project_id: projectId, connection_id: connectionId, name, model, prompt,
         max_tokens: +maxTokens, max_steps: +maxSteps,
         temperature: temperature ? +temperature : undefined,
         reasoning_budget: reasoningBudget ? +reasoningBudget : null,
@@ -52,12 +52,12 @@ export function AgentNewPage() {
         <Field label="name">
           <TextInput value={name} onChange={e => setName(e.target.value)} required />
         </Field>
-        <Field label="provider">
-          {providers.length === 0 ? (
-            <div className="text-xs text-zinc-500">no providers configured — add one first</div>
+        <Field label="connection">
+          {connections.length === 0 ? (
+            <div className="text-xs text-zinc-500">no connections configured — add one first</div>
           ) : (
-            <Select value={providerId} onChange={e => setProviderId(e.target.value)} required>
-              {providers.map(p => <option key={p.id} value={p.id}>{p.name} ({p.type})</option>)}
+            <Select value={connectionId} onChange={e => setConnectionId(e.target.value)} required>
+              {connections.map(c => <option key={c.id} value={c.id}>{c.name} ({c.kind})</option>)}
             </Select>
           )}
         </Field>
@@ -84,7 +84,7 @@ export function AgentNewPage() {
         </Field>
         <div className="flex gap-2 pt-2">
           <ActionButton label="cancel" variant="secondary" onClick={() => navigate(-1)} className="flex-1" />
-          <ActionButton label="create" type="submit" className="flex-1" disabled={providers.length === 0} />
+          <ActionButton label="create" type="submit" className="flex-1" disabled={connections.length === 0} />
         </div>
       </form>
     </div>

@@ -5,11 +5,13 @@ export interface Account {
   avatar_url: string | null
 }
 
-export interface Provider {
+export interface Connection {
   id: string
+  project_id: string | null
+  kind: string
   name: string
-  type: string
-  api_key_preview: string
+  config: string              // JSON blob
+  api_key_preview: string | null
   created_at: string
   updated_at: string
 }
@@ -65,7 +67,7 @@ export interface Comment {
 export interface Agent {
   id: string
   project_id: string
-  provider_id: string
+  connection_id: string
   name: string
   model: string
   prompt: string

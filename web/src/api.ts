@@ -1,4 +1,4 @@
-import type { Account, Provider, Project, Ticket, Comment, Agent, Session, Execution, UsageRollup } from './types.js'
+import type { Account, Connection, Project, Ticket, Comment, Agent, Session, Execution, UsageRollup } from './types.js'
 
 const cache = new Map<string, { data: unknown; at: number }>()
 const CACHE_TTL = 30_000 // 30 seconds
@@ -57,12 +57,15 @@ async function del<T>(url: string): Promise<T> {
   return res.json() as Promise<T>
 }
 
-// Providers
-export const providerApi = {
-  list: () => get<Provider[]>('/provider'),
-  create: (data: { name: string; type: string; api_key: string }) => post<Provider>('/provider', data),
-  update: (id: string, data: { name?: string; api_key?: string }) => put<Provider>(`/provider/${id}`, data),
-  delete: (id: string) => del<{ ok: boolean }>(`/provider/${id}`),
+// Connections (generalized provider + integration)
+export const connectionApi = {
+  list: () => get<Connection[]>('/connection'),
+  get: (id: string) => get<Connection>(`/connection/${id}`),
+  create: (data: { project_id?: string; kind: string; name: string; config?: Record<string, unknown>; secrets?: Record<string, unknown> }) =>
+    post<Connection>('/connection', data),
+  update: (id: string, data: { name?: string; config?: Record<string, unknown>; secrets?: Record<string, unknown> }) =>
+    put<Connection>(`/connection/${id}`, data),
+  delete: (id: string) => del<{ ok: boolean }>(`/connection/${id}`),
 }
 
 // Projects
@@ -116,9 +119,9 @@ export const agentApi = {
   list: (projectId?: string) => get<Agent[]>(`/agent${projectId ? `?projectId=${projectId}` : ''}`),
   get: (id: string) => get<Agent>(`/agent/${id}`),
   tools: () => get<string[]>('/agent/tools'),
-  create: (data: { project_id: string; provider_id: string; name: string; model: string; prompt: string; max_tokens?: number; max_steps?: number; temperature?: number; reasoning_budget?: number | null; tools?: string[] }) =>
+  create: (data: { project_id: string; connection_id: string; name: string; model: string; prompt: string; max_tokens?: number; max_steps?: number; temperature?: number; reasoning_budget?: number | null; tools?: string[] }) =>
     post<Agent>('/agent', data),
-  update: (id: string, data: { provider_id?: string; model?: string; prompt?: string; max_tokens?: number; max_steps?: number; temperature?: number; reasoning_budget?: number | null; tools?: string[] }) =>
+  update: (id: string, data: { connection_id?: string; model?: string; prompt?: string; max_tokens?: number; max_steps?: number; temperature?: number; reasoning_budget?: number | null; tools?: string[] }) =>
     put<Agent>(`/agent/${id}`, data),
   delete: (id: string) => del<{ ok: boolean }>(`/agent/${id}`),
   usage: (id: string) => get<UsageRollup>(`/agent/${id}/usage`),

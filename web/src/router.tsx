@@ -1,6 +1,6 @@
 import { createBrowserRouter, Navigate, Outlet, useOutletContext } from 'react-router-dom'
 import type { Params } from 'react-router-dom'
-import { projectApi, ticketApi, agentApi, providerApi, commentApi, sessionApi, executionApi } from './api.js'
+import { projectApi, ticketApi, agentApi, connectionApi, commentApi, sessionApi, executionApi } from './api.js'
 
 function Passthrough() {
   const ctx = useOutletContext()
@@ -20,9 +20,9 @@ import { ExecutionDetailPage } from './pages/tickets/ExecutionDetailPage.js'
 import { AgentsSplitLayout, AgentsIndexPlaceholder } from './components/layout/AgentsSplitLayout.js'
 import { AgentNewPage } from './pages/agents/AgentNewPage.js'
 import { AgentDetailPage } from './pages/agents/AgentDetailPage.js'
-import { ProviderListPage } from './pages/agents/ProviderListPage.js'
-import { ProviderNewPage } from './pages/agents/ProviderNewPage.js'
-import { ProviderDetailPage } from './pages/agents/ProviderDetailPage.js'
+import { ConnectionListPage } from './pages/agents/ConnectionListPage.js'
+import { ConnectionNewPage } from './pages/agents/ConnectionNewPage.js'
+import { ConnectionDetailPage } from './pages/agents/ConnectionDetailPage.js'
 import { LoginPage } from './pages/auth/LoginPage.js'
 
 const pid = (p: Params) => p.projectId!
@@ -139,39 +139,39 @@ export const router = createBrowserRouter([
             path: 'new',
             element: <AgentNewPage />,
             handle: { crumb: 'New' },
-            loader: () => providerApi.list(),
+            loader: () => connectionApi.list(),
           },
           {
             path: ':agentId',
             element: <AgentDetailPage />,
             handle: { crumb: 'Agent' },
             loader: async ({ params }) => {
-              const [agent, usage, providers] = await Promise.all([
+              const [agent, usage, connections] = await Promise.all([
                 agentApi.get(params.agentId!),
                 agentApi.usage(params.agentId!),
-                providerApi.list(),
+                connectionApi.list(),
               ])
-              return { agent, usage, providers }
+              return { agent, usage, connections }
             },
           },
           {
-            path: 'providers',
+            path: 'connections',
             element: <Passthrough />,
-            handle: { crumb: 'Providers' },
+            handle: { crumb: 'Connections' },
             children: [
               {
                 index: true,
-                element: <ProviderListPage />,
-                loader: () => providerApi.list(),
+                element: <ConnectionListPage />,
+                loader: () => connectionApi.list(),
               },
-              { path: 'new', element: <ProviderNewPage />, handle: { crumb: 'New' } },
+              { path: 'new', element: <ConnectionNewPage />, handle: { crumb: 'New' } },
               {
-                path: ':providerId',
-                element: <ProviderDetailPage />,
-                handle: { crumb: 'Provider' },
+                path: ':connectionId',
+                element: <ConnectionDetailPage />,
+                handle: { crumb: 'Connection' },
                 loader: async ({ params }) => {
-                  const ps = await providerApi.list()
-                  return ps.find(p => p.id === params.providerId!) ?? null
+                  const cs = await connectionApi.list()
+                  return cs.find(c => c.id === params.connectionId!) ?? null
                 },
               },
             ],
