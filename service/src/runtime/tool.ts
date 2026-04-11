@@ -1,5 +1,4 @@
 import { tool } from 'ai'
-import { tool as sdkTool, createSdkMcpServer } from '@anthropic-ai/claude-agent-sdk'
 import { z } from 'zod'
 import { writeFileSync, mkdirSync } from 'fs'
 import { join, dirname } from 'path'
@@ -345,114 +344,13 @@ print("ok")
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// SDK TOOL FACTORY (Claude Agent SDK MCP server)
+// SDK / asText helper — kept here for the AI SDK path in makeTools above,
+// which still returns plain {content: [{type,text}]} envelopes. The Claude
+// Agent SDK (used by sdk-runner) no longer goes through this module at all;
+// it uses the MCP servers in service/src/mcp/*.
 // ════════════════════════════════════════════════════════════════════════════
-// Wraps the same Foundry tools as the AI SDK factory above, but as an in-process
-// MCP server for the Claude Agent SDK. The model sees these as
-// `mcp__foundry__<name>` and the SDK loop drives them, but each tool's
-// execution still goes through podman via runCommand → domain.executionCreate →
-// spawnRun. Same isolation, same execution-row tracking, same bounded output.
 
 export function asText(value: unknown): { content: [{ type: 'text'; text: string }] } {
   const text = typeof value === 'string' ? value : JSON.stringify(value)
   return { content: [{ type: 'text', text }] }
-}
-
-export function makeSdkTools(
-  db: Db, config: Config, sessionId: string, projectId: string, ticketId: string, agentName: string, workspace: string,
-) {
-  const api = `http://host.containers.internal:${config.port}`
-
-  // NOTE: sandbox tools (exec, read, write, patch, remove, find, search) have
-  // been migrated to service/src/mcp/sandbox.ts. This server now contains only
-  // the remaining not-yet-migrated tools; subsequent migrations will empty it
-  // out completely.
-  return createSdkMcpServer({
-    name: 'foundry',
-    tools: [
-
-      sdkTool(
-        'fetch',
-        'Make an HTTP request and return the response. Large responses are written to a file; use the read tool to paginate.',
-        validate.toolFetch.shape,
-        async (args) => {
-          const curlArgs = ['-s', '-w', '\\n%{http_code}', '-X', args.method ?? 'GET']
-          if (args.headers) {
-            for (const [k, val] of Object.entries(args.headers)) curlArgs.push('-H', `${k}: ${val}`)
-          }
-          if (args.body) curlArgs.push('-d', args.body)
-          curlArgs.push(args.url)
-          const command = `curl ${curlArgs.map(a => esc(a)).join(' ')}`
-          try {
-            const r = await runCommand(db, config, sessionId, workspace, command, 'fetch', args, true)
-            const lines = r.stdout.trimEnd().split('\n')
-            const statusCode = toInt(lines.pop() ?? '0')
-            return asText({ ...bounded(workspace, lines.join('\n')), status: statusCode })
-          } catch (err) {
-            return asText({ status: 0, error: err instanceof Error ? err.message : String(err) })
-          }
-        },
-      ),
-
-      sdkTool(
-        'scrape',
-        'Extract clean readable text from a web page. Large output is written to a file you can read with offset/limit.',
-        validate.toolScrape.shape,
-        async (args) => {
-          const url = esc(args.url)
-          const command = `lynx -dump -nolist -width=120 ${url} 2>/dev/null || curl -sL ${url} | sed 's/<[^>]*>//g' | sed '/^$/d'`
-          try {
-            const r = await runCommand(db, config, sessionId, workspace, command, 'scrape', args, true)
-            return asText(bounded(workspace, r.stdout.trim()))
-          } catch (err) {
-            return asText({ error: err instanceof Error ? err.message : String(err) })
-          }
-        },
-      ),
-
-      sdkTool(
-        'think',
-        'Use this tool to reason, plan, or analyze before taking action. No side effects.',
-        validate.toolThink.shape,
-        async () => asText({ ok: true }),
-      ),
-
-      sdkTool(
-        'agents',
-        'List all agents in the current project. Useful for targeting sub-tickets at a specific agent.',
-        {},
-        async () => {
-          const command = `curl -sf '${api}/agent?projectId=${projectId}'`
-          return asText(await runApi(db, config, sessionId, workspace, command, 'agents', {}))
-        },
-      ),
-
-      sdkTool(
-        'ticket',
-        'Create, read, or list tickets in the current project. Use create to spawn sub-tasks, optionally assigning to an agent by ID. Use the agents tool first to discover agent IDs.',
-        validate.toolTicket.shape,
-        async (args) => {
-          let command: string
-          if (args.action === 'read') {
-            if (!args.id) return asText({ error: 'id is required for read' })
-            command = `curl -sf '${api}/ticket/${args.id}'`
-          } else if (args.action === 'list') {
-            command = `curl -sf '${api}/ticket?projectId=${projectId}'`
-          } else if (args.action === 'create') {
-            if (!args.title || !args.body) return asText({ error: 'title and body are required for create' })
-            const payload = JSON.stringify({
-              project_id: projectId, title: args.title, body: args.body,
-              priority: 0, parent_id: ticketId, created_by: agentName,
-              ...(args.agent_id ? { agent_id: args.agent_id } : {}),
-            })
-            command = `curl -sf -X POST -H 'Content-Type: application/json' -d ${esc(payload)} '${api}/ticket'`
-          } else {
-            return asText({ error: 'unknown action' })
-          }
-          return asText(await runApi(db, config, sessionId, workspace, command, 'ticket', args))
-        },
-      ),
-
-    ],
-  })
 }

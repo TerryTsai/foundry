@@ -7,29 +7,26 @@ import { type Ticket, type Agent as AgentDef } from '../schema.js'
 import * as domain from '../domain.js'
 import { now, require } from '../functional.js'
 
-import { workspaceClone, workspacePublish, workspaceDestroy, type PublishResult } from './workspace.js'
-import { makeSdkTools } from './tool.js'
+import { workspaceClone, workspaceDestroy } from '../mcp/github.js'
+import * as foundryServer from '../mcp/foundry.js'
+import * as githubServer  from '../mcp/github.js'
 import * as sandboxServer from '../mcp/sandbox.js'
+import * as browserServer from '../mcp/browser.js'
 
 // ════════════════════════════════════════════════════════════════════════════
 // CLAUDE AGENT SDK BACKEND
 // ════════════════════════════════════════════════════════════════════════════
 // Alternate runtime for agents whose provider.type is 'anthropic-subscription'.
 // The SDK drives the agent loop and bills against a Claude Pro/Max subscription
-// via CLAUDE_CODE_OAUTH_TOKEN (obtained once via `claude setup-token`). All
-// tool calls still go through Foundry's MCP server (makeSdkTools) which routes
-// to podman via runCommand → executionCreate → spawnRun. Built-in SDK tools
-// are disabled via `tools: []` so the model can only use Foundry's sandboxed
-// surface.
+// via CLAUDE_CODE_OAUTH_TOKEN (obtained once via `claude setup-token`). Tool
+// calls go through Foundry's four in-process MCP servers (foundry, github,
+// sandbox, browser). Built-in SDK tools are disabled via `tools: []` so the
+// model can only use the Foundry surface.
 //
-// Trade-offs vs the managed loop:
-//   - No mid-session comment injection (SDK loop has no per-step pause)
-//   - No per-step assistant message rows (one final message at end)
-//   - No reasoning text as separate rows
-// What's preserved:
-//   - Workspace clone/publish + GitHub forwarding
-//   - Per-execution rows in the execution table with full sandbox stats
-//   - Subscription billing (zero API spend)
+// Publishing is fully agent-driven: the agent must call gitAdd → gitCommit →
+// pullRequestCreate itself. The runner does not auto-publish at session end.
+// If the agent finishes without publishing, the session branch never reaches
+// GitHub and the workspace tmpdir is destroyed.
 
 export async function runAgentSessionViaSdk(
   db: Db, config: Config, sessionId: string, agentDef: AgentDef, ticketData: Ticket,
@@ -39,7 +36,7 @@ export async function runAgentSessionViaSdk(
 
   let workDir: string
   try {
-    workDir = await workspaceClone(db, config, ticketData.project_id)
+    workDir = await workspaceClone(db, config, ticketData.project_id, sessionId)
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     try { domain.ticketFail(db, ticketData.id, { notes: msg, agentName: agentDef.name, sessionId }) } catch {}
@@ -61,8 +58,16 @@ export async function runAgentSessionViaSdk(
       : ticketData.body
     domain.sessionMessage(db, sessionId, 'user', prompt)
 
-    const mcpServer = makeSdkTools(db, config, sessionId, ticketData.project_id, ticketData.id, agentDef.name, workDir)
+    // Build the four in-process MCP servers. Each call returns a live
+    // createSdkMcpServer ready to be passed to query().
+    const foundryMcp = foundryServer.build({
+      db, projectId: ticketData.project_id, ticketId: ticketData.id, agentName: agentDef.name,
+    })
+    const githubMcp  = githubServer.build({
+      db, config, sessionId, workDir, ticket: ticketData, agentName: agentDef.name,
+    })
     const sandboxMcp = sandboxServer.build(db, config, sessionId, workDir)
+    const browserMcp = browserServer.build(db, config, sessionId, workDir)
 
     let finalText    = ''
     let inputTokens  = 0
@@ -75,7 +80,7 @@ export async function runAgentSessionViaSdk(
       options: {
         cwd:             workDir,
         tools:           [],          // disable all built-ins; only Foundry MCP tools
-        mcpServers:      { foundry: mcpServer, sandbox: sandboxMcp },
+        mcpServers:      { foundry: foundryMcp, github: githubMcp, sandbox: sandboxMcp, browser: browserMcp },
         permissionMode:  'bypassPermissions',
         maxTurns:        agentDef.max_steps,
         model:           agentDef.model,
@@ -103,17 +108,10 @@ export async function runAgentSessionViaSdk(
       domain.commentCreate(db, ticketData.id, { author: agentDef.name, body: finalText, session_id: sessionId })
     }
 
-    let pubResult: PublishResult | null = null
-    try { pubResult = await workspacePublish(db, config, sessionId, ticketData, workDir) } catch (err) {
-      console.error(`session ${sessionId}: publish failed:`, err)
-    }
-    if (pubResult) {
-      domain.commentCreate(db, ticketData.id, {
-        author:     agentDef.name,
-        body:       `Draft PR opened: ${pubResult.prUrl}`,
-        session_id: sessionId,
-      })
-    }
+    // No framework-level publish — the agent is responsible for calling
+    // gitAdd → gitCommit → pullRequestCreate itself. If it didn't publish,
+    // the session branch never leaves the tmpdir and is discarded on
+    // workspaceDestroy below.
 
     domain.ticketComplete(db, ticketData.id, { agentName: agentDef.name, sessionId })
     database.sessionUpdate(db, sessionId, {
