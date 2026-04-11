@@ -11,9 +11,12 @@ import * as domain from '../domain.js'
 import type { TicketChainEntry } from '../domain.js'
 import { now } from '../functional.js'
 
-import { workspaceClone, workspacePublish, workspaceDestroy } from './workspace.js'
+import { workspaceClone, workspaceDestroy } from '../mcp/github.js'
 import { resolveModelWithDefaults } from './model.js'
-import { makeTools } from './tool.js'
+import * as foundryServer from '../mcp/foundry.js'
+import * as githubServer  from '../mcp/github.js'
+import * as sandboxServer from '../mcp/sandbox.js'
+import * as browserServer from '../mcp/browser.js'
 
 type StepResult = Awaited<ReturnType<typeof generateText<ToolSet>>>
 
@@ -51,14 +54,23 @@ async function readAgentMd(workDir: string): Promise<string> {
 
 async function buildContext(
   db: Db, config: Config, sessionId: string, ticketData: Ticket, agentDef: AgentDef, workDir: string,
-): Promise<{ system: string; tools: ReturnType<typeof makeTools> }> {
+): Promise<{ system: string; tools: ToolSet }> {
   const chain        = readChain(db, ticketData.id)
   const agentMd      = await readAgentMd(workDir)
   const priorHistory = domain.ticketPriorHistory(db, ticketData.id, sessionId, agentDef.name)
   const system       = buildSystemPrompt(agentDef.prompt, agentMd, chain, ticketData, priorHistory)
   database.sessionUpdate(db, sessionId, { system_prompt: system })
-  const enabledTools = agentDef.tools ? JSON.parse(agentDef.tools) as string[] : undefined
-  const tools = makeTools(db, config, sessionId, ticketData.project_id, ticketData.id, agentDef.name, workDir, enabledTools)
+
+  // Merge all four MCP server tool surfaces. Tool names are flat (no
+  // mcp__<server>__<name> prefix) because the ai SDK doesn't namespace
+  // them the way the Anthropic SDK does. Names are unique across servers
+  // so collision isn't an issue.
+  const tools: ToolSet = {
+    ...foundryServer.buildAi({ db, projectId: ticketData.project_id, ticketId: ticketData.id, agentName: agentDef.name }),
+    ...githubServer.buildAi({ db, config, sessionId, workDir, ticket: ticketData, agentName: agentDef.name }),
+    ...sandboxServer.buildAi({ db, config, sessionId, workspace: workDir }),
+    ...browserServer.buildAi({ db, config, sessionId, workspace: workDir }),
+  }
   return { system, tools }
 }
 
@@ -179,7 +191,7 @@ export async function runAgentSession(
   // the agent run against an empty /work and produce nothing.
   let workDir: string
   try {
-    workDir = await workspaceClone(db, config, ticketData.project_id)
+    workDir = await workspaceClone(db, config, ticketData.project_id, sessionId)
   } catch (err) {
     failSession(db, sessionId, ticketData.id, agentDef.name, err, startTime)
     return
@@ -192,15 +204,9 @@ export async function runAgentSession(
       model, system, tools, agentDef, sessionId,
       ticketId: ticketData.id, agentName: agentDef.name, initialMessage: ticketData.body,
     })
-    const pubResult = await workspacePublish(db, config, sessionId, ticketData, workDir)
-      .catch(err => { console.error(`session ${sessionId}: publish failed:`, err); return null })
-    if (pubResult) {
-      domain.commentCreate(db, ticketData.id, {
-        author:     agentDef.name,
-        body:       `Draft PR opened: ${pubResult.prUrl}`,
-        session_id: sessionId,
-      })
-    }
+    // No framework-level publish — the agent owns gitAdd → gitCommit →
+    // pullRequestCreate via the github MCP tools. Sessions that finish
+    // without publishing discard their workspace.
     completeSession(db, sessionId, ticketData.id, agentDef.name, finishReason, startTime)
   } catch (err) {
     failSession(db, sessionId, ticketData.id, agentDef.name, err, startTime)

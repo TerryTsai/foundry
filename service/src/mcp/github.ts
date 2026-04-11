@@ -1,17 +1,23 @@
 // GitHub development-flow server. Tools operate against the session's
 // shared working directory (the same tmpdir the sandbox server's execs
 // bind-mount at /work). At session start the runner calls workspaceClone()
-// to populate it and creates a per-session branch; the agent edits files
-// via sandbox tools, stages them via gitAdd, and publishes via the
-// pullRequestCreate tool when ready.
+// to populate it and create a per-session branch; the agent edits files
+// via sandbox tools, stages them via gitAdd, commits via gitCommit, and
+// publishes via pullRequestCreate when ready.
 //
 // All git operations run host-side via execFile — the sandbox image does
 // not include a git binary, so the only way git state changes is through
-// the tools on this server (RCA-001 mitigation).
+// the tools on this server.
 //
-// Scope is deliberately narrow for v1: inspect, stage, commit, open PR.
-// API operations (issue search, PR review, code search) belong in the
-// community GitHub MCP server if we want them later.
+// Structure: handler functions are SDK-agnostic. buildSdk wraps them as
+// Anthropic Claude Agent SDK tools. buildAi wraps them as Vercel ai SDK
+// tools. Both runners consume the same handlers. Workspace lifecycle
+// (workspaceClone/Destroy/Empty) are plain exported functions — the
+// runners call them directly, no SDK involvement.
+//
+// Scope is deliberately narrow: inspect, stage, commit, open PR. API
+// operations (issue search, PR review) belong in a community GitHub MCP
+// server if we want them later.
 
 import { execFile } from 'child_process'
 import { promisify } from 'util'
@@ -20,6 +26,7 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 
 import { createSdkMcpServer, tool as sdkTool } from '@anthropic-ai/claude-agent-sdk'
+import { tool } from 'ai'
 import { z } from 'zod'
 
 import type { Db } from '../database.js'
@@ -29,7 +36,7 @@ import type { Ticket } from '../schema.js'
 import * as domain from '../domain.js'
 import { require, succeeds, toInt } from '../functional.js'
 import { repoCloneUrl, pullRequestCreate as githubPullRequestCreate } from '../github.js'
-import { asText } from '../runtime/tool.js'
+import { asText } from './_shared.js'
 
 import type { McpServerInfo } from './registry.js'
 
@@ -50,8 +57,11 @@ export const info: McpServerInfo = {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// WORKSPACE LIFECYCLE (relocated from service/src/runtime/workspace.ts)
+// WORKSPACE LIFECYCLE
 // ════════════════════════════════════════════════════════════════════════════
+// Plain functions called by runner.ts and sdk-runner.ts at session start /
+// end. Not part of any MCP server — these are framework operations, not
+// agent-callable tools.
 
 export interface PublishResult {
   branch: string
@@ -70,7 +80,7 @@ export async function workspaceEmpty(): Promise<string> {
 
 // Clone the project's GitHub repo into a fresh tmpdir, strip the
 // installation token from .git/config, create the per-session branch, and
-// return the working directory. Called host-side by the runner at session
+// return the working directory. Called host-side by the runners at session
 // start — never runs inside a sandbox container.
 export async function workspaceClone(db: Db, config: Config, projectId: string, sessionId: string): Promise<string> {
   const proj = require(database.projectGet(db, projectId), `project ${projectId} not found`)
@@ -86,8 +96,8 @@ export async function workspaceClone(db: Db, config: Config, projectId: string, 
   await execFileAsync('git', ['-C', workDir, 'config', 'user.email', 'foundry@localhost'])
   await execFileAsync('git', ['-C', workDir, 'config', 'user.name',  'Foundry'])
 
-  // Create and switch to the per-session branch. The agent commits land here,
-  // pullRequestCreate pushes it, draft PR opens against the base branch.
+  // Create and switch to the per-session branch. The agent commits land
+  // here, pullRequestCreate pushes it, draft PR opens against the base.
   await execFileAsync('git', ['-C', workDir, 'checkout', '-b', `foundry/${sessionId}`])
 
   return workDir
@@ -123,7 +133,7 @@ function assertSafeAddPath(p: string): void {
 }
 
 // Thin wrapper over `git -C <workDir> <args>`. Never throws on non-zero exit;
-// the tool layer decides whether that's an error or expected (git diff --cached
+// the handler decides whether that's an error or expected (git diff --cached
 // --quiet is the canonical "nothing staged" signal, for example).
 async function gitExec(workDir: string, args: string[]): Promise<{ stdout: string; stderr: string; exitCode: number }> {
   try {
@@ -144,150 +154,120 @@ export interface GithubCtx {
   agentName:  string
 }
 
-export function build(ctx: GithubCtx) {
-  const { db, config, sessionId, workDir, ticket, agentName } = ctx
-  const branch = `foundry/${sessionId}`
+// ── Schemas ──
 
-  return createSdkMcpServer({
-    name: 'github',
-    tools: [
+const gitStatusArgs = z.object({})
 
-      sdkTool(
-        'gitStatus',
-        'Show the working tree status in porcelain format.',
-        {},
-        async () => {
-          const r = await gitExec(workDir, ['status', '--porcelain=v1'])
-          if (r.exitCode !== 0) return asText({ error: r.stderr })
-          return asText({ status: r.stdout })
-        },
-      ),
+const gitDiffArgs = z.object({
+  staged: z.boolean().optional().describe('Show the staged (index) diff instead of the working-tree diff.'),
+  paths:  z.array(z.string()).optional().describe('Optional: restrict diff to these paths.'),
+})
 
-      sdkTool(
-        'gitDiff',
-        'Show the diff. By default shows unstaged changes; set staged=true to see the staged diff. Optionally scope to specific paths.',
-        {
-          staged: z.boolean().optional().describe('Show the staged (index) diff instead of the working-tree diff.'),
-          paths:  z.array(z.string()).optional().describe('Optional: restrict diff to these paths.'),
-        },
-        async (args) => {
-          const diffArgs = ['diff']
-          if (args.staged) diffArgs.push('--cached')
-          if (args.paths && args.paths.length > 0) diffArgs.push('--', ...args.paths)
-          const r = await gitExec(workDir, diffArgs)
-          if (r.exitCode !== 0) return asText({ error: r.stderr })
-          return asText({ diff: r.stdout })
-        },
-      ),
+const gitAddArgs = z.object({
+  paths: z.array(z.string()).min(1).describe('Literal repo-relative paths to stage.'),
+})
 
-      sdkTool(
-        'gitAdd',
-        'Stage specific paths for commit. Only literal repo-relative paths are accepted — no -A, no wildcards, no glob expansion. Paths inside .git/, .foundry/, node_modules/, build outputs, and caches are rejected.',
-        {
-          paths: z.array(z.string()).min(1).describe('Literal repo-relative paths to stage.'),
-        },
-        async (args) => {
-          try { for (const p of args.paths) assertSafeAddPath(p) } catch (err) {
-            return asText({ ok: false, error: err instanceof Error ? err.message : String(err) })
-          }
-          const r = await gitExec(workDir, ['add', '--', ...args.paths])
-          if (r.exitCode !== 0) return asText({ ok: false, error: r.stderr || r.stdout })
-          return asText({ ok: true, staged: args.paths })
-        },
-      ),
+const gitRemoveArgs = z.object({
+  paths: z.array(z.string()).min(1).describe('Literal repo-relative paths to remove.'),
+})
 
-      sdkTool(
-        'gitRemove',
-        'Remove paths from the working tree and index (git rm). Same validation as gitAdd — literal paths only, protected directories rejected.',
-        {
-          paths: z.array(z.string()).min(1).describe('Literal repo-relative paths to remove.'),
-        },
-        async (args) => {
-          try { for (const p of args.paths) assertSafeAddPath(p) } catch (err) {
-            return asText({ ok: false, error: err instanceof Error ? err.message : String(err) })
-          }
-          const r = await gitExec(workDir, ['rm', '-r', '--', ...args.paths])
-          if (r.exitCode !== 0) return asText({ ok: false, error: r.stderr || r.stdout })
-          return asText({ ok: true, removed: args.paths })
-        },
-      ),
+const gitCommitArgs = z.object({
+  message: z.string().min(1).describe('Commit message (first line is the subject).'),
+})
 
-      sdkTool(
-        'gitCommit',
-        'Commit the staged index with a message. Fails if nothing is staged.',
-        {
-          message: z.string().min(1).describe('Commit message (first line is the subject).'),
-        },
-        async (args) => {
-          // Refuse empty commits — "nothing to commit" should surface as a
-          // clear error, not a silent no-op.
-          const clean = await succeeds(() => execFileAsync('git', ['-C', workDir, 'diff', '--cached', '--quiet']))
-          if (clean) return asText({ ok: false, error: 'nothing staged — call gitAdd first' })
+const pullRequestCreateArgs = z.object({
+  title: z.string().optional().describe('Optional PR title. Defaults to "[<ticket-id>] <ticket title>".'),
+  body:  z.string().optional().describe('Optional PR body. Defaults to a summary pointing at the ticket.'),
+})
 
-          const fullMessage = `${args.message}\n\nSession: ${sessionId}\nTicket:  ${ticket.id}\n`
-          const r = await gitExec(workDir, ['commit', '-m', fullMessage])
-          if (r.exitCode !== 0) return asText({ ok: false, error: r.stderr || r.stdout })
+// ── Handlers ──
 
-          const head = await gitExec(workDir, ['rev-parse', 'HEAD'])
-          return asText({ ok: true, commit: head.stdout.trim() })
-        },
-      ),
+async function handleGitStatus(ctx: GithubCtx, _args: z.infer<typeof gitStatusArgs>) {
+  const r = await gitExec(ctx.workDir, ['status', '--porcelain=v1'])
+  if (r.exitCode !== 0) return { error: r.stderr }
+  return { status: r.stdout }
+}
 
-      sdkTool(
-        'pullRequestCreate',
-        'Push the session branch and open a draft pull request against the clone\'s default branch. Call after gitCommit. Posts a comment on the current ticket with the PR URL.',
-        {
-          title: z.string().optional().describe('Optional PR title. Defaults to "[<ticket-id>] <ticket title>".'),
-          body:  z.string().optional().describe('Optional PR body. Defaults to a summary pointing at the ticket.'),
-        },
-        async (args) => {
-          // The PR is opened against whatever branch the clone landed on
-          // (typically main). We determine this by reading origin/HEAD.
-          const baseRef = await gitExec(workDir, ['symbolic-ref', 'refs/remotes/origin/HEAD'])
-          const baseBranch = baseRef.exitCode === 0
-            ? baseRef.stdout.trim().replace(/^refs\/remotes\/origin\//, '')
-            : 'main'
+async function handleGitDiff(ctx: GithubCtx, args: z.infer<typeof gitDiffArgs>) {
+  const diffArgs = ['diff']
+  if (args.staged) diffArgs.push('--cached')
+  if (args.paths && args.paths.length > 0) diffArgs.push('--', ...args.paths)
+  const r = await gitExec(ctx.workDir, diffArgs)
+  if (r.exitCode !== 0) return { error: r.stderr }
+  return { diff: r.stdout }
+}
 
-          // Verify the session branch has commits beyond the base.
-          const ahead = await gitExec(workDir, ['rev-list', '--count', `${baseBranch}..HEAD`])
-          if (ahead.exitCode !== 0 || toInt(ahead.stdout) === 0) {
-            return asText({ ok: false, error: 'no commits to publish — call gitCommit first' })
-          }
+async function handleGitAdd(ctx: GithubCtx, args: z.infer<typeof gitAddArgs>) {
+  try { for (const p of args.paths) assertSafeAddPath(p) } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  }
+  const r = await gitExec(ctx.workDir, ['add', '--', ...args.paths])
+  if (r.exitCode !== 0) return { ok: false, error: r.stderr || r.stdout }
+  return { ok: true, staged: args.paths }
+}
 
-          try {
-            const proj = require(database.projectGet(db, ticket.project_id), `project ${ticket.project_id} not found`)
-            if (!proj.repo) return asText({ ok: false, error: 'project has no repo configured' })
-            const { owner, name } = parseRepo(proj.repo)
+async function handleGitRemove(ctx: GithubCtx, args: z.infer<typeof gitRemoveArgs>) {
+  try { for (const p of args.paths) assertSafeAddPath(p) } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  }
+  const r = await gitExec(ctx.workDir, ['rm', '-r', '--', ...args.paths])
+  if (r.exitCode !== 0) return { ok: false, error: r.stderr || r.stdout }
+  return { ok: true, removed: args.paths }
+}
 
-            // Fresh install token for the push; the clone-time token was
-            // stripped and is likely near expiry.
-            const pushUrl = await repoCloneUrl(config, owner, name)
-            const push = await gitExec(workDir, ['push', pushUrl, `HEAD:refs/heads/${branch}`])
-            if (push.exitCode !== 0) return asText({ ok: false, error: push.stderr || push.stdout })
+async function handleGitCommit(ctx: GithubCtx, args: z.infer<typeof gitCommitArgs>) {
+  const clean = await succeeds(() => execFileAsync('git', ['-C', ctx.workDir, 'diff', '--cached', '--quiet']))
+  if (clean) return { ok: false, error: 'nothing staged — call gitAdd first' }
 
-            const title = (args.title ?? `[${ticket.id}] ${ticket.title.trim() || '(no title)'}`).slice(0, 200)
-            const body  = args.body ?? defaultPrBody(sessionId, ticket)
+  const fullMessage = `${args.message}\n\nSession: ${ctx.sessionId}\nTicket:  ${ctx.ticket.id}\n`
+  const r = await gitExec(ctx.workDir, ['commit', '-m', fullMessage])
+  if (r.exitCode !== 0) return { ok: false, error: r.stderr || r.stdout }
 
-            const prUrl = await githubPullRequestCreate(config, owner, name, {
-              title, head: branch, base: baseBranch, body, draft: true,
-            })
+  const head = await gitExec(ctx.workDir, ['rev-parse', 'HEAD'])
+  return { ok: true, commit: head.stdout.trim() }
+}
 
-            domain.commentCreate(db, ticket.id, {
-              author:     agentName,
-              body:       `Draft PR opened: ${prUrl}`,
-              session_id: sessionId,
-            })
+async function handlePullRequestCreate(ctx: GithubCtx, args: z.infer<typeof pullRequestCreateArgs>) {
+  const baseRef = await gitExec(ctx.workDir, ['symbolic-ref', 'refs/remotes/origin/HEAD'])
+  const baseBranch = baseRef.exitCode === 0
+    ? baseRef.stdout.trim().replace(/^refs\/remotes\/origin\//, '')
+    : 'main'
 
-            const result: PublishResult = { branch, prUrl }
-            return asText({ ok: true, ...result })
-          } catch (err) {
-            return asText({ ok: false, error: err instanceof Error ? err.message : String(err) })
-          }
-        },
-      ),
+  const ahead = await gitExec(ctx.workDir, ['rev-list', '--count', `${baseBranch}..HEAD`])
+  if (ahead.exitCode !== 0 || toInt(ahead.stdout) === 0) {
+    return { ok: false, error: 'no commits to publish — call gitCommit first' }
+  }
 
-    ],
-  })
+  try {
+    const proj = require(database.projectGet(ctx.db, ctx.ticket.project_id), `project ${ctx.ticket.project_id} not found`)
+    if (!proj.repo) return { ok: false, error: 'project has no repo configured' }
+    const { owner, name } = parseRepo(proj.repo)
+
+    // Fresh install token for the push; the clone-time token was stripped
+    // and is likely near expiry.
+    const pushUrl = await repoCloneUrl(ctx.config, owner, name)
+    const branch = `foundry/${ctx.sessionId}`
+    const push = await gitExec(ctx.workDir, ['push', pushUrl, `HEAD:refs/heads/${branch}`])
+    if (push.exitCode !== 0) return { ok: false, error: push.stderr || push.stdout }
+
+    const title = (args.title ?? `[${ctx.ticket.id}] ${ctx.ticket.title.trim() || '(no title)'}`).slice(0, 200)
+    const body  = args.body ?? defaultPrBody(ctx.sessionId, ctx.ticket)
+
+    const prUrl = await githubPullRequestCreate(ctx.config, owner, name, {
+      title, head: branch, base: baseBranch, body, draft: true,
+    })
+
+    domain.commentCreate(ctx.db, ctx.ticket.id, {
+      author:     ctx.agentName,
+      body:       `Draft PR opened: ${prUrl}`,
+      session_id: ctx.sessionId,
+    })
+
+    const result: PublishResult = { branch, prUrl }
+    return { ok: true, ...result }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  }
 }
 
 function defaultPrBody(sessionId: string, ticket: Ticket): string {
@@ -300,4 +280,66 @@ function defaultPrBody(sessionId: string, ticket: Ticket): string {
 > ${excerpt.replace(/\n/g, '\n> ')}
 
 This PR is a draft. Review the diff and mark it Ready when you're satisfied.`
+}
+
+const DESC = {
+  gitStatus:         'Show the working tree status in porcelain format.',
+  gitDiff:           'Show the diff. By default shows unstaged changes; set staged=true to see the staged diff. Optionally scope to specific paths.',
+  gitAdd:            'Stage specific paths for commit. Only literal repo-relative paths are accepted — no -A, no wildcards, no glob expansion. Paths inside .git/, .foundry/, node_modules/, build outputs, and caches are rejected.',
+  gitRemove:         'Remove paths from the working tree and index (git rm). Same validation as gitAdd — literal paths only, protected directories rejected.',
+  gitCommit:         'Commit the staged index with a message. Fails if nothing is staged.',
+  pullRequestCreate: 'Push the session branch and open a draft pull request against the clone\'s default branch. Call after gitCommit. Posts a comment on the current ticket with the PR URL.',
+}
+
+// ── Anthropic Claude Agent SDK adapter ──
+
+export function buildSdk(ctx: GithubCtx) {
+  return createSdkMcpServer({
+    name: 'github',
+    tools: [
+      sdkTool('gitStatus',         DESC.gitStatus,         gitStatusArgs.shape,         async a => asText(await handleGitStatus(ctx, a))),
+      sdkTool('gitDiff',           DESC.gitDiff,           gitDiffArgs.shape,           async a => asText(await handleGitDiff(ctx, a))),
+      sdkTool('gitAdd',            DESC.gitAdd,            gitAddArgs.shape,            async a => asText(await handleGitAdd(ctx, a))),
+      sdkTool('gitRemove',         DESC.gitRemove,         gitRemoveArgs.shape,         async a => asText(await handleGitRemove(ctx, a))),
+      sdkTool('gitCommit',         DESC.gitCommit,         gitCommitArgs.shape,         async a => asText(await handleGitCommit(ctx, a))),
+      sdkTool('pullRequestCreate', DESC.pullRequestCreate, pullRequestCreateArgs.shape, async a => asText(await handlePullRequestCreate(ctx, a))),
+    ],
+  })
+}
+
+// ── Vercel ai SDK adapter ──
+
+export function buildAi(ctx: GithubCtx) {
+  return {
+    gitStatus: tool({
+      description: DESC.gitStatus,
+      inputSchema: gitStatusArgs,
+      execute:     (args: z.infer<typeof gitStatusArgs>) => handleGitStatus(ctx, args),
+    }),
+    gitDiff: tool({
+      description: DESC.gitDiff,
+      inputSchema: gitDiffArgs,
+      execute:     (args: z.infer<typeof gitDiffArgs>) => handleGitDiff(ctx, args),
+    }),
+    gitAdd: tool({
+      description: DESC.gitAdd,
+      inputSchema: gitAddArgs,
+      execute:     (args: z.infer<typeof gitAddArgs>) => handleGitAdd(ctx, args),
+    }),
+    gitRemove: tool({
+      description: DESC.gitRemove,
+      inputSchema: gitRemoveArgs,
+      execute:     (args: z.infer<typeof gitRemoveArgs>) => handleGitRemove(ctx, args),
+    }),
+    gitCommit: tool({
+      description: DESC.gitCommit,
+      inputSchema: gitCommitArgs,
+      execute:     (args: z.infer<typeof gitCommitArgs>) => handleGitCommit(ctx, args),
+    }),
+    pullRequestCreate: tool({
+      description: DESC.pullRequestCreate,
+      inputSchema: pullRequestCreateArgs,
+      execute:     (args: z.infer<typeof pullRequestCreateArgs>) => handlePullRequestCreate(ctx, args),
+    }),
+  }
 }

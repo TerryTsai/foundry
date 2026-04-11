@@ -37,3 +37,8 @@ export const registry: McpServerInfo[] = [foundry, github, sandbox, browser]
 export function registryGet(id: McpServerId): McpServerInfo | undefined {
   return registry.find(s => s.id === id)
 }
+
+// Flat list of tool names across all servers. Used by the legacy
+// GET /tools endpoint that the current web UI consumes for agent tool
+// selection. Will be replaced by GET /mcp (nested shape) in a later pass.
+export const TOOL_NAMES: readonly string[] = registry.flatMap(s => s.tools.map(t => t.name))

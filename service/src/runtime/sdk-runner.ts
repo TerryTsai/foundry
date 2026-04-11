@@ -58,16 +58,16 @@ export async function runAgentSessionViaSdk(
       : ticketData.body
     domain.sessionMessage(db, sessionId, 'user', prompt)
 
-    // Build the four in-process MCP servers. Each call returns a live
+    // Build the four in-process MCP servers. Each buildSdk returns a live
     // createSdkMcpServer ready to be passed to query().
-    const foundryMcp = foundryServer.build({
+    const foundryMcp = foundryServer.buildSdk({
       db, projectId: ticketData.project_id, ticketId: ticketData.id, agentName: agentDef.name,
     })
-    const githubMcp  = githubServer.build({
+    const githubMcp  = githubServer.buildSdk({
       db, config, sessionId, workDir, ticket: ticketData, agentName: agentDef.name,
     })
-    const sandboxMcp = sandboxServer.build(db, config, sessionId, workDir)
-    const browserMcp = browserServer.build(db, config, sessionId, workDir)
+    const sandboxMcp = sandboxServer.buildSdk({ db, config, sessionId, workspace: workDir })
+    const browserMcp = browserServer.buildSdk({ db, config, sessionId, workspace: workDir })
 
     let finalText    = ''
     let inputTokens  = 0
