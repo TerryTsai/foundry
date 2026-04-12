@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react'
 import { Outlet, NavLink, ScrollRestoration, useParams, useLoaderData, useRevalidator, Link } from 'react-router-dom'
-import { Ticket, Bot, Pause, Play, Sun, Moon, Monitor, Settings, LogOut, type LucideIcon } from 'lucide-react'
+import { Ticket, Pause, Play, Sun, Moon, Monitor, Settings, LogOut, type LucideIcon } from 'lucide-react'
 import { createPortal } from 'react-dom'
 import { projectApi, authApi } from './api.js'
 import type { Project, Account } from './types.js'
@@ -19,7 +19,6 @@ export function FoundryMark() {
 // ── Nav items ──
 const navItems: Array<{ to: string; label: string; Icon: LucideIcon }> = [
   { to: 'tickets', label: 'Tickets', Icon: Ticket },
-  { to: 'agents',  label: 'Agents',  Icon: Bot },
 ]
 const THEME_CYCLE: ThemeMode[] = ['system', 'light', 'dark']
 // ── Avatar / account menu ──
@@ -173,30 +172,6 @@ function DesktopTopBar({
     </header>
   )
 }
-// ── Mobile Tab Bar ──
-function MobileTabBar({ projectId }: { projectId: string }) {
-  return (
-    <nav className="flex lg:hidden border-t border-zinc-300 dark:border-zinc-800/60 bg-white dark:bg-zinc-950 shrink-0">
-      {navItems.map(t => (
-        <NavLink
-          key={t.to}
-          to={`/p/${projectId}/${t.to}`}
-          className={({ isActive }) => `flex-1 flex flex-col items-center justify-center py-2.5 gap-1 transition-colors relative ${
-            isActive ? 'text-amber-400' : 'text-zinc-500 dark:text-zinc-500'
-          }`}
-        >
-          {({ isActive }) => (
-            <>
-              {isActive && <span className="absolute top-0 left-1/2 -translate-x-1/2 w-4 h-px bg-amber-400 rounded-full" />}
-              <t.Icon size={18} strokeWidth={1.5} />
-              <span className="text-[10px] leading-none">{t.label}</span>
-            </>
-          )}
-        </NavLink>
-      ))}
-    </nav>
-  )
-}
 // ── Mobile Header ──
 function MobileHeader({
   project, projectId, onToggle,
@@ -264,7 +239,6 @@ export function Shell() {
         <ScrollRestoration />
         <Outlet context={{ project, projectId: projectId!, revalidate }} />
       </main>
-      <MobileTabBar projectId={projectId!} />
     </div>
   )
 }
