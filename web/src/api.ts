@@ -81,12 +81,13 @@ export const projectApi = {
 
 // Tickets
 export const ticketApi = {
-  list: (params?: { projectId?: string; agentId?: string; status?: string; parentId?: string }) => {
+  list: (params?: { projectId?: string; agentId?: string; status?: string; parentId?: string; tag?: string }) => {
     const qs = new URLSearchParams()
     if (params?.projectId) qs.set('projectId', params.projectId)
     if (params?.agentId) qs.set('agentId', params.agentId)
     if (params?.status) qs.set('status', params.status)
     if (params?.parentId) qs.set('parentId', params.parentId)
+    if (params?.tag) qs.set('tag', params.tag)
     return get<Ticket[]>(`/ticket${qs.toString() ? `?${qs}` : ''}`)
   },
   get: (id: string) => get<Ticket>(`/ticket/${id}`),
@@ -107,6 +108,13 @@ export const commentApi = {
   list: (ticketId: string) => get<Comment[]>(`/ticket/${ticketId}/comment`),
   create: (ticketId: string, data: { author: string; body: string }) =>
     post<Comment>(`/ticket/${ticketId}/comment`, data),
+}
+
+// Tags
+export const tagApi = {
+  list:   (ticketId: string)               => get<TicketTag[]>(`/ticket/${ticketId}/tag`),
+  add:    (ticketId: string, tag: string)  => post<TicketTag>(`/ticket/${ticketId}/tag`, { tag }),
+  remove: (ticketId: string, tag: string)  => del<{ ok: boolean }>(`/ticket/${ticketId}/tag/${encodeURIComponent(tag)}`),
 }
 
 // Sessions

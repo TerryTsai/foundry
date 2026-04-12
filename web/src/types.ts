@@ -42,6 +42,13 @@ export interface Ticket {
   claimed_at: string | null
 }
 
+export interface TicketTag {
+  id: string
+  ticket_id: string
+  tag: string
+  created_at: string
+}
+
 export interface UsageRollup {
   session_count: number
   tokens_in: number
