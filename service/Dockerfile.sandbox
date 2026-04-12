@@ -31,4 +31,22 @@ RUN apk add --no-cache \
     unzip \
     openssh-client
 
+# Language-family tooling that agents commonly reach for in verification /
+# formatting steps. Installed globally so tsc, prettier, eslint, and tsx
+# are on PATH without needing a project's local node_modules. Saves the
+# `npx tsc --noEmit` install-storm pattern from RCA-001.
+RUN npm install -g --silent \
+    typescript \
+    prettier \
+    eslint \
+    tsx
+
+# HOME=/tmp so package managers and dev tools that write to $HOME (npm,
+# pip, cargo, etc.) succeed inside the --read-only root filesystem. /tmp
+# is tmpfs in the sandbox so it's writable and ephemeral. Without this,
+# `npm install` fails on `mkdir: /root/.npm: Read-only file system` and
+# agents spiral trying to work around it — the exact pattern that drove
+# RCA-001.
+ENV HOME=/tmp
+
 WORKDIR /work

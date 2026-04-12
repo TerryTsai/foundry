@@ -202,14 +202,21 @@ async function handleFind(ctx: SandboxCtx, args: z.infer<typeof validate.toolFin
   }
 }
 
-// Descriptions shared across both adapters so text stays in one place.
+// Tool descriptions carry the environmental contract — what state the tool
+// expects and what it leaves behind. The agent needs no separate preamble.
 const DESC = {
-  exec:   'Run a shell command in a sandboxed container with the workspace at /work. Large stdout is written to a file; use the read tool to paginate.',
-  read:   'Read the contents of a file from the workspace. Use offset and limit to paginate. Large output is written to a file you can read with offset/limit.',
-  write:  'Create or overwrite a file in the workspace. .git/ and .foundry/ paths are protected.',
-  patch:  'Apply a targeted edit to a file by replacing an exact string match. .git/ and .foundry/ paths are protected.',
+  exec:
+    'Run a shell command in the session sandbox. The workspace is bind-mounted at /work and persists across exec calls within this session; state survives until the session ends. ' +
+    'The sandbox starts with an EMPTY /work — no project files, no dependencies, no config. Populate it yourself (e.g. via the github server\'s gitClone tool, or directly via git clone / curl / etc.). ' +
+    'Pre-installed binaries: git, node/npm/npx, tsc, prettier, eslint, tsx, python3, curl, wget, jq, lynx, make, gcc, and standard unix tools. ' +
+    '$HOME is /tmp so package managers and tools that write to ~ (npm, pip, cargo) work without flags. ' +
+    'Network is disabled by default; pass network:true if the command needs outbound access. ' +
+    'Large stdout is written to a file; use the read tool to paginate.',
+  read:   'Read the contents of a file from the workspace. Use offset and limit to paginate. Large output is written to a file you can read with offset/limit. Reads against an empty workspace return "not found" — populate /work first.',
+  write:  'Create or overwrite a file in the workspace. Parent directories are created as needed. .git/ and .foundry/ paths are protected.',
+  patch:  'Apply a targeted edit to a file by replacing an exact string match. Fails if the old_string is not found or appears more than once. .git/ and .foundry/ paths are protected.',
   remove: 'Delete a file or directory from the workspace (recursive). .git/ and .foundry/ paths are protected.',
-  search: 'Search file contents using grep with regex support. Large output is written to a file you can read with offset/limit.',
+  search: 'Search file contents using grep with regex support across the workspace. Large output is written to a file you can read with offset/limit. Returns empty for an empty workspace.',
   find:   'List files matching a glob pattern in the workspace. Defaults to max_depth 3 for performance — increase or omit to scan deeper. If a deep scan times out, narrow the path or pattern. Large output is written to a file you can read with offset/limit.',
 }
 

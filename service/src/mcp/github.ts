@@ -1,30 +1,29 @@
-// GitHub development-flow server. Tools operate against the session's
-// shared working directory (the same tmpdir the sandbox server's execs
-// bind-mount at /work). At session start the runner calls workspaceClone()
-// to populate it and create a per-session branch; the agent edits files
-// via sandbox tools, stages them via gitAdd, commits via gitCommit, and
-// publishes via pullRequestCreate when ready.
+// GitHub development-flow server. Git is a peer integration like any other
+// MCP server — the agent is responsible for populating the workspace via
+// gitClone, making changes, and publishing via pullRequestCreate. The
+// framework provides an empty workspace at /work and nothing else.
 //
 // Execution model:
 //
-//   gitStatus/gitDiff/gitAdd/gitRemove/gitCommit run in the SESSION sandbox
-//   via runCommand — same model as exec/read/write/patch. They need only
-//   filesystem access to /work; no credentials, no network. Get execution
-//   rows like every other tool.
+//   gitClone runs in a TIER-2 sandbox: fresh container, /work mounted
+//   read-write, INSTALL_TOKEN injected as an env var, network enabled.
+//   After clone completes, the embedded token is stripped from
+//   .git/config so subsequent tier-1 calls can't read it.
 //
-//   pullRequestCreate runs in a TIER-2 sandbox: fresh container, /work
-//   mounted read-only, INSTALL_TOKEN injected as an env var, network
-//   enabled. The token is minted fresh on the host from the GitHub App
-//   private key just before the call, passed to the container in env,
-//   and dies with the container a few seconds later. The agent's other
-//   tools never see it.
+//   gitStatus/gitDiff/gitAdd/gitRemove/gitCommit run in the SESSION
+//   sandbox (tier-1) via runCommand — same model as exec/read/write.
+//   They need only filesystem access to /work; no credentials, no
+//   network. Get execution rows like every other tool.
 //
-// Workspace lifecycle (workspaceClone/Destroy/Empty) are plain exported
-// functions. They run host-side because they must operate before the
-// sandbox exists (clone) or after it's torn down (destroy).
+//   pullRequestCreate runs in a TIER-2 sandbox: /work mounted read-only,
+//   fresh install token in env, network enabled. Pushes the session
+//   branch and calls the GitHub PR create API. Token dies with the
+//   container.
+//
+// Workspace lifecycle is minimal: workspaceEmpty() creates a tmpdir,
+// workspaceDestroy() removes it. Both host-side. Everything in between
+// is agent-driven.
 
-import { execFile } from 'child_process'
-import { promisify } from 'util'
 import { mkdtemp, rm } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
@@ -38,18 +37,17 @@ import * as database from '../database.js'
 import type { Config } from '../config.js'
 import type { Ticket } from '../schema.js'
 import { require, toInt } from '../functional.js'
-import { installationForRepo, installationToken, repoCloneUrl } from '../github.js'
+import { installationForRepo, installationToken } from '../github.js'
 import { asText, runCommand } from './_shared.js'
 
 import type { McpServerInfo } from './registry.js'
 
-const execFileAsync = promisify(execFile)
-
 export const info: McpServerInfo = {
   id:          'github',
   name:        'GitHub',
-  description: 'Development flow against a configured GitHub repo: inspect, stage, commit, open draft PRs.',
+  description: 'Development flow against a configured GitHub repo: clone, inspect, stage, commit, open draft PRs.',
   tools: [
+    { name: 'gitClone',          description: 'Clone the configured GitHub repo into the empty session workspace and create the per-session branch. First step of a code session.' },
     { name: 'gitStatus',         description: 'Show the working tree status (porcelain format).' },
     { name: 'gitDiff',           description: 'Show the working-tree or staged diff, optionally scoped to paths.' },
     { name: 'gitAdd',            description: 'Stage specific paths for commit. Literal paths only — no -A, no wildcards.' },
@@ -60,8 +58,11 @@ export const info: McpServerInfo = {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// WORKSPACE LIFECYCLE (host-side — runs before/after the session sandbox)
+// WORKSPACE LIFECYCLE (host-side)
 // ════════════════════════════════════════════════════════════════════════════
+// The only framework-level workspace operations. workspaceEmpty is called by
+// the runner at session start; workspaceDestroy is called in the finally
+// block after the session ends. Everything else is agent-driven via tools.
 
 export interface PublishResult {
   branch: string
@@ -76,30 +77,6 @@ function parseRepo(repo: string): { owner: string; name: string } {
 
 export async function workspaceEmpty(): Promise<string> {
   return mkdtemp(join(tmpdir(), 'foundry-session-'))
-}
-
-// Clone the project's GitHub repo into a fresh tmpdir, strip the
-// installation token from .git/config, create the per-session branch, and
-// return the working directory. Called host-side by the runners at session
-// start — never runs inside a sandbox container.
-export async function workspaceClone(db: Db, config: Config, projectId: string, sessionId: string): Promise<string> {
-  const proj = require(database.projectGet(db, projectId), `project ${projectId} not found`)
-  if (!proj.repo) throw new Error(`project ${proj.name} has no repo configured`)
-  const { owner, name } = parseRepo(proj.repo)
-
-  const cloneUrl = await repoCloneUrl(config, owner, name)
-  const workDir  = await workspaceEmpty()
-  await execFileAsync('git', ['clone', cloneUrl, workDir])
-
-  // Strip the token out of .git/config; fresh tokens are minted at push time.
-  await execFileAsync('git', ['-C', workDir, 'remote', 'set-url', 'origin', `https://github.com/${owner}/${name}.git`])
-  await execFileAsync('git', ['-C', workDir, 'config', 'user.email', 'foundry@localhost'])
-  await execFileAsync('git', ['-C', workDir, 'config', 'user.name',  'Foundry'])
-
-  // Create and switch to the per-session branch.
-  await execFileAsync('git', ['-C', workDir, 'checkout', '-b', `foundry/${sessionId}`])
-
-  return workDir
 }
 
 export async function workspaceDestroy(workDir: string): Promise<void> {
@@ -150,6 +127,11 @@ export interface GithubCtx {
 
 // ── Schemas ──
 
+const gitCloneArgs = z.object({
+  owner: z.string().optional().describe('Optional GitHub owner. Defaults to the project\'s configured repo.'),
+  repo:  z.string().optional().describe('Optional GitHub repo name. Defaults to the project\'s configured repo.'),
+})
+
 const gitStatusArgs = z.object({})
 
 const gitDiffArgs = z.object({
@@ -173,6 +155,70 @@ const pullRequestCreateArgs = z.object({
   title: z.string().optional().describe('Optional PR title. Defaults to "[<ticket-id>] <ticket title>".'),
   body:  z.string().optional().describe('Optional PR body. Defaults to a summary pointing at the ticket.'),
 })
+
+// ── gitClone: tier-2 sandbox (install token isolated from the agent) ──
+//
+// Resolves the target repo (default = project.repo), mints a fresh
+// installation token on the host, spawns a tier-2 container with the
+// token in env, clones into /work (mounted rw), strips the token from
+// .git/config, sets the Foundry git identity, and creates the per-session
+// branch foundry/<sessionId>. The tier-1 containers that the agent later
+// uses can read the populated /work but the token lived only in the
+// tier-2 env and the initial .git/config — both gone by the time any
+// tier-1 call runs.
+
+async function handleGitClone(ctx: GithubCtx, args: z.infer<typeof gitCloneArgs>) {
+  // Resolve owner/repo: explicit args win, otherwise fall back to project.repo.
+  let owner = args.owner
+  let name  = args.repo
+  if (!owner || !name) {
+    const proj = require(database.projectGet(ctx.db, ctx.ticket.project_id), `project ${ctx.ticket.project_id} not found`)
+    if (!proj.repo) return { ok: false, error: 'no owner/repo provided and project has no default repo configured' }
+    const parsed = parseRepo(proj.repo)
+    owner = owner ?? parsed.owner
+    name  = name  ?? parsed.name
+  }
+
+  try {
+    const installationId = await installationForRepo(ctx.config, owner, name)
+    const { token: installToken } = await installationToken(ctx.config, installationId)
+    const branch = `foundry/${ctx.sessionId}`
+
+    // Single-shot command: clone (into /work, which is the bind-mounted
+    // session workspace), scrub the embedded token from .git/config,
+    // set identity, create the session branch. All five steps in one
+    // tier-2 container so the token never persists past this call.
+    const command = [
+      'set -e',
+      'export GIT_TERMINAL_PROMPT=0',
+      'git clone "https://x-access-token:${INSTALL_TOKEN}@github.com/${OWNER}/${REPO}" /work 1>&2',
+      'git -C /work remote set-url origin "https://github.com/${OWNER}/${REPO}.git"',
+      'git -C /work config user.email foundry@localhost',
+      'git -C /work config user.name Foundry',
+      'git -C /work checkout -b "foundry/${SESSION_ID}" 1>&2',
+      'echo cloned',
+    ].join('\n')
+
+    const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace,
+      command, 'gitClone', { owner, repo: name }, {
+        network: true,
+        mount:   'rw',
+        env: {
+          INSTALL_TOKEN: installToken,
+          OWNER:         owner,
+          REPO:          name,
+          SESSION_ID:    ctx.sessionId,
+        },
+      })
+
+    if (r.exitCode !== 0) {
+      return { ok: false, error: r.stderr || r.stdout || 'clone failed' }
+    }
+    return { ok: true, owner, repo: name, branch }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}
 
 // ── Handlers (tier-1 git ops run in the session sandbox) ──
 
@@ -235,19 +281,7 @@ async function handleGitCommit(ctx: GithubCtx, args: z.infer<typeof gitCommitArg
   return { ok: true, commit: lines[lines.length - 1] }
 }
 
-// ── pullRequestCreate: tier-2 sandbox (isolated from the agent) ──
-//
-// Runs in a fresh container:
-//   - /work mounted READ-ONLY (needs .git/objects to push, must not mutate)
-//   - network: true (needs github.com + api.github.com)
-//   - env: INSTALL_TOKEN, OWNER, REPO, BRANCH, BASE, PR_BODY_JSON
-//
-// The command references env vars ($INSTALL_TOKEN etc.) literally — the
-// command string logged to execution.command does not contain the token
-// itself, only the reference. The env map passed to podman is NOT written
-// to the execution row. Secret isolation: the agent's regular tools
-// (exec/read/write) operate in the session sandbox and cannot see this
-// container or its env.
+// ── pullRequestCreate: tier-2 sandbox (push + PR create with secret) ──
 
 async function handlePullRequestCreate(ctx: GithubCtx, args: z.infer<typeof pullRequestCreateArgs>) {
   // Pre-flight (tier-1): verify there are commits to publish.
@@ -283,16 +317,8 @@ async function handlePullRequestCreate(ctx: GithubCtx, args: z.infer<typeof pull
     // env vars injected by podman; the logged command string contains
     // only variable references ($INSTALL_TOKEN etc), not the expanded
     // secrets. The shell inside the container expands them at run time.
-    //
-    // Token in URL (basic-auth user position) is the known-working pattern
-    // for headless git push against GitHub. GIT_TERMINAL_PROMPT=0 keeps
-    // git from hanging on a credential prompt if anything falls through.
-    // If git push fails, git CAN print the expanded URL in its error line
-    // — we accept this narrow leak because (a) execution.stderr lives in
-    // the local SQLite DB (same trust level as the host process that
-    // minted the token) and (b) the tier-2 isolation means the agent
-    // never sees stderr or the execution row directly. The regex scrub
-    // on write is the belt-and-suspenders guard.
+    // Any token that leaks into git's stderr is scrubbed before write by
+    // the execution-row scrubber in mcp/_shared.ts.
     const command = [
       'set -e',
       'cd /work',
@@ -321,8 +347,6 @@ async function handlePullRequestCreate(ctx: GithubCtx, args: z.infer<typeof pull
       })
 
     if (r.exitCode !== 0) {
-      // Don't surface push.err contents — they may contain the token if
-      // git embedded it in an error line.
       return { ok: false, error: 'push or PR create failed (see execution row for details)' }
     }
 
@@ -370,13 +394,18 @@ function defaultPrBody(sessionId: string, ticket: Ticket): string {
 This PR is a draft. Review the diff and mark it Ready when you're satisfied.`
 }
 
+// Tool descriptions carry the environmental contract each tool expects
+// and produces, so the agent doesn't need a separate "here's your
+// environment" preamble at the top of the system prompt. The tool
+// descriptions ARE the environmental documentation.
 const DESC = {
-  gitStatus:         'Show the working tree status in porcelain format.',
-  gitDiff:           'Show the diff. By default shows unstaged changes; set staged=true to see the staged diff. Optionally scope to specific paths.',
-  gitAdd:            'Stage specific paths for commit. Only literal repo-relative paths are accepted — no -A, no wildcards, no glob expansion. Paths inside .git/, .foundry/, node_modules/, build outputs, and caches are rejected.',
-  gitRemove:         'Remove paths from the working tree and index (git rm). Same validation as gitAdd — literal paths only, protected directories rejected.',
-  gitCommit:         'Commit the staged index with a message. Fails if nothing is staged.',
-  pullRequestCreate: 'Push the session branch and open a draft pull request against the clone\'s default branch. Call after gitCommit. Posts a comment on the current ticket with the PR URL.',
+  gitClone:          'Clone the configured GitHub repo into the empty session workspace at /work. Creates the per-session branch `foundry/<session-id>` and switches to it. Typical first step of a code session — the workspace starts empty, nothing is pre-cloned. Optional owner/repo args override the project default if you need a different repo.',
+  gitStatus:         'Show the working tree status in porcelain format. Requires a workspace populated by gitClone (or manually) — fails if /work is not a git repo.',
+  gitDiff:           'Show the diff. By default shows unstaged changes; set staged=true to see the staged diff. Optionally scope to specific paths. Requires a git workspace (see gitClone).',
+  gitAdd:            'Stage specific paths for commit. Only literal repo-relative paths are accepted — no -A, no wildcards, no glob expansion. Paths inside .git/, .foundry/, node_modules/, build outputs, and caches are rejected. Requires a git workspace (see gitClone).',
+  gitRemove:         'Remove paths from the working tree and index (git rm). Same validation as gitAdd — literal paths only, protected directories rejected. Requires a git workspace (see gitClone).',
+  gitCommit:         'Commit the staged index with a message. Fails if nothing is staged. Session id and ticket id are appended to the commit trailer automatically. Requires a git workspace (see gitClone).',
+  pullRequestCreate: 'Push the session branch and open a draft pull request against the clone\'s default branch. Call after at least one gitCommit. Posts a comment on the current ticket with the PR URL. Requires a git workspace (see gitClone).',
 }
 
 // ── Anthropic Claude Agent SDK adapter ──
@@ -385,6 +414,7 @@ export function buildSdk(ctx: GithubCtx) {
   return createSdkMcpServer({
     name: 'github',
     tools: [
+      sdkTool('gitClone',          DESC.gitClone,          gitCloneArgs.shape,          async a => asText(await handleGitClone(ctx, a))),
       sdkTool('gitStatus',         DESC.gitStatus,         gitStatusArgs.shape,         async a => asText(await handleGitStatus(ctx, a))),
       sdkTool('gitDiff',           DESC.gitDiff,           gitDiffArgs.shape,           async a => asText(await handleGitDiff(ctx, a))),
       sdkTool('gitAdd',            DESC.gitAdd,            gitAddArgs.shape,            async a => asText(await handleGitAdd(ctx, a))),
@@ -399,6 +429,11 @@ export function buildSdk(ctx: GithubCtx) {
 
 export function buildAi(ctx: GithubCtx) {
   return {
+    gitClone: tool({
+      description: DESC.gitClone,
+      inputSchema: gitCloneArgs,
+      execute:     (args: z.infer<typeof gitCloneArgs>) => handleGitClone(ctx, args),
+    }),
     gitStatus: tool({
       description: DESC.gitStatus,
       inputSchema: gitStatusArgs,

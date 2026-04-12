@@ -7,7 +7,7 @@ import { type Ticket, type Agent as AgentDef } from '../schema.js'
 import * as domain from '../domain.js'
 import { now, require } from '../functional.js'
 
-import { workspaceClone, workspaceDestroy } from '../mcp/github.js'
+import { workspaceEmpty, workspaceDestroy } from '../mcp/github.js'
 import * as foundryServer from '../mcp/foundry.js'
 import * as githubServer  from '../mcp/github.js'
 import * as sandboxServer from '../mcp/sandbox.js'
@@ -23,10 +23,12 @@ import * as browserServer from '../mcp/browser.js'
 // sandbox, browser). Built-in SDK tools are disabled via `tools: []` so the
 // model can only use the Foundry surface.
 //
-// Publishing is fully agent-driven: the agent must call gitAdd → gitCommit →
-// pullRequestCreate itself. The runner does not auto-publish at session end.
-// If the agent finishes without publishing, the session branch never reaches
-// GitHub and the workspace tmpdir is destroyed.
+// Workspace and publishing are both fully agent-driven. The runner
+// allocates an empty tmpdir at /work and nothing more. The agent is
+// responsible for cloning (gitClone), bootstrapping (exec), making
+// changes, staging (gitAdd/gitCommit), and publishing (pullRequestCreate).
+// If the agent finishes without publishing, the session branch never
+// reaches GitHub and the workspace tmpdir is destroyed.
 
 export async function runAgentSessionViaSdk(
   db: Db, config: Config, sessionId: string, agentDef: AgentDef, ticketData: Ticket,
@@ -46,17 +48,8 @@ export async function runAgentSessionViaSdk(
     }
   })()
 
-  let workDir: string
-  try {
-    workDir = await workspaceClone(db, config, ticketData.project_id, sessionId)
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err)
-    try { domain.ticketFail(db, ticketData.id, { notes: msg, agentName: agentDef.name, sessionId }) } catch {}
-    database.sessionUpdate(db, sessionId, {
-      status: 'failed', error: msg, ended_at: now(), duration_ms: Date.now() - startTime,
-    })
-    return
-  }
+  // Empty workspace — agent owns clone / bootstrap via gitClone tool.
+  const workDir = await workspaceEmpty()
 
   // Inject the OAuth token. Single-process / single-subscription = no race.
   const prevToken = process.env.CLAUDE_CODE_OAUTH_TOKEN

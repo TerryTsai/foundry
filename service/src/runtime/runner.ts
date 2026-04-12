@@ -11,7 +11,7 @@ import * as domain from '../domain.js'
 import type { TicketChainEntry } from '../domain.js'
 import { now } from '../functional.js'
 
-import { workspaceClone, workspaceDestroy } from '../mcp/github.js'
+import { workspaceEmpty, workspaceDestroy } from '../mcp/github.js'
 import { resolveModelWithDefaults } from './model.js'
 import * as foundryServer from '../mcp/foundry.js'
 import * as githubServer  from '../mcp/github.js'
@@ -28,14 +28,21 @@ function buildSystemPrompt(agentPrompt: string, agentMd: string, chain: TicketCh
   const chainText = chain.slice(0, -1)
     .map(t => `### ${t.title} (${t.status})\n${t.body}`)
     .join('\n\n')
-  return [
-    agentPrompt, '', '---', '',
-    '## Project Context (AGENT.md)', '', agentMd,
-    chainText ? `\n## Parent Tickets\n\n${chainText}` : '',
-    '', '---', '',
-    `## Current Ticket: ${ticketData.title}`, '', ticketData.body,
-    priorHistory ? `\n\n---\n\n${priorHistory}` : '',
-  ].filter(s => s !== undefined).join('\n')
+  // AGENT.md is read opportunistically from the workspace. With the new
+  // empty-workspace model it will be missing at session start (the agent
+  // hasn't cloned yet); only include the section when there's actual content.
+  const sections: string[] = [agentPrompt, '', '---']
+  if (agentMd.trim()) {
+    sections.push('', '## Project Context (AGENT.md)', '', agentMd)
+  }
+  if (chainText) {
+    sections.push('', '## Parent Tickets', '', chainText)
+  }
+  sections.push('', '---', '', `## Current Ticket: ${ticketData.title}`, '', ticketData.body)
+  if (priorHistory) {
+    sections.push('', '---', '', priorHistory)
+  }
+  return sections.join('\n')
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -185,17 +192,10 @@ export async function runAgentSession(
   }
 
   const startTime = Date.now()
-  // Surface clone failures as session errors instead of dropping the agent
-  // into an empty tmpdir. The previous fallback hid real problems (bad
-  // installation token, app not installed on the repo, network) by letting
-  // the agent run against an empty /work and produce nothing.
-  let workDir: string
-  try {
-    workDir = await workspaceClone(db, config, ticketData.project_id, sessionId)
-  } catch (err) {
-    failSession(db, sessionId, ticketData.id, agentDef.name, err, startTime)
-    return
-  }
+  // Empty workspace, agent-driven population. The runner just allocates
+  // the tmpdir — the agent calls gitClone (or whatever other setup it
+  // needs) as an explicit first step via the attached integrations.
+  const workDir = await workspaceEmpty()
   try {
     const { system, tools } = await buildContext(db, config, sessionId, ticketData, agentDef, workDir)
     beginSession(db, sessionId, ticketData.id, agentDef.name, ticketData.body)
