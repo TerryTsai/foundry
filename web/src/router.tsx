@@ -25,6 +25,7 @@ import { ConnectionNewPage } from './pages/agents/ConnectionNewPage.js'
 import { ConnectionDetailPage } from './pages/agents/ConnectionDetailPage.js'
 import { LoginPage } from './pages/auth/LoginPage.js'
 import { HealthPage } from './pages/HealthPage.js'
+import { SettingsLayout, SettingsIndexPlaceholder } from './pages/settings/SettingsLayout.js'
 
 const pid = (p: Params) => p.projectId!
 
@@ -32,6 +33,41 @@ export const router = createBrowserRouter([
   { path: '/login', element: <LoginPage /> },
   { path: '/health', element: <HealthPage /> },
   { path: '/', element: <RootRedirect /> },
+  {
+    path: '/settings',
+    element: <SettingsLayout />,
+    children: [
+      { index: true, element: <SettingsIndexPlaceholder /> },
+      {
+        path: 'agents',
+        element: <Outlet />,
+        children: [
+          { index: true, element: <div className="p-6 text-sm text-zinc-500 dark:text-zinc-400">coming soon</div> },
+          { path: 'new', element: <div className="p-6 text-sm text-zinc-500 dark:text-zinc-400">coming soon</div> },
+          { path: ':agentId', element: <div className="p-6 text-sm text-zinc-500 dark:text-zinc-400">coming soon</div> },
+        ],
+      },
+      {
+        path: 'connections',
+        element: <Outlet />,
+        children: [
+          { index: true, element: <div className="p-6 text-sm text-zinc-500 dark:text-zinc-400">coming soon</div> },
+          { path: 'new', element: <div className="p-6 text-sm text-zinc-500 dark:text-zinc-400">coming soon</div> },
+          { path: ':connectionId', element: <div className="p-6 text-sm text-zinc-500 dark:text-zinc-400">coming soon</div> },
+        ],
+      },
+      {
+        path: 'projects',
+        element: <Outlet />,
+        children: [
+          { index: true, element: <div className="p-6 text-sm text-zinc-500 dark:text-zinc-400">coming soon</div> },
+          { path: 'new', element: <div className="p-6 text-sm text-zinc-500 dark:text-zinc-400">coming soon</div> },
+          { path: ':projectId', element: <div className="p-6 text-sm text-zinc-500 dark:text-zinc-400">coming soon</div> },
+        ],
+      },
+      { path: 'profile', element: <div className="p-6 text-sm text-zinc-500 dark:text-zinc-400">coming soon</div> },
+    ],
+  },
   {
     path: '/projects',
     element: <ProjectListPage />,
