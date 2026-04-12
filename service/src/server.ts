@@ -15,6 +15,7 @@ app.use(express.json())
 
 // ── Public routes (no auth) ──
 app.get('/health', (_req, res) => res.json({ ok: true }))
+app.get('/health/detail', (_req, res) => res.json({ ok: true, uptime: process.uptime(), version: '1.0.0' }))
 app.use('/auth', router.auth(db, config))
 
 // ── Static web app (production) ──
