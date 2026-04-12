@@ -294,6 +294,22 @@ export function schedulerStopAll(): void {
   intervals.clear()
 }
 
+// Fail all in-flight sessions and release their tickets for redispatch.
+// Called from the SIGTERM handler so deploys don't leave zombie rows.
+export function shutdownDrain(db: Db): void {
+  const running = database.sessionAll(db, [eq(schema.session.status, 'running')])
+  for (const s of running) {
+    database.sessionUpdate(db, s.id, {
+      status: 'failed', error: 'deploy-restart', ended_at: now(),
+    })
+    const t = database.ticketGet(db, s.ticket_id)
+    if (t?.status === 'claimed') {
+      database.ticketUpdate(db, t.id, { status: 'open', claimed_at: null, updated_at: now() })
+    }
+  }
+  if (running.length) console.log(`drained ${running.length} running session(s)`)
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // TICKETING
 // ════════════════════════════════════════════════════════════════════════════

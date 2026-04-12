@@ -2,6 +2,7 @@ import express from 'express'
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import { existsSync } from 'fs'
+import { execSync } from 'child_process'
 import { config } from './config.js'
 import { createDatabase } from './database.js'
 import * as router from './router.js'
@@ -52,6 +53,16 @@ app.listen(config.port, () => {
   console.log(`foundry service listening on port ${config.port}`)
   domain.schedulerRecover(db).catch(console.error)
   domain.schedulerStartAll(db)
+})
+
+// ── Graceful shutdown on deploy restart ──
+process.on('SIGTERM', () => {
+  console.log('SIGTERM received, draining…')
+  domain.schedulerStopAll()
+  domain.shutdownDrain(db)
+  try { execSync('podman kill --all', { timeout: 5000, stdio: 'ignore' }) } catch {}
+  console.log('drain complete, exiting')
+  process.exit(0)
 })
 
 export { app }
