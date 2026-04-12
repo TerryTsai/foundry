@@ -6,7 +6,7 @@ import { eq, and, isNull } from 'drizzle-orm'
 import { type Db } from './database.js'
 import * as database from './database.js'
 import * as schema from './schema.js'
-import type { Account, Ticket, Comment, Connection, Agent, Session, Message, Execution } from './schema.js'
+import type { Account, Ticket, Comment, Connection, Agent, Session, Message, Execution, TicketTag } from './schema.js'
 import type { Config } from './config.js'
 import { require, assertStatus, pick, now, AppError, conflict, badRequest, notFound } from './functional.js'
 import { supported } from './runtime/model.js'
@@ -277,6 +277,7 @@ export function ticketList(db: Db, filters: z.infer<typeof validate.ticketList>)
     filters.parentId === 'null' ? isNull(schema.ticket.parent_id)
       : filters.parentId        ? eq(schema.ticket.parent_id, filters.parentId) : null,
   ].filter(Boolean) as any[]
+  if (filters.tag) return database.ticketsByTag(db, filters.tag, conditions)
   return database.ticketAll(db, conditions)
 }
 
@@ -372,6 +373,31 @@ export function commentCreate(db: Db, ticketId: string, input: { author: string;
   require(database.ticketGet(db, ticketId))
   return database.commentInsert(db, { ticket_id: ticketId, session_id: input.session_id ?? null, author: input.author, body: input.body, created_at: now() })
 }
+// ────────────────────────────────────────────────────────────────────────────
+// TICKET TAGS
+// ────────────────────────────────────────────────────────────────────────────
+
+export function tagList(db: Db, ticketId: string): TicketTag[] {
+  return database.ticketTagList(db, ticketId)
+}
+
+export function tagAdd(db: Db, ticketId: string, tag: string): TicketTag {
+  require(database.ticketGet(db, ticketId))
+  try {
+    return database.ticketTagInsert(db, ticketId, tag)
+  } catch (err: any) {
+    // Silently succeed if tag already exists (unique constraint violation)
+    if (err?.code === 'SQLITE_CONSTRAINT_UNIQUE' || err?.message?.includes?.('UNIQUE constraint failed')) {
+      return database.ticketTagList(db, ticketId).find(t => t.tag === tag.toLowerCase().trim())!
+    }
+    throw err
+  }
+}
+
+export function tagRemove(db: Db, ticketId: string, tag: string): void {
+  database.ticketTagRemove(db, ticketId, tag)
+}
+
 // Returns a formatted block of everything that's been said on this ticket
 // outside the current session. Includes all prior comments — both the
 // agent's own previous responses (so it remembers what it produced) and

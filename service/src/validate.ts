@@ -56,11 +56,16 @@ export const connectionUpdate = z.object({
 // TICKETING
 // ════════════════════════════════════════════════════════════════════════════
 
+export const tagCreate = z.object({
+  tag: z.string().min(1).max(50).transform(s => s.toLowerCase().trim()),
+})
+
 export const ticketList = z.object({
   projectId: z.string().optional(),
   agentId:   z.string().optional(),
   status:    z.string().optional(),
   parentId:  z.string().optional(),
+  tag:       z.string().optional(),
 })
 
 export const ticketCreate = z.object({

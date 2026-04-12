@@ -94,6 +94,15 @@ export const ticket = sqliteTable('ticket', {
 export type Ticket = typeof ticket.$inferSelect
 export type NewTicket = typeof ticket.$inferInsert
 
+export const ticketTag = sqliteTable('ticket_tag', {
+  id:         text('id').primaryKey(),
+  ticket_id:  text('ticket_id').notNull().references(() => ticket.id, { onDelete: 'cascade' }),
+  tag:        text('tag').notNull(),
+  created_at: text('created_at').notNull(),
+})
+
+export type TicketTag = typeof ticketTag.$inferSelect
+
 export const comment = sqliteTable('comment', {
   id:         text('id').primaryKey(),
   ticket_id:  text('ticket_id').notNull().references(() => ticket.id),
