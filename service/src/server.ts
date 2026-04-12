@@ -1,4 +1,7 @@
 import express from 'express'
+import { join, dirname } from 'path'
+import { fileURLToPath } from 'url'
+import { existsSync } from 'fs'
 import { config } from './config.js'
 import { createDatabase } from './database.js'
 import * as router from './router.js'
@@ -13,6 +16,24 @@ app.use(express.json())
 // ── Public routes (no auth) ──
 app.get('/health', (_req, res) => res.json({ ok: true }))
 app.use('/auth', router.auth(db, config))
+
+// ── Static web app (production) ──
+// Serve the built web app from ../web/dist. In dev (tsx watch) this is a
+// no-op because web/dist doesn't exist yet; Vite serves the app on :3006.
+// Must be ABOVE requireAuth so the login page and its assets can load
+// without a session cookie.
+const __dirname = dirname(fileURLToPath(import.meta.url))
+const webDist = join(__dirname, '../../web/dist')
+if (existsSync(webDist)) {
+  app.use(express.static(webDist))
+  // SPA fallback: non-API GET requests serve index.html for client-side
+  // routing. API paths pass through to requireAuth + route handlers below.
+  const apiPrefixes = ['/project', '/connection', '/ticket', '/agent', '/session', '/execution', '/health', '/auth']
+  app.use((req, res, next) => {
+    if (req.method !== 'GET' || apiPrefixes.some(p => req.path.startsWith(p))) return next()
+    res.sendFile(join(webDist, 'index.html'))
+  })
+}
 
 // ── Authenticated routes ──
 app.use(requireAuth(db, config))
