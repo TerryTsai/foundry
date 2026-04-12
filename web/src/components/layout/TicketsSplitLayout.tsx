@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { Outlet, useLoaderData, useParams, Link, useMatch } from 'react-router-dom'
-import { Plus } from 'lucide-react'
+import { Plus, Hash, X } from 'lucide-react'
 import type { Ticket, Agent } from '../../types.js'
 import { useShell } from '../../Shell.js'
+import { ticketApi } from '../../api.js'
 import { MultiSelect } from '../primitives/MultiSelect.js'
 import { ListRow } from '../list/ListRow.js'
 import { EmptyState } from '../list/EmptyState.js'
@@ -30,6 +31,65 @@ function matchesDateFilter(iso: string, selected: Set<string>): boolean {
     (selected.has('yesterday')  && d >= yesterday && d < endOfYesterday) ||
     (selected.has('this week')  && d >= startOf('week')) ||
     (selected.has('this month') && d >= startOf('month'))
+  )
+}
+
+// ── Tag filter input ────────────────────────────────────────────────────────
+//
+// Shows a small hash-prefixed text input.  On Enter (or when the input loses
+// focus with a non-empty value) the tag is committed and replaced by a
+// clearable chip.
+
+interface TagFilterProps {
+  activeTag: string
+  onCommit: (tag: string) => void
+  onClear: () => void
+}
+
+function TagFilter({ activeTag, onCommit, onClear }: TagFilterProps) {
+  const [draft, setDraft] = useState('')
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  function commit() {
+    const v = draft.trim().toLowerCase()
+    if (v) onCommit(v)
+    setDraft('')
+  }
+
+  // When the active tag is cleared externally, keep draft empty
+  useEffect(() => {
+    if (!activeTag) setDraft('')
+  }, [activeTag])
+
+  if (activeTag) {
+    return (
+      <button
+        onClick={onClear}
+        className="flex items-center gap-1 px-3 py-1.5 rounded-full border text-xs shrink-0 transition-colors border-sky-500/60 bg-sky-500/10 text-sky-600 dark:text-sky-300"
+        title="Clear tag filter"
+      >
+        <Hash size={10} strokeWidth={2.5} />
+        <span>{activeTag}</span>
+        <X size={10} strokeWidth={2.5} className="ml-0.5 opacity-70" />
+      </button>
+    )
+  }
+
+  return (
+    <form
+      onSubmit={e => { e.preventDefault(); commit() }}
+      className="flex items-center gap-1 px-3 py-1.5 rounded-full border text-xs shrink-0 transition-colors border-transparent text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800/50 focus-within:border-zinc-300 dark:focus-within:border-zinc-700"
+    >
+      <Hash size={10} strokeWidth={2.5} className="shrink-0" />
+      <input
+        ref={inputRef}
+        value={draft}
+        onChange={e => setDraft(e.target.value)}
+        onBlur={commit}
+        placeholder="tag"
+        className="w-12 bg-transparent outline-none placeholder-zinc-400 dark:placeholder-zinc-600 min-w-0"
+      />
+    </form>
   )
 }
 
@@ -62,10 +122,42 @@ export function TicketsSplitLayout() {
   const [createdFilter, setCreatedFilter] = useState<Set<string>>(new Set())
   const [claimedFilter, setClaimedFilter] = useState<Set<string>>(new Set())
 
+  // Tag filter: activeTag drives a server-side re-fetch; tagTickets holds the
+  // result.  When no tag is active we fall back to the loader's ticket list.
+  const [activeTag, setActiveTag]       = useState<string>('')
+  const [tagTickets, setTagTickets]     = useState<Ticket[] | null>(null)
+  const [tagLoading, setTagLoading]     = useState(false)
+
+  // Fetch tag-filtered tickets whenever activeTag changes.
+  const fetchTagTickets = useCallback(async (tag: string) => {
+    if (!tag) { setTagTickets(null); return }
+    setTagLoading(true)
+    try {
+      const result = await ticketApi.list({ projectId, tag })
+      setTagTickets(result)
+    } finally {
+      setTagLoading(false)
+    }
+  }, [projectId])
+
+  useEffect(() => { void fetchTagTickets(activeTag) }, [activeTag, fetchTagTickets])
+
+  // Re-sync tag results whenever the loader revalidates so the list stays fresh.
+  useEffect(() => {
+    if (activeTag) void fetchTagTickets(activeTag)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tickets])
+
+  function commitTag(tag: string) { setActiveTag(tag) }
+  function clearTag()             { setActiveTag(''); setTagTickets(null) }
+
+  // Source: tag-filtered subset (from API) or all tickets from loader.
+  const sourceTickets = tagTickets ?? tickets
+
   const agentName = (t: Ticket) => agents.find(a => a.id === t.agent_id)?.name ?? 'unassigned'
   const uniqueAgentNames = Array.from(new Set(tickets.map(agentName))).sort()
 
-  const filtered = tickets.filter(t => {
+  const filtered = sourceTickets.filter(t => {
     if (statuses.size > 0 && !statuses.has(t.status)) return false
     if (agentFilter.size > 0 && !agentFilter.has(agentName(t))) return false
     if (createdFilter.size > 0 && !matchesDateFilter(t.created_at, createdFilter)) return false
@@ -87,12 +179,18 @@ export function TicketsSplitLayout() {
       )}
       <MultiSelect label="Created" options={DATE_OPTIONS}                     selected={createdFilter}  onChange={setCreatedFilter} />
       <MultiSelect label="Claimed" options={['unclaimed', ...DATE_OPTIONS]}   selected={claimedFilter}  onChange={setClaimedFilter} />
+      <TagFilter activeTag={activeTag} onCommit={commitTag} onClear={clearTag} />
     </>
   )
 
   // ── Ticket row list (shared between desktop & mobile) ─────────────────────
 
   function renderRows(hideChevron: boolean) {
+    if (tagLoading) return (
+      <div className="flex items-center justify-center py-10">
+        <span className="text-xs text-zinc-400 dark:text-zinc-600 animate-pulse">filtering…</span>
+      </div>
+    )
     if (filtered.length === 0) return <EmptyState message="no tickets" />
     return (
       <div className="[&>:last-child>*]:border-b-0">
