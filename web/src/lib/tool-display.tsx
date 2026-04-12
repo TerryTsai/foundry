@@ -33,6 +33,7 @@ function asArray(v: unknown): string[] | undefined {
 
 const TOOL_META: Record<string, ToolMeta> = {
   // ── sandbox ──
+  run:    { label: i => `run ${truncate(asString(i.command) ?? '', 60)}`, icon: Terminal },
   exec:   { label: i => `exec ${truncate(asString(i.command) ?? '', 60)}`, icon: Terminal },
   read:   { label: i => `read ${asString(i.path) ?? ''}${typeof i.offset === 'number' ? ` from ${i.offset}` : ''}`, icon: FileText },
   write:  { label: i => `write ${asString(i.path) ?? ''}`, icon: FilePen },

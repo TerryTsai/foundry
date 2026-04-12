@@ -32,7 +32,8 @@ export const info: McpServerInfo = {
   name:        'Sandbox',
   description: 'Isolated Linux environment with a persistent session workspace: files, commands, search.',
   tools: [
-    { name: 'exec',   description: 'Run a shell command in a sandboxed container. Workspace at /work.' },
+    { name: 'run',    description: 'Run a single shell command in the sandbox.' },
+    { name: 'exec',   description: 'Run an arbitrary shell command (admin escape hatch, not included by default).' },
     { name: 'read',   description: 'Read a file from the workspace, with optional offset/limit pagination.' },
     { name: 'write',  description: 'Create or overwrite a file in the workspace.' },
     { name: 'patch',  description: 'Apply a targeted string replacement to a file.' },
@@ -87,14 +88,25 @@ function assertSafeWritePath(p: string): void {
 
 // ── Handlers ──
 
-async function handleExec(ctx: SandboxCtx, args: z.infer<typeof validate.toolExec>) {
+// Core shell execution — used by both `run` (default) and `exec` (admin).
+// Same sandbox, same container, same cgroup tracking. The difference is
+// which agents see which tool name + how the description guides usage.
+async function handleShell(ctx: SandboxCtx, toolName: string, args: z.infer<typeof validate.toolExec>) {
   const command = args.cwd ? `cd ${esc(args.cwd)} && ${args.command}` : args.command
   try {
-    const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace, command, 'exec', args, { network: args.network ?? false })
+    const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace, command, toolName, args, { network: args.network ?? false })
     return { ...bounded(ctx.workspace, r.stdout), stderr: r.stderr, exitCode: r.exitCode }
   } catch (err) {
     return { content: '', stderr: '', exitCode: -1, error: err instanceof Error ? err.message : String(err) }
   }
+}
+
+async function handleRun(ctx: SandboxCtx, args: z.infer<typeof validate.toolExec>) {
+  return handleShell(ctx, 'run', args)
+}
+
+async function handleExec(ctx: SandboxCtx, args: z.infer<typeof validate.toolExec>) {
+  return handleShell(ctx, 'exec', args)
 }
 
 async function handleRead(ctx: SandboxCtx, args: z.infer<typeof validate.toolRead>) {
@@ -205,13 +217,17 @@ async function handleFind(ctx: SandboxCtx, args: z.infer<typeof validate.toolFin
 // Tool descriptions carry the environmental contract — what state the tool
 // expects and what it leaves behind. The agent needs no separate preamble.
 const DESC = {
-  exec:
-    'Run a shell command in the session sandbox. The workspace is bind-mounted at /work and persists across exec calls within this session; state survives until the session ends. ' +
-    'The sandbox starts with an EMPTY /work — no project files, no dependencies, no config. Populate it yourself (e.g. via the github server\'s gitClone tool, or directly via git clone / curl / etc.). ' +
-    'Pre-installed binaries: git, node/npm/npx, tsc, prettier, eslint, tsx, python3, curl, wget, jq, lynx, make, gcc, and standard unix tools. ' +
-    '$HOME is /tmp so package managers and tools that write to ~ (npm, pip, cargo) work without flags. ' +
-    'Network is disabled by default; pass network:true if the command needs outbound access. ' +
+  run:
+    'Run a single shell command in the session sandbox. The workspace is bind-mounted at /work and persists across calls within this session. ' +
+    'The sandbox starts with an EMPTY /work — populate it yourself (e.g. via gitClone). ' +
+    'Pre-installed: git, node/npm/npx, tsc, prettier, eslint, tsx, python3, curl, wget, jq, lynx, make, gcc, and standard unix tools. ' +
+    '$HOME is /tmp so package managers work without flags. ' +
+    'Network is disabled by default; pass network:true for outbound access. ' +
+    'Prefer one command per call for clean audit trails — avoid chaining with && or ;. ' +
     'Large stdout is written to a file; use the read tool to paginate.',
+  exec:
+    'Run an arbitrary shell command in the session sandbox (admin escape hatch). Same environment as `run` but intended for complex multi-command pipelines, shell scripting, and administrative tasks. ' +
+    'Not included by default — enable per-agent for roles that need unstructured shell access.',
   read:   'Read the contents of a file from the workspace. Use offset and limit to paginate. Large output is written to a file you can read with offset/limit. Reads against an empty workspace return "not found" — populate /work first.',
   write:  'Create or overwrite a file in the workspace. Parent directories are created as needed. .git/ and .foundry/ paths are protected.',
   patch:  'Apply a targeted edit to a file by replacing an exact string match. Fails if the old_string is not found or appears more than once. .git/ and .foundry/ paths are protected.',
@@ -226,6 +242,7 @@ export function buildSdk(ctx: SandboxCtx) {
   return createSdkMcpServer({
     name: 'sandbox',
     tools: [
+      sdkTool('run',    DESC.run,    validate.toolExec.shape,  async a => asText(await handleRun(ctx, a))),
       sdkTool('exec',   DESC.exec,   validate.toolExec.shape,  async a => asText(await handleExec(ctx, a))),
       sdkTool('read',   DESC.read,   validate.toolRead.shape,  async a => asText(await handleRead(ctx, a))),
       sdkTool('write',  DESC.write,  validate.toolWrite.shape, async a => asText(await handleWrite(ctx, a))),
@@ -241,6 +258,12 @@ export function buildSdk(ctx: SandboxCtx) {
 
 export function buildAi(ctx: SandboxCtx) {
   return {
+    run: tool({
+      description:  DESC.run,
+      inputSchema:  validate.toolExec,
+      outputSchema: boundedOutput.extend({ stderr: z.string(), exitCode: z.number() }),
+      execute:      (args: z.infer<typeof validate.toolExec>) => handleRun(ctx, args),
+    }),
     exec: tool({
       description:  DESC.exec,
       inputSchema:  validate.toolExec,
