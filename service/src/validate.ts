@@ -75,6 +75,7 @@ export const ticketCreate = z.object({
   body:       z.string(),
   priority:   z.number().int().default(0),
   parent_id:  z.string().optional(),
+  blocked_by: z.string().optional(),   // ticket id — this ticket won't dispatch until the blocker is done
   created_by: z.string(),
   block:      z.boolean().optional(),
 })

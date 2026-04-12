@@ -85,6 +85,7 @@ export const ticket = sqliteTable('ticket', {
   status:     text('status').notNull().default('open'),
   priority:   integer('priority').notNull().default(0),
   parent_id:  text('parent_id'),
+  blocked_by: text('blocked_by'),   // FK to another ticket — scheduler skips until that ticket is done
   created_by: text('created_by').notNull(),
   created_at: text('created_at').notNull(),
   updated_at: text('updated_at').notNull(),

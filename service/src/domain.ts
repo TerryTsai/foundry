@@ -208,7 +208,15 @@ export async function schedulerDispatch(db: Db, projectId: string): Promise<void
 
   if (claimed.length >= proj.concurrency_limit) return
 
-  const eligible = [...open, ...reopened].filter(t => t.agent_id && agents.find(a => a.id === t.agent_id))
+  const eligible = [...open, ...reopened].filter(t => {
+    if (!t.agent_id || !agents.find(a => a.id === t.agent_id)) return false
+    // Dependency gate: skip tickets whose blocker hasn't completed yet.
+    if (t.blocked_by) {
+      const blocker = database.ticketGet(db, t.blocked_by)
+      if (!blocker || blocker.status !== 'done') return false
+    }
+    return true
+  })
 
   for (const t of eligible.slice(0, proj.concurrency_limit - claimed.length)) {
     const def = agents.find(a => a.id === t.agent_id)!
@@ -286,13 +294,16 @@ export function ticketGet(db: Db, id: string): Ticket {
 }
 
 export function ticketCreate(db: Db, input: z.infer<typeof validate.ticketCreate>): Ticket {
-  const { project_id, agent_id, title, body, priority, parent_id, created_by, block } = input
-  if (parent_id) require(database.ticketGet(db, parent_id), 'parent_id not found')
+  const { project_id, agent_id, title, body, priority, parent_id, blocked_by, created_by, block } = input
+  if (parent_id)  require(database.ticketGet(db, parent_id), 'parent_id not found')
+  if (blocked_by) require(database.ticketGet(db, blocked_by), 'blocked_by ticket not found')
 
   return db.transaction(tx => {
     const row = database.ticketInsert(tx as any, {
       project_id, agent_id: agent_id ?? null, title, body, priority,
-      status: 'open', parent_id: parent_id ?? null,
+      status: blocked_by ? 'blocked' : 'open',
+      parent_id: parent_id ?? null,
+      blocked_by: blocked_by ?? null,
       created_by, ...ts(), claimed_at: null,
     })
     if (block && parent_id && database.ticketGet(tx as any, parent_id)?.status === 'claimed') {
@@ -322,8 +333,16 @@ export function ticketComplete(db: Db, id: string, opts?: { notes?: string; agen
     const author = opts?.agentName ?? 'system'
     const body = opts?.notes ? `Session completed\n${opts.notes}` : 'Session completed'
     database.commentInsert(d, { ticket_id: id, session_id: opts?.sessionId ?? null, author, body, created_at: now() })
+    // Unblock parent ticket if it was blocked by a child (legacy pattern).
     if (row.parent_id && database.ticketGet(d, row.parent_id)?.status === 'blocked') {
       database.ticketUpdate(d, row.parent_id, { status: 'open', updated_at: now() })
+    }
+    // Unblock any tickets that were waiting on this one via blocked_by.
+    const dependents = database.ticketAll(d, [eq(schema.ticket.blocked_by, id)])
+    for (const dep of dependents) {
+      if (dep.status === 'blocked') {
+        database.ticketUpdate(d, dep.id, { status: 'open', updated_at: now() })
+      }
     }
     return require(database.ticketGet(d, id))
   }) as Ticket

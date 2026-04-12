@@ -154,6 +154,7 @@ const gitCommitArgs = z.object({
 const gitPullRequestArgs = z.object({
   title: z.string().optional().describe('Optional PR title. Defaults to "[<ticket-id>] <ticket title>".'),
   body:  z.string().optional().describe('Optional PR body. Defaults to a summary pointing at the ticket.'),
+  draft: z.boolean().optional().describe('If true, open as a draft PR that requires manual merge. Default: false (auto-merge if clean).'),
 })
 
 // ── gitClone: tier-2 sandbox (install token isolated from the agent) ──
@@ -354,7 +355,8 @@ async function handleGitPullRequest(ctx: GithubCtx, args: z.infer<typeof gitPull
     // PR body is a JSON template with placeholder base; the shell script
     // rewrites it to the detected BASE before posting. This way we don't
     // have to round-trip the base branch out of the container first.
-    const prBodyTemplate = JSON.stringify({ title, head: branch, base: 'main', body, draft: true })
+    const draft = args.draft ?? false
+    const prBodyTemplate = JSON.stringify({ title, head: branch, base: 'main', body, draft })
 
     const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace,
       command, 'gitPullRequest', {}, {
@@ -386,24 +388,53 @@ async function handleGitPullRequest(ctx: GithubCtx, args: z.infer<typeof gitPull
       return { ok: false, error: `PR create returned HTTP ${status}: ${jsonBody.slice(0, 500)}` }
     }
     let prUrl: string
+    let prNumber: number
     try {
-      const parsed = JSON.parse(jsonBody) as { html_url?: string }
-      if (!parsed.html_url) throw new Error('no html_url in response')
+      const parsed = JSON.parse(jsonBody) as { html_url?: string; number?: number }
+      if (!parsed.html_url || !parsed.number) throw new Error('missing html_url or number in response')
       prUrl = parsed.html_url
+      prNumber = parsed.number
     } catch (err) {
       return { ok: false, error: `PR create response not parseable: ${err instanceof Error ? err.message : String(err)}` }
     }
 
-    // Post a ticket comment with the PR URL so the founder can find it.
+    // Auto-merge: attempt to merge the PR immediately. If clean, the
+    // agent's work lands on main in one tool call with no human step.
+    // If conflict, leave the PR open for rebase/manual resolution.
     const { commentCreate } = await import('../domain.js')
-    commentCreate(ctx.db, ctx.ticket.id, {
-      author:     ctx.agentName,
-      body:       `Draft PR opened: ${prUrl}`,
-      session_id: ctx.sessionId,
-    })
+    let merged = false
+    try {
+      const mergeRes = await fetch(
+        `https://api.github.com/repos/${owner}/${name}/pulls/${prNumber}/merge`,
+        {
+          method: 'PUT',
+          headers: {
+            Authorization:  `Bearer ${installToken}`,
+            Accept:         'application/vnd.github+json',
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ merge_method: 'merge' }),
+        },
+      )
+      merged = mergeRes.ok  // 200 = merged, 405/409 = not mergeable
+    } catch { /* merge attempt failed — leave PR open */ }
+
+    if (merged) {
+      commentCreate(ctx.db, ctx.ticket.id, {
+        author:     ctx.agentName,
+        body:       `Merged: ${prUrl}`,
+        session_id: ctx.sessionId,
+      })
+    } else {
+      commentCreate(ctx.db, ctx.ticket.id, {
+        author:     ctx.agentName,
+        body:       `PR opened (needs merge): ${prUrl}`,
+        session_id: ctx.sessionId,
+      })
+    }
 
     const result: PublishResult = { branch, prUrl }
-    return { ok: true, ...result }
+    return { ok: true, merged, ...result }
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) }
   }
@@ -432,7 +463,7 @@ const DESC = {
   gitAdd:            'Stage specific paths for commit. Only literal repo-relative paths are accepted — no -A, no wildcards, no glob expansion. Paths inside .git/, .foundry/, node_modules/, build outputs, and caches are rejected. Requires a git workspace (see gitClone).',
   gitRemove:         'Remove paths from the working tree and index (git rm). Same validation as gitAdd — literal paths only, protected directories rejected. Requires a git workspace (see gitClone).',
   gitCommit:         'Commit the staged index with a message. Fails if nothing is staged. Session id and ticket id are appended to the commit trailer automatically. Requires a git workspace (see gitClone).',
-  gitPullRequest: 'Push the session branch and open a draft pull request against the clone\'s default branch. Call after at least one gitCommit. Posts a comment on the current ticket with the PR URL. Requires a git workspace (see gitClone).',
+  gitPullRequest: 'Push the session branch, open a pull request against the clone\'s default branch, and auto-merge if clean. If there\'s a conflict, the PR stays open for manual resolution. Pass draft:true to skip auto-merge. Call after at least one gitCommit. Posts a "Merged" or "PR opened" comment on the current ticket. Requires a git workspace (see gitClone).',
 }
 
 // ── Anthropic Claude Agent SDK adapter ──
