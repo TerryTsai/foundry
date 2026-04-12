@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useNavigate, useLoaderData, useParams } from 'react-router-dom'
+import { useNavigate, useLoaderData, useParams, useRevalidator } from 'react-router-dom'
 import { projectApi } from '../../api.js'
 import type { Project } from '../../types.js'
 import { Field } from '../../components/form/Field.js'
@@ -10,10 +10,12 @@ export function ProjectEditPage() {
   const project = useLoaderData() as Project
   const { projectId } = useParams<{ projectId: string }>()
   const navigate = useNavigate()
+  const { revalidate } = useRevalidator()
   const [name, setName] = useState(project.name)
   const [repo, setRepo] = useState(project.repo)
   const [maxAgents, setMaxAgents] = useState(String(project.max_agents))
   const [error, setError] = useState('')
+  const [toggling, setToggling] = useState(false)
 
   // Keep form in sync if loader re-runs
   useEffect(() => {
@@ -31,6 +33,16 @@ export function ProjectEditPage() {
     } catch (err) { setError(err instanceof Error ? err.message : 'failed') }
   }
 
+  async function handleStatusToggle() {
+    setToggling(true)
+    try {
+      const newStatus = project.status === 'active' ? 'archived' : 'active'
+      await projectApi.update(projectId!, { status: newStatus })
+      revalidate()
+    } catch (err) { setError(err instanceof Error ? err.message : 'failed') }
+    finally { setToggling(false) }
+  }
+
   return (
     <div className="py-5 lg:max-w-2xl lg:mx-auto lg:px-6">
       <form onSubmit={handleSave} className="space-y-4">
@@ -43,6 +55,19 @@ export function ProjectEditPage() {
         </Field>
         <Field label="max agents">
           <TextInput type="number" value={maxAgents} onChange={e => setMaxAgents(e.target.value)} required min="1" />
+        </Field>
+        <Field label="status">
+          <div className="flex items-center gap-3">
+            <span className="text-sm text-zinc-500 dark:text-zinc-400">{project.status}</span>
+            <button
+              type="button"
+              onClick={handleStatusToggle}
+              disabled={toggling}
+              className="text-xs text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 disabled:opacity-30 transition-colors"
+            >
+              {project.status === 'active' ? 'Pause project' : 'Resume project'}
+            </button>
+          </div>
         </Field>
         <div className="flex gap-2 pt-2">
           <ActionButton label="cancel" variant="secondary" onClick={() => navigate(-1)} className="flex-1" />

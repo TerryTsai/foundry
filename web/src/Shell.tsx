@@ -1,8 +1,8 @@
 import { Outlet, ScrollRestoration, useParams, useLoaderData, useRevalidator, Link } from 'react-router-dom'
 import { Ticket, type LucideIcon } from 'lucide-react'
-import { projectApi } from './api.js'
 import type { Project } from './types.js'
 import { AvatarMenu } from './components/AvatarMenu.js'
+import { ProjectSwitcher } from './components/ProjectSwitcher.js'
 
 // ── Foundry Mark ──
 export function FoundryMark() {
@@ -20,15 +20,7 @@ export const navItems: Array<{ to: string; label: string; Icon: LucideIcon }> = 
 ]
 
 // ── Unified App Header ──
-function AppHeader({
-  projectId,
-  project,
-  onToggle,
-}: {
-  projectId: string
-  project: Project | null
-  onToggle: () => Promise<void>
-}) {
+function AppHeader({ projectId, project }: { projectId: string; project: Project | null }) {
   return (
     <header className="flex items-center h-12 shrink-0 px-4 gap-3 border-b border-zinc-300 dark:border-zinc-800/60 bg-white dark:bg-zinc-950">
       <Link to="/" className="flex items-center gap-2.5 shrink-0 mr-1">
@@ -36,10 +28,8 @@ function AppHeader({
         <span className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 font-display">Foundry</span>
       </Link>
       <span className="text-zinc-300 dark:text-zinc-700 text-sm select-none">/</span>
-      <span className="text-sm text-zinc-500 dark:text-zinc-400 flex-1 min-w-0 truncate">
-        {project?.name ?? '…'}
-      </span>
-      <AvatarMenu project={project} projectId={projectId} onToggle={onToggle} />
+      <ProjectSwitcher current={project} projectId={projectId} />
+      <AvatarMenu />
     </header>
   )
 }
@@ -50,15 +40,9 @@ export function Shell() {
   const project = useLoaderData() as Project
   const { revalidate } = useRevalidator()
 
-  async function handleToggle() {
-    if (!project) return
-    await projectApi.update(project.id, { status: project.status === 'active' ? 'archived' : 'active' })
-    revalidate()
-  }
-
   return (
     <div className="flex flex-col h-dvh bg-white dark:bg-zinc-950">
-      <AppHeader projectId={projectId!} project={project} onToggle={handleToggle} />
+      <AppHeader projectId={projectId!} project={project} />
       <main className="flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden">
         <ScrollRestoration />
         <Outlet context={{ project, projectId: projectId!, revalidate }} />
