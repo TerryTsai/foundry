@@ -78,7 +78,7 @@ async function buildContext(
   // them the way the Anthropic SDK does. Names are unique across servers
   // so collision isn't an issue.
   const tools: ToolSet = {
-    ...foundryServer.buildAi({ db, config, sessionId, workspace: workDir, projectId: ticketData.project_id, ticketId: ticketData.id, agentName: agentDef.name }),
+    ...foundryServer.buildAi({ db, config, sessionId, workspace: workDir, projectId: ticketData.project_id, accountId: agentDef.account_id, ticketId: ticketData.id, agentName: agentDef.name }),
     ...githubServer.buildAi({ db, config, sessionId, workspace: workDir, ticket: ticketData, agentName: agentDef.name }),
     ...sandboxServer.buildAi({ db, config, sessionId, workspace: workDir }),
     ...browserServer.buildAi({ db, config, sessionId, workspace: workDir }),

@@ -10,7 +10,7 @@ import { ActionButton } from '../../components/form/ActionButton.js'
 const KINDS = ['anthropic', 'openai', 'anthropic-subscription']
 
 export function ConnectionNewPage() {
-  const { projectId, project } = useShell()
+  const { projectId } = useShell()
   const navigate = useNavigate()
   const [name, setName] = useState('')
   const [kind, setKind] = useState('anthropic')
@@ -21,7 +21,7 @@ export function ConnectionNewPage() {
     e.preventDefault()
     setError('')
     try {
-      await connectionApi.create({ account_id: project!.owner_id, name, kind, secrets: { api_key: apiKey } })
+      await connectionApi.create({ name, kind, secrets: { api_key: apiKey } })
       navigate(`/p/${projectId}/agents/connections`)
     } catch (err) { setError(err instanceof Error ? err.message : 'failed') }
   }

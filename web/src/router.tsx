@@ -55,7 +55,7 @@ export const router = createBrowserRouter([
         element: <TicketsSplitLayout />,
         handle: { crumb: 'Tickets' },
         loader: ({ params }) =>
-          Promise.all([ticketApi.list({ projectId: pid(params) }), agentApi.list(pid(params))])
+          Promise.all([ticketApi.list({ projectId: pid(params) }), agentApi.list()])
             .then(([tickets, agents]) => ({ tickets, agents })),
         children: [
           {
@@ -66,7 +66,7 @@ export const router = createBrowserRouter([
             path: 'new',
             element: <TicketNewPage />,
             handle: { crumb: 'New' },
-            loader: ({ params }) => agentApi.list(pid(params)),
+            loader: () => agentApi.list(),
           },
           {
             path: ':ticketId',
@@ -79,7 +79,7 @@ export const router = createBrowserRouter([
                 loader: async ({ params }) => {
                   const [ticket, agents, comments, usage, tags] = await Promise.all([
                     ticketApi.get(params.ticketId!),
-                    agentApi.list(pid(params)),
+                    agentApi.list(),
                     commentApi.list(params.ticketId!),
                     ticketApi.usage(params.ticketId!),
                     ticketApi.tags(params.ticketId!),
@@ -103,7 +103,7 @@ export const router = createBrowserRouter([
                           const [ticket, session, agents, executions, messages, usage] = await Promise.all([
                             ticketApi.get(params.ticketId!),
                             sessionApi.get(params.sessionId!),
-                            agentApi.list(pid(params)),
+                            agentApi.list(),
                             sessionApi.executions(params.sessionId!),
                             sessionApi.messages(params.sessionId!),
                             sessionApi.usage(params.sessionId!),
@@ -132,7 +132,7 @@ export const router = createBrowserRouter([
         path: 'agents',
         element: <AgentsSplitLayout />,
         handle: { crumb: 'Agents' },
-        loader: ({ params }) => agentApi.list(pid(params)),
+        loader: () => agentApi.list(),
         children: [
           {
             index: true,

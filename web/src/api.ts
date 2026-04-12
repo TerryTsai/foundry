@@ -62,7 +62,7 @@ async function del<T>(url: string): Promise<T> {
 export const connectionApi = {
   list: () => get<Connection[]>('/connection'),
   get: (id: string) => get<Connection>(`/connection/${id}`),
-  create: (data: { account_id: string; kind: string; name: string; config?: Record<string, unknown>; secrets?: Record<string, unknown> }) =>
+  create: (data: { kind: string; name: string; config?: Record<string, unknown>; secrets?: Record<string, unknown> }) =>
     post<Connection>('/connection', data),
   update: (id: string, data: { name?: string; config?: Record<string, unknown>; secrets?: Record<string, unknown> }) =>
     put<Connection>(`/connection/${id}`, data),
@@ -129,10 +129,10 @@ export const sessionApi = {
 
 // Agents
 export const agentApi = {
-  list: (projectId?: string) => get<Agent[]>(`/agent${projectId ? `?projectId=${projectId}` : ''}`),
+  list: () => get<Agent[]>('/agent'),
   get: (id: string) => get<Agent>(`/agent/${id}`),
   tools: () => get<string[]>('/agent/tools'),
-  create: (data: { account_id: string; connection_id: string; name: string; model: string; prompt: string; max_tokens?: number; max_steps?: number; temperature?: number; reasoning_budget?: number | null; tools?: string[] }) =>
+  create: (data: { connection_id: string; name: string; model: string; prompt: string; max_tokens?: number; max_steps?: number; temperature?: number; reasoning_budget?: number | null; tools?: string[] }) =>
     post<Agent>('/agent', data),
   update: (id: string, data: { connection_id?: string; model?: string; prompt?: string; max_tokens?: number; max_steps?: number; temperature?: number; reasoning_budget?: number | null; tools?: string[] }) =>
     put<Agent>(`/agent/${id}`, data),

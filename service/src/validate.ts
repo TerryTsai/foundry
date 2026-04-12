@@ -40,8 +40,11 @@ export const projectUpdate = z.object({
 // `config` and `secrets` are free-form JSON blobs whose shape is interpreted
 // by the kind-specific resolver at session start. The validator only enforces
 // top-level shape; kind-specific validation happens in kind modules.
+export const connectionList = z.object({
+  accountId: z.string().optional(),
+})
+
 export const connectionCreate = z.object({
-  account_id: z.string(),
   kind:       z.string().min(1),
   name:       z.string().min(1),
   config:     z.record(z.string(), z.unknown()).optional(),
@@ -104,12 +107,10 @@ export const commentCreate = z.object({
 const modelId = z.string().min(1).refine(s => !s.includes(':'), { message: 'model must be just the model id, no connection prefix (use connection_id to select the backend)' })
 
 export const agentList = z.object({
-  projectId: z.string().optional(),
   accountId: z.string().optional(),
 })
 
 export const agentCreate = z.object({
-  account_id:       z.string(),
   connection_id:    z.string().min(1),
   name:             z.string().min(1),
   model:            modelId,
