@@ -28,6 +28,8 @@ export const info: McpServerInfo = {
     { name: 'ticketGet',     description: 'Fetch a ticket by id.' },
     { name: 'ticketCreate',  description: 'Create a new ticket in the current project.' },
     { name: 'ticketComment', description: 'Post a comment on a ticket.' },
+    { name: 'ticketTagAdd',    description: 'Add a tag to a ticket.' },
+    { name: 'ticketTagRemove', description: 'Remove a tag from a ticket.' },
     { name: 'agentsList',    description: 'List agents configured in the current project.' },
     { name: 'sessionList',   description: 'List agent sessions for a ticket.' },
     { name: 'connectionList',  description: 'List configured external connections (LLM backends, integrations).' },
@@ -50,6 +52,7 @@ export interface FoundryCtx {
 const ticketListArgs = z.object({
   status:   z.string().optional().describe('Filter by status (open, claimed, done, failed, blocked).'),
   agent_id: z.string().optional().describe('Filter by assigned agent id.'),
+  tag:      z.string().optional().describe('Filter by tag.'),
 })
 
 const ticketGetArgs = z.object({
@@ -66,6 +69,16 @@ const ticketCreateArgs = z.object({
 const ticketCommentArgs = z.object({
   ticket_id: z.string().optional().describe('Ticket to comment on. Defaults to the current session\'s ticket.'),
   body:      z.string().describe('Comment body, markdown allowed.'),
+})
+
+const ticketTagAddArgs = z.object({
+  ticket_id: z.string().optional().describe('Ticket id. Defaults to the current session\'s ticket.'),
+  tag:       z.string().describe('Tag to add (lowercase, max 50 chars).'),
+})
+
+const ticketTagRemoveArgs = z.object({
+  ticket_id: z.string().optional().describe('Ticket id. Defaults to the current session\'s ticket.'),
+  tag:       z.string().describe('Tag to remove.'),
 })
 
 const agentsListArgs  = z.object({})
@@ -107,17 +120,34 @@ async function apiPost(ctx: FoundryCtx, toolName: string, toolInput: unknown, pa
   try { return JSON.parse(r.stdout) } catch { return { content: r.stdout } }
 }
 
+async function apiDelete(ctx: FoundryCtx, toolName: string, toolInput: unknown, path: string) {
+  const command = `curl -sf -X DELETE -H "Authorization: Bearer $INTERNAL_TOKEN" "http://host.containers.internal:${ctx.config.port}${path}"`
+  const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace,
+    command, toolName, toolInput, {
+      network: true,
+      mount:   'none',
+      env:     { INTERNAL_TOKEN: ctx.config.internalApiToken },
+    })
+  if (r.exitCode !== 0) return { error: r.stderr || r.stdout || `API call failed (exit ${r.exitCode})` }
+  if (!r.stdout.trim()) return { ok: true }
+  try { return JSON.parse(r.stdout) } catch { return { content: r.stdout } }
+}
+
 // ── Handlers ──
 
 async function handleTicketList(ctx: FoundryCtx, args: z.infer<typeof ticketListArgs>) {
   const qs = new URLSearchParams({ projectId: ctx.projectId })
   if (args.status)   qs.set('status', args.status)
   if (args.agent_id) qs.set('agentId', args.agent_id)
+  if (args.tag)      qs.set('tag', args.tag)
   return apiGet(ctx, 'ticketList', args, `/ticket?${qs}`)
 }
 
 async function handleTicketGet(ctx: FoundryCtx, args: z.infer<typeof ticketGetArgs>) {
-  return apiGet(ctx, 'ticketGet', args, `/ticket/${args.id}`)
+  const ticket = await apiGet(ctx, 'ticketGet', args, `/ticket/${args.id}`)
+  if (ticket.error) return ticket
+  const tags = await apiGet(ctx, 'ticketGet', args, `/ticket/${args.id}/tag`)
+  return { ...ticket, tags: Array.isArray(tags) ? tags.map((t: any) => t.tag) : [] }
 }
 
 async function handleTicketCreate(ctx: FoundryCtx, args: z.infer<typeof ticketCreateArgs>) {
@@ -137,6 +167,17 @@ async function handleTicketComment(ctx: FoundryCtx, args: z.infer<typeof ticketC
   const targetTicket = args.ticket_id ?? ctx.ticketId
   const payload = JSON.stringify({ author: ctx.agentName, body: args.body })
   return apiPost(ctx, 'ticketComment', args, `/ticket/${targetTicket}/comment`, payload)
+}
+
+async function handleTicketTagAdd(ctx: FoundryCtx, args: z.infer<typeof ticketTagAddArgs>) {
+  const ticketId = args.ticket_id ?? ctx.ticketId
+  const payload = JSON.stringify({ tag: args.tag })
+  return apiPost(ctx, 'ticketTagAdd', args, `/ticket/${ticketId}/tag`, payload)
+}
+
+async function handleTicketTagRemove(ctx: FoundryCtx, args: z.infer<typeof ticketTagRemoveArgs>) {
+  const ticketId = args.ticket_id ?? ctx.ticketId
+  return apiDelete(ctx, 'ticketTagRemove', args, `/ticket/${ticketId}/tag/${encodeURIComponent(args.tag)}`)
 }
 
 async function handleAgentsList(ctx: FoundryCtx, _args: z.infer<typeof agentsListArgs>) {
@@ -162,11 +203,13 @@ async function handleThink(ctx: FoundryCtx, args: z.infer<typeof thinkArgs>) {
 }
 
 const DESC = {
-  ticketList:    'List tickets in the current project. Optionally filter by status or assigned agent.',
-  ticketGet:     'Fetch a ticket by id, including its title, body, status, and parent chain.',
-  ticketCreate:  'Create a new ticket in the current project. The new ticket is parented to the current session\'s ticket by default, so sub-tasks chain back to the originating work.',
-  ticketComment: 'Post a comment on a ticket. Used for status updates, questions, or communicating with the Founder.',
-  agentsList:    'List agents configured in the current project. Useful for targeting sub-tickets at a specific agent.',
+  ticketList:      'List tickets in the current project. Optionally filter by status, assigned agent, or tag.',
+  ticketGet:       'Fetch a ticket by id, including its title, body, status, and parent chain.',
+  ticketCreate:    'Create a new ticket in the current project. The new ticket is parented to the current session\'s ticket by default, so sub-tasks chain back to the originating work.',
+  ticketComment:   'Post a comment on a ticket. Used for status updates, questions, or communicating with the Founder.',
+  ticketTagAdd:    'Add a tag to a ticket.',
+  ticketTagRemove: 'Remove a tag from a ticket.',
+  agentsList:      'List agents configured in the current project. Useful for targeting sub-tickets at a specific agent.',
   sessionList:   'List agent sessions for a ticket. Defaults to the current session\'s ticket if omitted.',
   connectionList:  'List configured external connections (LLM backends, integrations). Secrets are masked.',
   think:         'Use this tool to reason, plan, or analyze before taking action. No side effects. Still runs in the sandbox for consistent execution tracking.',
@@ -182,6 +225,8 @@ export function buildSdk(ctx: FoundryCtx) {
       sdkTool('ticketGet',     DESC.ticketGet,     ticketGetArgs.shape,     async a => asText(await handleTicketGet(ctx, a))),
       sdkTool('ticketCreate',  DESC.ticketCreate,  ticketCreateArgs.shape,  async a => asText(await handleTicketCreate(ctx, a))),
       sdkTool('ticketComment', DESC.ticketComment, ticketCommentArgs.shape, async a => asText(await handleTicketComment(ctx, a))),
+      sdkTool('ticketTagAdd',    DESC.ticketTagAdd,    ticketTagAddArgs.shape,    async a => asText(await handleTicketTagAdd(ctx, a))),
+      sdkTool('ticketTagRemove', DESC.ticketTagRemove, ticketTagRemoveArgs.shape, async a => asText(await handleTicketTagRemove(ctx, a))),
       sdkTool('agentsList',    DESC.agentsList,    agentsListArgs.shape,    async a => asText(await handleAgentsList(ctx, a))),
       sdkTool('sessionList',   DESC.sessionList,   sessionListArgs.shape,   async a => asText(await handleSessionList(ctx, a))),
       sdkTool('connectionList', DESC.connectionList, connectionListArgs.shape, async a => asText(await handleConnectionList(ctx, a))),
@@ -213,6 +258,16 @@ export function buildAi(ctx: FoundryCtx) {
       description: DESC.ticketComment,
       inputSchema: ticketCommentArgs,
       execute:     (args: z.infer<typeof ticketCommentArgs>) => handleTicketComment(ctx, args),
+    }),
+    ticketTagAdd: tool({
+      description: DESC.ticketTagAdd,
+      inputSchema: ticketTagAddArgs,
+      execute:     (args: z.infer<typeof ticketTagAddArgs>) => handleTicketTagAdd(ctx, args),
+    }),
+    ticketTagRemove: tool({
+      description: DESC.ticketTagRemove,
+      inputSchema: ticketTagRemoveArgs,
+      execute:     (args: z.infer<typeof ticketTagRemoveArgs>) => handleTicketTagRemove(ctx, args),
     }),
     agentsList: tool({
       description: DESC.agentsList,
