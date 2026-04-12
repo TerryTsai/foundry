@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useCallback } from 'react'
-import { Link, useMatches } from 'react-router-dom'
+import { Link, useMatches, useLocation } from 'react-router-dom'
 import { ChevronRight } from 'lucide-react'
 
 // ── Context for dynamic labels ──
@@ -32,14 +32,24 @@ interface MatchHandle { crumb?: string }
 function useCrumbs() {
   const matches = useMatches()
   const { labels } = useContext(BreadcrumbContext)
+  const { state } = useLocation()
 
-  return matches
+  const crumbs = matches
     .filter(m => (m.handle as MatchHandle)?.crumb)
     .map(m => ({
       label: labels[m.pathname] ?? (m.handle as MatchHandle).crumb!,
       path: m.pathname,
     }))
     .filter(c => c.label !== 'Project')
+
+  // When navigating from a filtered list, restore search params on the parent crumb
+  // so the back link returns to the filtered view instead of the bare list.
+  if (state?.search && crumbs.length >= 2) {
+    const i = crumbs.length - 2
+    crumbs[i] = { ...crumbs[i], path: `${crumbs[i].path}?${state.search}` }
+  }
+
+  return crumbs
 }
 
 // ── Desktop Breadcrumb (full trail) ──

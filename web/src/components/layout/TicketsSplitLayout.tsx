@@ -163,7 +163,7 @@ export function TicketsSplitLayout() {
             month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
           })
           return (
-            <Link key={t.id} to={`/p/${projectId}/tickets/${t.id}`} className="block">
+            <Link key={t.id} to={`/p/${projectId}/tickets/${t.id}`} state={{ search: searchParams.toString() }} className="block">
               <ListRow
                 title={t.title}
                 subtitle={date}
