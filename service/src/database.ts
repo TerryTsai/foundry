@@ -29,7 +29,7 @@ export function createDatabase(path: string): Db {
     CREATE INDEX IF NOT EXISTS idx_ticket_project_id     ON ticket(project_id);
     CREATE INDEX IF NOT EXISTS idx_ticket_status         ON ticket(status);
     CREATE INDEX IF NOT EXISTS idx_ticket_project_status ON ticket(project_id, status);
-    CREATE INDEX IF NOT EXISTS idx_agent_project_id      ON agent(project_id);
+    CREATE INDEX IF NOT EXISTS idx_agent_account_id      ON agent(account_id);
     CREATE INDEX IF NOT EXISTS idx_ticket_tag_ticket_id  ON ticket_tag(ticket_id);
     CREATE INDEX IF NOT EXISTS idx_ticket_tag_tag        ON ticket_tag(tag);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_ticket_tag_unique ON ticket_tag(ticket_id, tag);

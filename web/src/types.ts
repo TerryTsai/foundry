@@ -7,7 +7,7 @@ export interface Account {
 
 export interface Connection {
   id: string
-  project_id: string | null
+  account_id: string
   kind: string
   name: string
   config: string              // JSON blob
@@ -18,6 +18,7 @@ export interface Connection {
 
 export interface Project {
   id: string
+  owner_id: string
   name: string
   repo: string
   status: 'active' | 'archived'
@@ -72,7 +73,7 @@ export interface Comment {
 
 export interface Agent {
   id: string
-  project_id: string
+  account_id: string
   connection_id: string
   name: string
   model: string
