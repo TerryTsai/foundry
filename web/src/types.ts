@@ -21,8 +21,7 @@ export interface Project {
   name: string
   repo: string
   status: 'active' | 'archived'
-  schedule_interval: number
-  concurrency_limit: number
+  max_agents: number
   created_at: string
   updated_at: string
 }
