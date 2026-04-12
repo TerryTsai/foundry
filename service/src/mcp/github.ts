@@ -40,7 +40,7 @@ import { require, toInt } from '../functional.js'
 import { installationForRepo, installationToken } from '../github.js'
 import { asText, runCommand } from './_shared.js'
 
-import type { McpServerInfo } from './registry.js'
+import { filterTools, type McpServerInfo } from './registry.js'
 
 export const info: McpServerInfo = {
   id:          'github',
@@ -620,21 +620,19 @@ const DESC = {
 
 // ── Anthropic Claude Agent SDK adapter ──
 
-export function buildSdk(ctx: GithubCtx) {
-  return createSdkMcpServer({
-    name: 'github',
-    tools: [
-      sdkTool('gitClone',          DESC.gitClone,          gitCloneArgs.shape,          async a => asText(await handleGitClone(ctx, a))),
-      sdkTool('gitStatus',         DESC.gitStatus,         gitStatusArgs.shape,         async a => asText(await handleGitStatus(ctx, a))),
-      sdkTool('gitDiff',           DESC.gitDiff,           gitDiffArgs.shape,           async a => asText(await handleGitDiff(ctx, a))),
-      sdkTool('gitAdd',            DESC.gitAdd,            gitAddArgs.shape,            async a => asText(await handleGitAdd(ctx, a))),
-      sdkTool('gitRemove',         DESC.gitRemove,         gitRemoveArgs.shape,         async a => asText(await handleGitRemove(ctx, a))),
-      sdkTool('gitCommit',         DESC.gitCommit,         gitCommitArgs.shape,         async a => asText(await handleGitCommit(ctx, a))),
-      sdkTool('gitPullRequest', DESC.gitPullRequest, gitPullRequestArgs.shape, async a => asText(await handleGitPullRequest(ctx, a))),
-      sdkTool('gitMerge',       DESC.gitMerge,       gitMergeArgs.shape,       async a => asText(await handleGitMerge(ctx, a))),
-      sdkTool('gitRebase',     DESC.gitRebase,     gitRebaseArgs.shape,     async a => asText(await handleGitRebase(ctx, a))),
-    ],
-  })
+export function buildSdk(ctx: GithubCtx, allowed?: string[] | '*' | null) {
+  const all = [
+    sdkTool('gitClone',       DESC.gitClone,       gitCloneArgs.shape,       async a => asText(await handleGitClone(ctx, a))),
+    sdkTool('gitStatus',      DESC.gitStatus,      gitStatusArgs.shape,      async a => asText(await handleGitStatus(ctx, a))),
+    sdkTool('gitDiff',        DESC.gitDiff,        gitDiffArgs.shape,        async a => asText(await handleGitDiff(ctx, a))),
+    sdkTool('gitAdd',         DESC.gitAdd,         gitAddArgs.shape,         async a => asText(await handleGitAdd(ctx, a))),
+    sdkTool('gitRemove',      DESC.gitRemove,      gitRemoveArgs.shape,      async a => asText(await handleGitRemove(ctx, a))),
+    sdkTool('gitCommit',      DESC.gitCommit,      gitCommitArgs.shape,      async a => asText(await handleGitCommit(ctx, a))),
+    sdkTool('gitPullRequest', DESC.gitPullRequest, gitPullRequestArgs.shape, async a => asText(await handleGitPullRequest(ctx, a))),
+    sdkTool('gitMerge',       DESC.gitMerge,       gitMergeArgs.shape,       async a => asText(await handleGitMerge(ctx, a))),
+    sdkTool('gitRebase',      DESC.gitRebase,      gitRebaseArgs.shape,      async a => asText(await handleGitRebase(ctx, a))),
+  ]
+  return createSdkMcpServer({ name: 'github', tools: filterTools(all, allowed) })
 }
 
 // ── Vercel ai SDK adapter ──

@@ -53,6 +53,7 @@ import * as foundryServer from '../mcp/foundry.js'
 import * as githubServer  from '../mcp/github.js'
 import * as sandboxServer from '../mcp/sandbox.js'
 import * as browserServer from '../mcp/browser.js'
+import { parseToolSelection } from '../mcp/registry.js'
 
 // ════════════════════════════════════════════════════════════════════════════
 // CLAUDE AGENT SDK BACKEND
@@ -105,15 +106,37 @@ export async function runAgentSessionViaSdk(
     domain.sessionMessage(db, sessionId, 'user', prompt)
     if (systemPrompt) database.sessionUpdate(db, sessionId, { system_prompt: systemPrompt })
 
-    // Build the four in-process MCP servers.
-    const foundryMcp = foundryServer.buildSdk({
-      db, config, sessionId, workspace: workDir, projectId: ticketData.project_id, accountId: agentDef.account_id, ticketId: ticketData.id, agentName: agentDef.name,
-    })
-    const githubMcp  = githubServer.buildSdk({
-      db, config, sessionId, workspace: workDir, ticket: ticketData, agentName: agentDef.name,
-    })
-    const sandboxMcp = sandboxServer.buildSdk({ db, config, sessionId, workspace: workDir })
-    const browserMcp = browserServer.buildSdk({ db, config, sessionId, workspace: workDir })
+    // Build the four in-process MCP servers, each restricted to the tools
+    // selected on this agent. A null selection (legacy/unconfigured agents)
+    // means all servers, all tools. An omitted server key means the server
+    // is not attached to the session at all — a Product Vision agent with
+    // no `github.gitMerge` in its selection literally cannot merge code.
+    const selection = parseToolSelection(agentDef.tools)
+    const mcpServers: Record<string, ReturnType<typeof foundryServer.buildSdk>> = {}
+    if (selection === null || 'foundry' in selection) {
+      mcpServers.foundry = foundryServer.buildSdk(
+        { db, config, sessionId, workspace: workDir, projectId: ticketData.project_id, accountId: agentDef.account_id, ticketId: ticketData.id, agentName: agentDef.name },
+        selection?.foundry,
+      )
+    }
+    if (selection === null || 'github' in selection) {
+      mcpServers.github = githubServer.buildSdk(
+        { db, config, sessionId, workspace: workDir, ticket: ticketData, agentName: agentDef.name },
+        selection?.github,
+      )
+    }
+    if (selection === null || 'sandbox' in selection) {
+      mcpServers.sandbox = sandboxServer.buildSdk(
+        { db, config, sessionId, workspace: workDir },
+        selection?.sandbox,
+      )
+    }
+    if (selection === null || 'browser' in selection) {
+      mcpServers.browser = browserServer.buildSdk(
+        { db, config, sessionId, workspace: workDir },
+        selection?.browser,
+      )
+    }
 
     let finalText    = ''
     let inputTokens  = 0
@@ -127,7 +150,7 @@ export async function runAgentSessionViaSdk(
         systemPrompt,
         cwd:             workDir,
         tools:           [],          // disable all built-ins; only Foundry MCP tools
-        mcpServers:      { foundry: foundryMcp, github: githubMcp, sandbox: sandboxMcp, browser: browserMcp },
+        mcpServers,
         permissionMode:  'bypassPermissions',
         maxTurns:        agentDef.max_steps,
         model:           agentDef.model,

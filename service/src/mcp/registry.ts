@@ -42,3 +42,24 @@ export function registryGet(id: McpServerId): McpServerInfo | undefined {
 // GET /tools endpoint that the current web UI consumes for agent tool
 // selection. Will be replaced by GET /mcp (nested shape) in a later pass.
 export const TOOL_NAMES: readonly string[] = registry.flatMap(s => s.tools.map(t => t.name))
+
+// Filter a server's tool array by the agent's allowed selection. null / '*'
+// means all tools pass through. An explicit string[] keeps only tools whose
+// names appear in the list. Each server's buildSdk pipes its constructed
+// tools through this so tool access is enforced server-side, not just in
+// the UI selector.
+export function filterTools<T extends { name: string }>(tools: T[], allowed: string[] | '*' | null | undefined): T[] {
+  if (allowed == null || allowed === '*') return tools
+  return tools.filter(t => allowed.includes(t.name))
+}
+
+// Parse the JSON stored in agent.tools into an McpToolSelection. A null /
+// empty / malformed value is treated as "all servers, all tools" so agents
+// configured before this wiring existed keep working.
+export function parseToolSelection(raw: string | null | undefined): McpToolSelection {
+  if (!raw) return null
+  try {
+    const parsed = JSON.parse(raw)
+    return (parsed && typeof parsed === 'object') ? parsed as McpToolSelection : null
+  } catch { return null }
+}

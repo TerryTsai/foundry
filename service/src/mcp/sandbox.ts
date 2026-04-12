@@ -25,7 +25,7 @@ import type { Db } from '../database.js'
 import type { Config } from '../config.js'
 import * as validate from '../validate.js'
 import { asText, bounded, boundedOutput, esc, runCommand } from './_shared.js'
-import type { McpServerInfo } from './registry.js'
+import { filterTools, type McpServerInfo } from './registry.js'
 
 export const info: McpServerInfo = {
   id:          'sandbox',
@@ -238,20 +238,18 @@ const DESC = {
 
 // ── Anthropic Claude Agent SDK adapter ──
 
-export function buildSdk(ctx: SandboxCtx) {
-  return createSdkMcpServer({
-    name: 'sandbox',
-    tools: [
-      sdkTool('run',    DESC.run,    validate.toolExec.shape,  async a => asText(await handleRun(ctx, a))),
-      sdkTool('exec',   DESC.exec,   validate.toolExec.shape,  async a => asText(await handleExec(ctx, a))),
-      sdkTool('read',   DESC.read,   validate.toolRead.shape,  async a => asText(await handleRead(ctx, a))),
-      sdkTool('write',  DESC.write,  validate.toolWrite.shape, async a => asText(await handleWrite(ctx, a))),
-      sdkTool('patch',  DESC.patch,  validate.toolPatch.shape, async a => asText(await handlePatch(ctx, a))),
-      sdkTool('remove', DESC.remove, removeSchema.shape,       async a => asText(await handleRemove(ctx, a))),
-      sdkTool('search', DESC.search, validate.toolSearch.shape, async a => asText(await handleSearch(ctx, a))),
-      sdkTool('find',   DESC.find,   validate.toolFind.shape,  async a => asText(await handleFind(ctx, a))),
-    ],
-  })
+export function buildSdk(ctx: SandboxCtx, allowed?: string[] | '*' | null) {
+  const all = [
+    sdkTool('run',    DESC.run,    validate.toolExec.shape,   async a => asText(await handleRun(ctx, a))),
+    sdkTool('exec',   DESC.exec,   validate.toolExec.shape,   async a => asText(await handleExec(ctx, a))),
+    sdkTool('read',   DESC.read,   validate.toolRead.shape,   async a => asText(await handleRead(ctx, a))),
+    sdkTool('write',  DESC.write,  validate.toolWrite.shape,  async a => asText(await handleWrite(ctx, a))),
+    sdkTool('patch',  DESC.patch,  validate.toolPatch.shape,  async a => asText(await handlePatch(ctx, a))),
+    sdkTool('remove', DESC.remove, removeSchema.shape,        async a => asText(await handleRemove(ctx, a))),
+    sdkTool('search', DESC.search, validate.toolSearch.shape, async a => asText(await handleSearch(ctx, a))),
+    sdkTool('find',   DESC.find,   validate.toolFind.shape,   async a => asText(await handleFind(ctx, a))),
+  ]
+  return createSdkMcpServer({ name: 'sandbox', tools: filterTools(all, allowed) })
 }
 
 // ── Vercel ai SDK adapter ──

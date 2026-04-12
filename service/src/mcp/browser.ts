@@ -17,7 +17,7 @@ import * as validate from '../validate.js'
 import { toInt } from '../functional.js'
 import { asText, bounded, boundedOutput, esc, runCommand } from './_shared.js'
 
-import type { McpServerInfo } from './registry.js'
+import { filterTools, type McpServerInfo } from './registry.js'
 
 export const info: McpServerInfo = {
   id:          'browser',
@@ -74,14 +74,12 @@ const DESC = {
 
 // ── Anthropic Claude Agent SDK adapter ──
 
-export function buildSdk(ctx: BrowserCtx) {
-  return createSdkMcpServer({
-    name: 'browser',
-    tools: [
-      sdkTool('fetch',  DESC.fetch,  validate.toolFetch.shape,  async a => asText(await handleFetch(ctx, a))),
-      sdkTool('scrape', DESC.scrape, validate.toolScrape.shape, async a => asText(await handleScrape(ctx, a))),
-    ],
-  })
+export function buildSdk(ctx: BrowserCtx, allowed?: string[] | '*' | null) {
+  const all = [
+    sdkTool('fetch',  DESC.fetch,  validate.toolFetch.shape,  async a => asText(await handleFetch(ctx, a))),
+    sdkTool('scrape', DESC.scrape, validate.toolScrape.shape, async a => asText(await handleScrape(ctx, a))),
+  ]
+  return createSdkMcpServer({ name: 'browser', tools: filterTools(all, allowed) })
 }
 
 // ── Vercel ai SDK adapter ──

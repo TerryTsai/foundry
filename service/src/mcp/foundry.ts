@@ -17,7 +17,7 @@ import type { Db } from '../database.js'
 import type { Config } from '../config.js'
 import { asText, esc, runCommand } from './_shared.js'
 
-import type { McpServerInfo } from './registry.js'
+import { filterTools, type McpServerInfo } from './registry.js'
 
 export const info: McpServerInfo = {
   id:          'foundry',
@@ -220,22 +220,20 @@ const DESC = {
 
 // ── Anthropic Claude Agent SDK adapter ──
 
-export function buildSdk(ctx: FoundryCtx) {
-  return createSdkMcpServer({
-    name: 'foundry',
-    tools: [
-      sdkTool('ticketList',    DESC.ticketList,    ticketListArgs.shape,    async a => asText(await handleTicketList(ctx, a))),
-      sdkTool('ticketGet',     DESC.ticketGet,     ticketGetArgs.shape,     async a => asText(await handleTicketGet(ctx, a))),
-      sdkTool('ticketCreate',  DESC.ticketCreate,  ticketCreateArgs.shape,  async a => asText(await handleTicketCreate(ctx, a))),
-      sdkTool('ticketComment', DESC.ticketComment, ticketCommentArgs.shape, async a => asText(await handleTicketComment(ctx, a))),
-      sdkTool('ticketTagAdd',    DESC.ticketTagAdd,    ticketTagAddArgs.shape,    async a => asText(await handleTicketTagAdd(ctx, a))),
-      sdkTool('ticketTagRemove', DESC.ticketTagRemove, ticketTagRemoveArgs.shape, async a => asText(await handleTicketTagRemove(ctx, a))),
-      sdkTool('agentsList',    DESC.agentsList,    agentsListArgs.shape,    async a => asText(await handleAgentsList(ctx, a))),
-      sdkTool('sessionList',   DESC.sessionList,   sessionListArgs.shape,   async a => asText(await handleSessionList(ctx, a))),
-      sdkTool('connectionList', DESC.connectionList, connectionListArgs.shape, async a => asText(await handleConnectionList(ctx, a))),
-      sdkTool('think',         DESC.think,         thinkArgs.shape,         async a => asText(await handleThink(ctx, a))),
-    ],
-  })
+export function buildSdk(ctx: FoundryCtx, allowed?: string[] | '*' | null) {
+  const all = [
+    sdkTool('ticketList',    DESC.ticketList,    ticketListArgs.shape,    async a => asText(await handleTicketList(ctx, a))),
+    sdkTool('ticketGet',     DESC.ticketGet,     ticketGetArgs.shape,     async a => asText(await handleTicketGet(ctx, a))),
+    sdkTool('ticketCreate',  DESC.ticketCreate,  ticketCreateArgs.shape,  async a => asText(await handleTicketCreate(ctx, a))),
+    sdkTool('ticketComment', DESC.ticketComment, ticketCommentArgs.shape, async a => asText(await handleTicketComment(ctx, a))),
+    sdkTool('ticketTagAdd',    DESC.ticketTagAdd,    ticketTagAddArgs.shape,    async a => asText(await handleTicketTagAdd(ctx, a))),
+    sdkTool('ticketTagRemove', DESC.ticketTagRemove, ticketTagRemoveArgs.shape, async a => asText(await handleTicketTagRemove(ctx, a))),
+    sdkTool('agentsList',    DESC.agentsList,    agentsListArgs.shape,    async a => asText(await handleAgentsList(ctx, a))),
+    sdkTool('sessionList',   DESC.sessionList,   sessionListArgs.shape,   async a => asText(await handleSessionList(ctx, a))),
+    sdkTool('connectionList', DESC.connectionList, connectionListArgs.shape, async a => asText(await handleConnectionList(ctx, a))),
+    sdkTool('think',         DESC.think,         thinkArgs.shape,         async a => asText(await handleThink(ctx, a))),
+  ]
+  return createSdkMcpServer({ name: 'foundry', tools: filterTools(all, allowed) })
 }
 
 // ── Vercel ai SDK adapter ──
