@@ -56,12 +56,12 @@ function TagSection({ ticketId, initialTags }: { ticketId: string; initialTags: 
       {tags.map(t => (
         <span
           key={t.id}
-          className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-zinc-200 dark:bg-zinc-800 text-xs text-zinc-700 dark:text-zinc-300"
+          className="inline-flex items-center gap-1 font-mono px-1.5 py-px rounded-sm border border-zinc-300 dark:border-zinc-700 text-xs text-zinc-600 dark:text-zinc-400"
         >
           {t.tag}
           <button
             onClick={() => void handleRemove(t.tag)}
-            className="leading-none text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 transition-colors ml-0.5"
+            className="leading-none text-zinc-400 dark:text-zinc-600 hover:text-zinc-600 dark:hover:text-zinc-400 transition-colors"
             aria-label={`Remove tag ${t.tag}`}
           >
             ×
