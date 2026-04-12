@@ -9,7 +9,6 @@ export function ProjectNewPage() {
   const navigate = useNavigate()
   const [name, setName] = useState('')
   const [repo, setRepo] = useState('')
-  const [interval, setInterval] = useState('600')
   const [maxAgents, setMaxAgents] = useState('3')
   const [error, setError] = useState('')
 
@@ -17,7 +16,7 @@ export function ProjectNewPage() {
     e.preventDefault()
     setError('')
     try {
-      const saved = await projectApi.create({ name, repo, schedule_interval: +interval, concurrency_limit: +maxAgents })
+      const saved = await projectApi.create({ name, repo, max_agents: +maxAgents })
       navigate(`/p/${saved.id}/agents/new`)
     } catch (err) { setError(err instanceof Error ? err.message : 'failed') }
   }
@@ -37,14 +36,9 @@ export function ProjectNewPage() {
             <Field label="github repo (owner/name)">
               <TextInput value={repo} onChange={e => setRepo(e.target.value)} placeholder="TerryTsai/foundry" pattern="^[\w.-]+/[\w.-]+$" required />
             </Field>
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="interval (s)">
-                <TextInput type="number" value={interval} onChange={e => setInterval(e.target.value)} required min="10" />
-              </Field>
-              <Field label="max agents">
-                <TextInput type="number" value={maxAgents} onChange={e => setMaxAgents(e.target.value)} required min="1" />
-              </Field>
-            </div>
+            <Field label="max agents">
+              <TextInput type="number" value={maxAgents} onChange={e => setMaxAgents(e.target.value)} required min="1" />
+            </Field>
             <div className="flex gap-2 pt-2">
               <ActionButton label="cancel" variant="secondary" onClick={() => navigate(-1)} className="flex-1" />
               <ActionButton label="create" type="submit" className="flex-1" />

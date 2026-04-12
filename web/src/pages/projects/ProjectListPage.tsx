@@ -25,7 +25,7 @@ export function ProjectListPage() {
               <Link key={p.id} to={`/p/${p.id}/tickets`} className="block">
                 <ListRow
                   title={p.name}
-                  subtitle={`${p.schedule_interval}s interval · ${p.concurrency_limit} ${p.concurrency_limit === 1 ? 'agent' : 'agents'}`}
+                  subtitle={`${p.max_agents} ${p.max_agents === 1 ? 'agent' : 'agents'}`}
                 />
               </Link>
             ))

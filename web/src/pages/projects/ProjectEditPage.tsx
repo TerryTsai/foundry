@@ -11,7 +11,6 @@ export function ProjectEditPage() {
   const navigate = useNavigate()
   const [name, setName] = useState('')
   const [repo, setRepo] = useState('')
-  const [interval, setInterval] = useState('')
   const [maxAgents, setMaxAgents] = useState('')
   const [error, setError] = useState('')
 
@@ -19,8 +18,7 @@ export function ProjectEditPage() {
     if (project) {
       setName(project.name)
       setRepo(project.repo)
-      setInterval(String(project.schedule_interval))
-      setMaxAgents(String(project.concurrency_limit))
+      setMaxAgents(String(project.max_agents))
     }
   }, [project])
 
@@ -30,7 +28,7 @@ export function ProjectEditPage() {
     e.preventDefault()
     setError('')
     try {
-      await projectApi.update(projectId, { repo, schedule_interval: +interval, concurrency_limit: +maxAgents })
+      await projectApi.update(projectId, { repo, max_agents: +maxAgents })
       revalidate()
       navigate(`/p/${projectId}/tickets`)
     } catch (err) { setError(err instanceof Error ? err.message : 'failed') }
@@ -46,14 +44,9 @@ export function ProjectEditPage() {
         <Field label="github repo (owner/name)">
           <TextInput value={repo} onChange={e => setRepo(e.target.value)} placeholder="TerryTsai/foundry" pattern="^[\w.-]+/[\w.-]+$" required />
         </Field>
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="interval (s)">
-            <TextInput type="number" value={interval} onChange={e => setInterval(e.target.value)} required min="10" />
-          </Field>
-          <Field label="max agents">
-            <TextInput type="number" value={maxAgents} onChange={e => setMaxAgents(e.target.value)} required min="1" />
-          </Field>
-        </div>
+        <Field label="max agents">
+          <TextInput type="number" value={maxAgents} onChange={e => setMaxAgents(e.target.value)} required min="1" />
+        </Field>
         <div className="flex gap-2 pt-2">
           <ActionButton label="cancel" variant="secondary" onClick={() => navigate(-1)} className="flex-1" />
           <ActionButton label="save" type="submit" className="flex-1" />

@@ -73,7 +73,7 @@ export const connectionApi = {
 export const projectApi = {
   list: (status?: string) => get<Project[]>(`/project${status ? `?status=${status}` : ''}`),
   get: (id: string) => get<Project>(`/project/${id}`),
-  create: (data: { name: string; repo: string; schedule_interval?: number; concurrency_limit?: number }) =>
+  create: (data: { name: string; repo: string; max_agents?: number }) =>
     post<Project>('/project', data),
   update: (id: string, data: Partial<Project>) => put<Project>(`/project/${id}`, data),
   run: (id: string) => post<{ ok: boolean }>(`/project/${id}/run`),
