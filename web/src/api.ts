@@ -1,4 +1,4 @@
-import type { Account, Connection, Project, Ticket, Comment, Agent, Session, Execution, UsageRollup } from './types.js'
+import type { Account, Connection, Project, Ticket, Comment, Agent, Session, Execution, UsageRollup, TicketTag } from './types.js'
 
 const cache = new Map<string, { data: unknown; at: number }>()
 const CACHE_TTL = 30_000 // 30 seconds
@@ -54,7 +54,8 @@ async function del<T>(url: string): Promise<T> {
   bustCache()
   const res = await fetch(url, { method: 'DELETE', credentials: 'include' })
   if (!res.ok) handleNotOk(res)
-  return res.json() as Promise<T>
+  const text = await res.text()
+  return (text ? JSON.parse(text) : undefined) as T
 }
 
 // Connections (generalized provider + integration)
@@ -96,6 +97,9 @@ export const ticketApi = {
     put<Ticket>(`/ticket/${id}`, data),
   reopen: (id: string) => post<Ticket>(`/ticket/${id}/reopen`),
   usage: (id: string) => get<UsageRollup>(`/ticket/${id}/usage`),
+  tags: (ticketId: string) => get<TicketTag[]>(`/ticket/${ticketId}/tag`),
+  addTag: (ticketId: string, tag: string) => post<TicketTag>(`/ticket/${ticketId}/tag`, { tag }),
+  removeTag: (ticketId: string, tag: string) => del<void>(`/ticket/${ticketId}/tag/${encodeURIComponent(tag)}`),
 }
 
 // Comments
