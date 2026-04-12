@@ -51,7 +51,7 @@ app.use(errors)
 app.listen(config.port, () => {
   console.log(`foundry service listening on port ${config.port}`)
   domain.schedulerRecover(db).catch(console.error)
-  domain.schedulerStartAll(db)
+  domain.schedulerGlobalStart(db)
 })
 
 export { app }

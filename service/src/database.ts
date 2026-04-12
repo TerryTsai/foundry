@@ -44,6 +44,14 @@ export function createDatabase(path: string): Db {
     WHERE role = 'assistant' AND tool_call_count IS NULL AND content LIKE '[%'
   `)
 
+  // Schema migration: rename concurrency_limit → max_agents. ADD COLUMN fails
+  // silently if the column already exists (idempotent). Old columns remain in
+  // the DB but are ignored by Drizzle selects after the schema change.
+  try {
+    sqlite.exec(`ALTER TABLE project ADD COLUMN max_agents INTEGER NOT NULL DEFAULT 3`)
+    sqlite.exec(`UPDATE project SET max_agents = concurrency_limit`)
+  } catch { /* column already exists */ }
+
   return drizzle(sqlite, { schema })
 }
 

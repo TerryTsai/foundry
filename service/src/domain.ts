@@ -44,29 +44,22 @@ export function projectGet(db: Db, accountId: string, id: string): schema.Projec
 }
 
 export function projectCreate(db: Db, accountId: string, input: z.infer<typeof validate.projectCreate>): schema.Project {
-  const { name, description = '', repo, schedule_interval = 600, concurrency_limit = 3 } = input
-  const row = database.projectInsert(db, {
+  const { name, description = '', repo, max_agents = 3 } = input
+  return database.projectInsert(db, {
     owner_id: accountId,
     repo, name, description, status: 'active',
-    schedule_interval, concurrency_limit, ...ts(),
+    max_agents, ...ts(),
   })
-  schedulerStart(db, row.id, row.schedule_interval)
-  return row
 }
 
 export function projectUpdate(db: Db, accountId: string, id: string, input: z.infer<typeof validate.projectUpdate>): schema.Project {
   const prev = projectGetOwned(db, id, accountId)
   const updates: Record<string, unknown> = {
-    ...pick(input, 'name', 'description', 'repo', 'status', 'schedule_interval', 'concurrency_limit'),
+    ...pick(input, 'name', 'description', 'repo', 'status', 'max_agents'),
     updated_at: now(),
   }
   if (Object.keys(updates).length <= 1) return prev
-
-  const row = database.projectUpdate(db, id, updates)
-  if (input.status === 'archived') schedulerStop(id)
-  if (input.status === 'active' && prev.status === 'archived') schedulerStart(db, id, row.schedule_interval)
-  if (input.schedule_interval !== undefined && row.status === 'active') schedulerStart(db, id, row.schedule_interval)
-  return row
+  return database.projectUpdate(db, id, updates)
 }
 
 export function projectRun(db: Db, accountId: string, id: string): { ok: true } {
@@ -195,7 +188,7 @@ export function connectionRemove(db: Db, id: string): { ok: true } {
 // SCHEDULER
 // ════════════════════════════════════════════════════════════════════════════
 
-const intervals = new Map<string, ReturnType<typeof setInterval>>()
+const RECOVER_CUTOFF_MS = 5 * 60 * 1000
 
 export async function schedulerDispatch(db: Db, projectId: string): Promise<void> {
   const proj = database.projectGet(db, projectId)
@@ -206,7 +199,7 @@ export async function schedulerDispatch(db: Db, projectId: string): Promise<void
   const claimed  = ticketList(db, { projectId, status: 'claimed' })
   const agents   = agentList(db, { projectId })
 
-  if (claimed.length >= proj.concurrency_limit) return
+  if (claimed.length >= proj.max_agents) return
 
   const eligible = [...open, ...reopened].filter(t => {
     if (!t.agent_id || !agents.find(a => a.id === t.agent_id)) return false
@@ -218,7 +211,7 @@ export async function schedulerDispatch(db: Db, projectId: string): Promise<void
     return true
   })
 
-  for (const t of eligible.slice(0, proj.concurrency_limit - claimed.length)) {
+  for (const t of eligible.slice(0, proj.max_agents - claimed.length)) {
     const def = agents.find(a => a.id === t.agent_id)!
     try { ticketClaim(db, t.id) } catch { continue }
 
@@ -236,10 +229,10 @@ export async function schedulerDispatch(db: Db, projectId: string): Promise<void
 
 export async function schedulerRecover(db: Db): Promise<void> {
   // Stale claimed tickets (orphaned by a server restart or crashed session)
-  // get released back to 'open' so they can be picked up again. This is a
-  // direct status reset, not a user-driven reopen.
+  // get released back to 'open' so they can be picked up again. Fixed 5-minute
+  // cutoff — decoupled from any per-project configuration.
+  const cutoff = new Date(Date.now() - RECOVER_CUTOFF_MS).toISOString()
   for (const proj of database.projectAll(db)) {
-    const cutoff = new Date(Date.now() - proj.schedule_interval * 3 * 1000).toISOString()
     for (const t of ticketList(db, { projectId: proj.id, status: 'claimed' })) {
       if (t.claimed_at && t.claimed_at < cutoff) {
         database.ticketUpdate(db, t.id, { status: 'open', claimed_at: null, updated_at: now() })
@@ -248,29 +241,13 @@ export async function schedulerRecover(db: Db): Promise<void> {
   }
 }
 
-export function schedulerStart(db: Db, projectId: string, intervalSeconds: number): void {
-  schedulerStop(projectId)
-  intervals.set(projectId, setInterval(
-    () => schedulerDispatch(db, projectId).catch((err: unknown) =>
-      console.error(`dispatch error for project ${projectId}:`, err)),
-    intervalSeconds * 1000,
-  ))
-}
-
-export function schedulerStop(projectId: string): void {
-  const existing = intervals.get(projectId)
-  if (existing) { clearInterval(existing); intervals.delete(projectId) }
-}
-
-export function schedulerStartAll(db: Db): void {
-  for (const proj of database.projectAll(db, [eq(schema.project.status, 'active')])) {
-    schedulerStart(db, proj.id, proj.schedule_interval)
-  }
-}
-
-export function schedulerStopAll(): void {
-  for (const [, timer] of intervals) clearInterval(timer)
-  intervals.clear()
+export function schedulerGlobalStart(db: Db): void {
+  setInterval(() => {
+    for (const proj of database.projectAll(db, [eq(schema.project.status, 'active')])) {
+      schedulerDispatch(db, proj.id).catch((err: unknown) =>
+        console.error(`dispatch error for project ${proj.id}:`, err))
+    }
+  }, 5000)
 }
 
 // ════════════════════════════════════════════════════════════════════════════
