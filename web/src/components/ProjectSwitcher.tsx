@@ -101,7 +101,7 @@ export function ProjectSwitcher({ current, projectId, className }: Props) {
             Settings
           </Link>
           <Link
-            to="/projects/new"
+            to="/settings/projects/new"
             onClick={handleClose}
             className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-zinc-500 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors"
           >
