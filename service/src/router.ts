@@ -119,6 +119,9 @@ export function ticket(db: Db) {
   r.post  ('/:id/comment', parse(validate.commentCreate),       run(req => domain.commentCreate(db, req.params.id, req.data)),          send(201))
   r.get   ('/:id/session',                                      run(req => domain.sessionByTicket(db, req.params.id)),                  send())
   r.get   ('/:id/usage',                                        run(req => domain.ticketUsage(db, req.params.id)),                      send())
+  r.get   ('/:id/tag',                                          run(req => domain.tagList(db, req.params.id)),                           send())
+  r.post  ('/:id/tag',              parse(validate.tagCreate),  run(req => domain.tagAdd(db, req.params.id, req.data.tag)),              send(201))
+  r.delete('/:id/tag/:tag',                                     run(req => domain.tagRemove(db, req.params.id, req.params.tag)),         send())
   return r
 }
 

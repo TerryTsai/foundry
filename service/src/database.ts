@@ -3,7 +3,7 @@ import { drizzle } from 'drizzle-orm/better-sqlite3'
 import { eq, and, sql, type SQL } from 'drizzle-orm'
 import { ulid } from 'ulid'
 import * as schema from './schema.js'
-import type { Account, Agent, AuthSession, Comment, Connection, Execution, Message, Project, Session, Ticket } from './schema.js'
+import type { Account, Agent, AuthSession, Comment, Connection, Execution, Message, Project, Session, Ticket, TicketTag } from './schema.js'
 
 export type Db = ReturnType<typeof drizzle<typeof schema>>
 
@@ -30,6 +30,9 @@ export function createDatabase(path: string): Db {
     CREATE INDEX IF NOT EXISTS idx_ticket_status         ON ticket(status);
     CREATE INDEX IF NOT EXISTS idx_ticket_project_status ON ticket(project_id, status);
     CREATE INDEX IF NOT EXISTS idx_agent_project_id      ON agent(project_id);
+    CREATE INDEX IF NOT EXISTS idx_ticket_tag_ticket_id  ON ticket_tag(ticket_id);
+    CREATE INDEX IF NOT EXISTS idx_ticket_tag_tag        ON ticket_tag(tag);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_ticket_tag_unique ON ticket_tag(ticket_id, tag);
   `)
 
   // One-shot backfill: pre-existing assistant messages stored their tool calls
@@ -190,6 +193,47 @@ export function ticketUpdate(d: Db, id: string, data: Record<string, unknown>): 
 
 export function ticketRemove(d: Db, id: string): void {
   d.delete(schema.ticket).where(eq(schema.ticket.id, id)).run()
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// TICKET TAG
+// ────────────────────────────────────────────────────────────────────────────
+
+export function ticketTagList(d: Db, ticketId: string): TicketTag[] {
+  return d.select().from(schema.ticketTag).where(eq(schema.ticketTag.ticket_id, ticketId)).all() as TicketTag[]
+}
+
+export function ticketTagInsert(d: Db, ticketId: string, tag: string): TicketTag {
+  const id = ulid()
+  const normalizedTag = tag.toLowerCase().trim()
+  const created_at = new Date().toISOString()
+  d.insert(schema.ticketTag).values({ id, ticket_id: ticketId, tag: normalizedTag, created_at }).run()
+  return d.select().from(schema.ticketTag).where(eq(schema.ticketTag.id, id)).get() as TicketTag
+}
+
+export function ticketTagRemove(d: Db, ticketId: string, tag: string): void {
+  d.delete(schema.ticketTag).where(and(eq(schema.ticketTag.ticket_id, ticketId), eq(schema.ticketTag.tag, tag))).run()
+}
+
+export function ticketsByTag(d: Db, tag: string, conditions?: SQL[]): Ticket[] {
+  const where = [eq(schema.ticketTag.tag, tag), ...(conditions ?? [])]
+  return d.select({
+    id:         schema.ticket.id,
+    project_id: schema.ticket.project_id,
+    agent_id:   schema.ticket.agent_id,
+    title:      schema.ticket.title,
+    body:       schema.ticket.body,
+    status:     schema.ticket.status,
+    priority:   schema.ticket.priority,
+    parent_id:  schema.ticket.parent_id,
+    created_by: schema.ticket.created_by,
+    created_at: schema.ticket.created_at,
+    updated_at: schema.ticket.updated_at,
+    claimed_at: schema.ticket.claimed_at,
+  }).from(schema.ticketTag)
+    .innerJoin(schema.ticket, eq(schema.ticketTag.ticket_id, schema.ticket.id))
+    .where(and(...where))
+    .all() as Ticket[]
 }
 
 // ────────────────────────────────────────────────────────────────────────────

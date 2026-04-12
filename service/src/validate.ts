@@ -61,6 +61,11 @@ export const ticketList = z.object({
   agentId:   z.string().optional(),
   status:    z.string().optional(),
   parentId:  z.string().optional(),
+  tag:       z.string().optional(),
+})
+
+export const tagCreate = z.object({
+  tag: z.string().min(1).max(50).transform(s => s.toLowerCase().trim()),
 })
 
 export const ticketCreate = z.object({
