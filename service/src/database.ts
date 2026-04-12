@@ -215,6 +215,17 @@ export function ticketTagRemove(d: Db, ticketId: string, tag: string): void {
   d.delete(schema.ticketTag).where(and(eq(schema.ticketTag.ticket_id, ticketId), eq(schema.ticketTag.tag, tag))).run()
 }
 
+export function projectTagList(d: Db, projectId: string): string[] {
+  return d
+    .selectDistinct({ tag: schema.ticketTag.tag })
+    .from(schema.ticketTag)
+    .innerJoin(schema.ticket, eq(schema.ticketTag.ticket_id, schema.ticket.id))
+    .where(eq(schema.ticket.project_id, projectId))
+    .orderBy(schema.ticketTag.tag)
+    .all()
+    .map((r: { tag: string }) => r.tag)
+}
+
 export function ticketsByTag(d: Db, tag: string, conditions?: SQL[]): Ticket[] {
   const where = [eq(schema.ticketTag.tag, tag), ...(conditions ?? [])]
   return d.select({

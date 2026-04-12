@@ -397,6 +397,11 @@ export function commentCreate(db: Db, ticketId: string, input: { author: string;
 // TAG
 // ────────────────────────────────────────────────────────────────────────────
 
+export function projectTagList(db: Db, accountId: string, projectId: string): string[] {
+  projectGetOwned(db, projectId, accountId)
+  return database.projectTagList(db, projectId)
+}
+
 export function tagList(db: Db, ticketId: string): TicketTag[] {
   return database.ticketTagList(db, ticketId)
 }
