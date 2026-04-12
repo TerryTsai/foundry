@@ -2,7 +2,6 @@ import { Outlet, ScrollRestoration, useParams, useLoaderData, useRevalidator, Li
 import { Ticket, type LucideIcon } from 'lucide-react'
 import { projectApi } from './api.js'
 import type { Project } from './types.js'
-import { ProjectSwitcher } from './components/ProjectSwitcher.js'
 import { AvatarMenu } from './components/AvatarMenu.js'
 
 // ── Foundry Mark ──
@@ -37,12 +36,10 @@ function AppHeader({
         <span className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 font-display">Foundry</span>
       </Link>
       <span className="text-zinc-300 dark:text-zinc-700 text-sm select-none">/</span>
-      <ProjectSwitcher
-        current={project}
-        projectId={projectId}
-        className="flex items-center gap-1.5 text-sm text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 transition-colors flex-1 min-w-0 truncate"
-      />
-      <AvatarMenu project={project} onToggle={onToggle} />
+      <span className="text-sm text-zinc-500 dark:text-zinc-400 flex-1 min-w-0 truncate">
+        {project?.name ?? '…'}
+      </span>
+      <AvatarMenu project={project} projectId={projectId} onToggle={onToggle} />
     </header>
   )
 }

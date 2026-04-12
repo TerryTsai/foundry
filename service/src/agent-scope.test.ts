@@ -8,7 +8,7 @@
 // TC5  Dispatch ticket       — scheduler resolves agents by account_id
 // TC6  MCP agentsList        — tool calls /agent?accountId=<account>
 // TC7  Old routes 404        — /p/:id/agents never matched
-// TC8  Project settings link — ProjectSwitcher goes to /settings/projects/:id
+// TC8  Project settings link — AvatarMenu goes to /settings/projects/:id
 // TC9  No tab bar            — Shell navItems is tickets-only, no bottom bar
 // TC10 Regression            — ticket CRUD unaffected
 
@@ -666,13 +666,13 @@ describe('TC7: old /p/:projectId/agents route does not exist', () => {
 })
 
 // ════════════════════════════════════════════════════════════════════════════
-// TC8 — Project switcher links to /settings/projects/:id
+// TC8 — Account menu links to /settings/projects/:id
 // ════════════════════════════════════════════════════════════════════════════
 
-describe('TC8: ProjectSwitcher links to /settings/projects/:id', () => {
+describe('TC8: AvatarMenu links to /settings/projects/:id', () => {
   it('settings link goes to /settings/projects/<id>', () => {
     const src = readFileSync(
-      join(__dirname, '../../web/src/components/ProjectSwitcher.tsx'),
+      join(__dirname, '../../web/src/components/AvatarMenu.tsx'),
       'utf-8',
     )
     expect(src).toContain('to={`/settings/projects/${projectId}`}')
@@ -680,7 +680,7 @@ describe('TC8: ProjectSwitcher links to /settings/projects/:id', () => {
 
   it('new project link goes to /settings/projects/new, not /projects/new', () => {
     const src = readFileSync(
-      join(__dirname, '../../web/src/components/ProjectSwitcher.tsx'),
+      join(__dirname, '../../web/src/components/AvatarMenu.tsx'),
       'utf-8',
     )
     expect(src).toContain('to="/settings/projects/new"')
@@ -711,10 +711,9 @@ describe('TC9: Shell header-only nav, no bottom tab bar', () => {
     )
     // Should have no tab bar div/nav with fixed bottom positioning
     expect(src).not.toMatch(/TabBar|tab.bar|bottom-tab/i)
-    // The mobile rendering uses MobileHeader only (no separate bottom nav)
-    expect(src).toContain('MobileHeader')
-    // No second nav rendered outside of MobileHeader
-    expect(src.split('<nav').length).toBeLessThanOrEqual(2) // at most one nav in DesktopTopBar
+    // Header-only nav via AppHeader + AvatarMenu
+    expect(src).toContain('AppHeader')
+    expect(src).toContain('AvatarMenu')
   })
 
   it('mobile layout in Shell has no tab bar — header only', () => {
