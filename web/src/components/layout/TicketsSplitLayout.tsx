@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Outlet, useLoaderData, useParams, Link, useMatch } from 'react-router-dom'
+import { Outlet, useLoaderData, useParams, Link, useMatch, useSearchParams } from 'react-router-dom'
 import { Plus } from 'lucide-react'
 import type { Ticket, Agent } from '../../types.js'
 import { useShell } from '../../Shell.js'
@@ -56,15 +56,38 @@ export function TicketsSplitLayout() {
   // Used on mobile to decide: show list OR show the outlet.
   const isIndex = useMatch('/p/:projectId/tickets')
 
-  // ── Filter state ──────────────────────────────────────────────────────────
+  // ── Filter state (URL search params so filters survive refresh / nav) ────
 
-  const [statuses, setStatuses]       = useState<Set<string>>(new Set())
-  const [agentFilter, setAgentFilter] = useState<Set<string>>(new Set())
-  const [createdFilter, setCreatedFilter] = useState<Set<string>>(new Set())
-  const [claimedFilter, setClaimedFilter] = useState<Set<string>>(new Set())
+  const [searchParams, setSearchParams] = useSearchParams()
+
+  function getParam(key: string): Set<string> {
+    return new Set(searchParams.getAll(key))
+  }
+
+  function makeSetter(key: string) {
+    return (next: Set<string>) => {
+      setSearchParams((prev: URLSearchParams) => {
+        const p = new URLSearchParams(prev)
+        p.delete(key)
+        next.forEach(v => p.append(key, v))
+        return p
+      }, { replace: true })
+    }
+  }
+
+  const statuses      = getParam('status')
+  const agentFilter   = getParam('agent')
+  const createdFilter = getParam('created')
+  const claimedFilter = getParam('claimed')
+
+  const setStatuses      = makeSetter('status')
+  const setAgentFilter   = makeSetter('agent')
+  const setCreatedFilter = makeSetter('created')
+  const setClaimedFilter = makeSetter('claimed')
 
   // Tag filter: tagFilter holds selected tags; tagTickets holds OR-merged results.
-  const [tagFilter, setTagFilter]   = useState<Set<string>>(new Set())
+  const tagFilter    = getParam('tag')
+  const setTagFilter = makeSetter('tag')
   const [projectTags, setProjectTags] = useState<string[]>([])
   const [tagTickets, setTagTickets] = useState<Ticket[] | null>(null)
   const [tagLoading, setTagLoading] = useState(false)
