@@ -49,6 +49,24 @@ export interface TicketTag {
   created_at: string
 }
 
+export interface McpToolInfo {
+  name: string
+  description: string
+}
+
+export interface McpServerInfo {
+  id: string
+  name: string
+  description: string
+  tools: McpToolInfo[]
+}
+
+// null or {} = all tools on all servers (no restriction)
+// key present with '*' = all tools from that server
+// key present with string[] = specific tools from that server
+// key absent = server not attached
+export type McpToolSelection = Record<string, '*' | string[]>
+
 export interface UsageRollup {
   session_count: number
   tokens_in: number

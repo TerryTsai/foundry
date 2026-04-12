@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, useLoaderData } from 'react-router-dom'
 import { agentApi } from '../../api.js'
-import type { Connection } from '../../types.js'
+import type { Connection, McpServerInfo, McpToolSelection } from '../../types.js'
 import { Field } from '../../components/form/Field.js'
 import { TextInput } from '../../components/form/TextInput.js'
 import { TextArea } from '../../components/form/TextArea.js'
@@ -20,18 +20,18 @@ export function AgentNewPage() {
   const [maxSteps, setMaxSteps] = useState('20')
   const [temperature, setTemperature] = useState('')
   const [reasoningBudget, setReasoningBudget] = useState('')
-  const [availableTools, setAvailableTools] = useState<string[]>([])
-  const [selectedTools, setSelectedTools] = useState<Set<string>>(new Set())
+  const [servers, setServers] = useState<McpServerInfo[]>([])
+  const [toolSelection, setToolSelection] = useState<McpToolSelection | null>(null)
   const [error, setError] = useState('')
 
-  useEffect(() => { agentApi.tools().then(setAvailableTools).catch(() => {}) }, [])
+  useEffect(() => { agentApi.mcp().then(setServers).catch(() => {}) }, [])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError('')
     if (!connectionId) { setError('select a connection'); return }
     try {
-      const tools = selectedTools.size > 0 ? [...selectedTools] : undefined
+      const tools = toolSelection && Object.keys(toolSelection).length > 0 ? toolSelection : undefined
       await agentApi.create({
         connection_id: connectionId, name, model, prompt,
         max_tokens: +maxTokens, max_steps: +maxSteps,
@@ -76,7 +76,7 @@ export function AgentNewPage() {
         <Field label="reasoning budget (tokens)">
           <TextInput type="number" value={reasoningBudget} onChange={e => setReasoningBudget(e.target.value)} min="1024" placeholder="off" />
         </Field>
-        <ToolPicker available={availableTools} selected={selectedTools} onChange={setSelectedTools} />
+        <ToolPicker servers={servers} selection={toolSelection} onChange={setToolSelection} />
         <Field label="prompt">
           <TextArea label="prompt" value={prompt} onChange={e => setPrompt(e.target.value)} required rows={8} />
         </Field>
