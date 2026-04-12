@@ -1,5 +1,5 @@
 import { randomBytes } from 'crypto'
-import { mkdirSync } from 'fs'
+import { mkdirSync, rmSync } from 'fs'
 import type { Response } from 'express'
 import { eq, and, isNull } from 'drizzle-orm'
 
@@ -608,8 +608,10 @@ export function executionCreate(db: Db, config: Config, input: {
   })
   const workspace = input.workspace ?? `/tmp/foundry-exec-${row.id}`
   mkdirSync(workspace, { recursive: true })
+  const statsDir = `/tmp/foundry-stats-${row.id}`
+  mkdirSync(statsDir, { recursive: true })
   const handle = spawnRun({
-    command, workspace,
+    command, workspace, statsDir,
     image: config.sandboxImage, env,
     network, mount, timeoutMs: timeout_ms,
     memoryMb:   memory_mb ?? config.sandboxMemoryMb,
@@ -643,6 +645,8 @@ export function executionCreate(db: Db, config: Config, input: {
       net_tx_bytes: stats?.netTxBytes ?? null,
     })
     activeRuns.delete(row.id)
+    // Clean up the per-execution stats tmpdir.
+    rmSync(statsDir, { recursive: true, force: true })
   })
   return { id: row.id, emitter: handle.emitter }
 }

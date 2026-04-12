@@ -1,5 +1,7 @@
 import { spawn } from 'child_process'
 import { EventEmitter } from 'events'
+import { readFileSync } from 'fs'
+import { join } from 'path'
 
 import { toInt } from '../functional.js'
 
@@ -10,6 +12,7 @@ import { toInt } from '../functional.js'
 export interface RunOptions {
   command:    string
   workspace:  string
+  statsDir:   string       // host-side tmpdir for stats file — mounted into the container
   image:      string
   env:        Record<string, string>
   network:    boolean
@@ -36,7 +39,11 @@ export interface RunHandle {
   kill:    () => void
 }
 
-const STATS_DELIM = '___FOUNDRY_STATS___'
+// Stats are written to a file (/foundry-stats/stats) instead of stdout.
+// This completely separates cgroup metrics from user output — no delimiter
+// parsing, no contamination, no stdout corruption for tools that produce
+// large or unterminated output (curl -w, etc.).
+const STATS_FILE = '/foundry-stats/stats'
 
 function emptyStats(): ContainerStats {
   return { peakMemoryMb: null, cpuMs: null, netRxBytes: null, netTxBytes: null, exitSignal: null }
@@ -50,27 +57,22 @@ function wrapCommand(command: string): string {
   return [
     `sh -c ${escapeShellArg(command)}`,
     `__ec=$?`,
-    `echo ""`,              // guarantee a newline after user output so the
-    `echo "${STATS_DELIM}"`,// delimiter always starts on its own line
-    `cat /sys/fs/cgroup/cpu.stat 2>/dev/null || true`,
-    `echo "---"`,
-    `cat /sys/fs/cgroup/memory.peak 2>/dev/null || cat /sys/fs/cgroup/memory/memory.max_usage_in_bytes 2>/dev/null || echo 0`,
-    `echo "---"`,
-    `cat /proc/net/dev 2>/dev/null | tail -n+3 || true`,
+    // Write cgroup stats to a file — NOT stdout. The host reads it after
+    // the container exits via the mounted statsDir.
+    `{`,
+    `  cat /sys/fs/cgroup/cpu.stat 2>/dev/null || true`,
+    `  echo "---"`,
+    `  cat /sys/fs/cgroup/memory.peak 2>/dev/null || cat /sys/fs/cgroup/memory/memory.max_usage_in_bytes 2>/dev/null || echo 0`,
+    `  echo "---"`,
+    `  cat /proc/net/dev 2>/dev/null | tail -n+3 || true`,
+    `} > ${STATS_FILE} 2>/dev/null`,
     `exit $__ec`,
   ].join('\n')
 }
 
 function podmanArgs(opts: RunOptions): string[] {
-  const { workspace, image, env, network, mount, memoryMb, cpus, pidsLimit, nofileSoft, nofileHard, tmpfsMb, command } = opts
+  const { workspace, statsDir, image, env, network, mount, memoryMb, cpus, pidsLimit, nofileSoft, nofileHard, tmpfsMb, command } = opts
   const envArgs = Object.entries(env).flatMap(([k, v]) => ['-e', `${k}=${v}`])
-  // Mount modes:
-  //   'rw'   → bind-mount workspace to /work, read-write (tier-1 default)
-  //   'ro'   → bind-mount workspace to /work, read-only (tier-2 for tools
-  //            that need to read workspace state but must not mutate it —
-  //            e.g., secret-using tools reading .git state to push)
-  //   'none' → no workspace mount at all (tier-2 for pure-API tools like
-  //            Slack/Notion; nothing from /work is visible to the container)
   const mountArgs = mount === 'none'
     ? [] as string[]
     : ['-v', `${workspace}:/work${mount === 'ro' ? ':ro' : ''}`, '-w', '/work']
@@ -82,6 +84,7 @@ function podmanArgs(opts: RunOptions): string[] {
     '--ulimit', `nofile=${nofileSoft}:${nofileHard}`,
     '--cap-drop', 'ALL', '--read-only',
     '--tmpfs', `/tmp:rw,size=${tmpfsMb}m`, '--tmpfs', `/run:rw,size=8m`,
+    '-v', `${statsDir}:/foundry-stats`,   // stats file written here, read by host after exit
     ...mountArgs,
     ...envArgs,
     image, 'sh', '-c', wrapCommand(command),
@@ -117,21 +120,14 @@ function parseStats(lines: string[], timedOut: boolean): ContainerStats {
   }
 }
 
-function finalize(stdoutRaw: string, emitter: EventEmitter, code: number): void {
-  // Split the accumulated raw stdout by newlines ONCE at the end, then
-  // locate the stats sentinel. Splitting per-chunk in the data handler
-  // was buggy: chunk boundaries mid-line injected fake newlines into
-  // payloads (broke long JSON responses from curl, for example).
-  const allLines = stdoutRaw.split('\n')
-  const delimIdx = allLines.indexOf(STATS_DELIM)
-  const userLines  = delimIdx >= 0 ? allLines.slice(0, delimIdx) : allLines
-  const statsLines = delimIdx >= 0 ? allLines.slice(delimIdx + 1) : []
-  // Emit as one join — the consumer will re-join with '\n' anyway, so
-  // preserving the original boundaries (or lack thereof) matters more
-  // than emitting one event per line.
-  const userOut = userLines.join('\n').replace(/\n+$/, '')
-  if (userOut) emitter.emit('stdout', userOut)
-  emitter.emit('exit', code, parseStats(statsLines, false))
+function readStatsFile(statsDir: string): ContainerStats {
+  try {
+    const raw = readFileSync(join(statsDir, 'stats'), 'utf-8')
+    const lines = raw.split('\n')
+    return parseStats(lines, false)
+  } catch {
+    return emptyStats()
+  }
 }
 
 export function spawnRun(opts: RunOptions): RunHandle {
@@ -147,16 +143,17 @@ export function spawnRun(opts: RunOptions): RunHandle {
     emitter.emit('exit', -1, { ...emptyStats(), exitSignal: 'timeout' })
   }, opts.timeoutMs)
 
-  // Accumulate raw bytes rather than splitting per-chunk. Chunk boundaries
-  // don't align with line boundaries — splitting on each data event would
-  // inject fake newlines at buffer cutoffs.
   child.stdout.on('data', (d: Buffer) => { stdoutRaw += d.toString() })
   child.stderr.on('data', (d: Buffer) => { stderrRaw += d.toString() })
   child.on('close', (code) => {
     clearTimeout(timeout)
     if (timedOut) return
+    // Stdout is ONLY user output now — stats are in the file.
+    const userOut = stdoutRaw.replace(/\n+$/, '')
+    if (userOut) emitter.emit('stdout', userOut)
     if (stderrRaw) emitter.emit('stderr', stderrRaw.replace(/\n+$/, ''))
-    finalize(stdoutRaw, emitter, code ?? -1)
+    const stats = readStatsFile(opts.statsDir)
+    emitter.emit('exit', code ?? -1, stats)
   })
 
   return { emitter, kill: () => child.kill('SIGKILL') }
