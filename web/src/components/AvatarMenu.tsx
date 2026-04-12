@@ -1,24 +1,17 @@
 import { useState, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { Link } from 'react-router-dom'
-import { Settings, LogOut, Sun, Moon, Monitor, Pause, Play, FolderOpen, Plus } from 'lucide-react'
+import { Settings, LogOut, Sun, Moon, Monitor } from 'lucide-react'
 import { authApi } from '../api.js'
-import type { Account, Project } from '../types.js'
+import type { Account } from '../types.js'
 import { useTheme, type ThemeMode } from '../theme.js'
 
 const THEME_CYCLE: ThemeMode[] = ['system', 'light', 'dark']
 
-interface Props {
-  project?: Project | null
-  projectId?: string
-  onToggle?: () => Promise<void>
-}
-
-export function AvatarMenu({ project, projectId, onToggle }: Props) {
-  const [open, setOpen] = useState(false)
-  const [pos, setPos] = useState<{ top: number; right: number } | null>(null)
+export function AvatarMenu() {
+  const [open,    setOpen]    = useState(false)
+  const [pos,     setPos]     = useState<{ top: number; right: number } | null>(null)
   const [account, setAccount] = useState<Account | null>(null)
-  const [toggling, setToggling] = useState(false)
   const btnRef = useRef<HTMLButtonElement>(null)
   const { mode, setMode } = useTheme()
 
@@ -41,15 +34,8 @@ export function AvatarMenu({ project, projectId, onToggle }: Props) {
     setMode(next)
   }
 
-  async function handleToggle() {
-    if (!onToggle) return
-    setToggling(true)
-    try { await onToggle() } finally { setToggling(false) }
-  }
-
   const initials = account?.login?.[0]?.toUpperCase() ?? '·'
   const ThemeIcon = mode === 'light' ? Sun : mode === 'dark' ? Moon : Monitor
-  const isActive = project?.status === 'active'
 
   const dropdown = open && pos && createPortal(
     <>
@@ -66,50 +52,14 @@ export function AvatarMenu({ project, projectId, onToggle }: Props) {
           </div>
         )}
 
-        {/* ── Project actions ── */}
-        {project != null && projectId && (
-          <>
-            {onToggle && (
-              <button
-                onClick={handleToggle}
-                disabled={toggling}
-                className="w-full text-left flex items-center gap-2.5 px-3 py-2 text-xs text-zinc-600 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors disabled:opacity-30"
-              >
-                {isActive
-                  ? <Pause size={12} strokeWidth={2} />
-                  : <Play  size={12} strokeWidth={2} className="text-amber-400" />
-                }
-                {isActive ? 'Pause project' : 'Resume project'}
-              </button>
-            )}
-            <Link
-              to={`/settings/projects/${projectId}`}
-              onClick={() => setOpen(false)}
-              className="flex items-center gap-2.5 px-3 py-2 text-xs text-zinc-600 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors"
-            >
-              <Settings size={12} strokeWidth={2} />
-              Project settings
-            </Link>
-            <div className="border-t border-zinc-200 dark:border-zinc-800 my-1" />
-          </>
-        )}
-
-        {/* ── Projects navigation ── */}
+        {/* ── App settings ── */}
         <Link
-          to="/settings/projects"
+          to="/settings"
           onClick={() => setOpen(false)}
           className="flex items-center gap-2.5 px-3 py-2 text-xs text-zinc-600 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors"
         >
-          <FolderOpen size={12} strokeWidth={2} />
-          All projects
-        </Link>
-        <Link
-          to="/settings/projects/new"
-          onClick={() => setOpen(false)}
-          className="flex items-center gap-2.5 px-3 py-2 text-xs text-zinc-600 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors"
-        >
-          <Plus size={12} strokeWidth={2} />
-          New project…
+          <Settings size={12} strokeWidth={2} />
+          Settings
         </Link>
 
         <div className="border-t border-zinc-200 dark:border-zinc-800 my-1" />
@@ -125,15 +75,7 @@ export function AvatarMenu({ project, projectId, onToggle }: Props) {
 
         <div className="border-t border-zinc-200 dark:border-zinc-800 my-1" />
 
-        {/* ── App / account ── */}
-        <Link
-          to="/settings"
-          onClick={() => setOpen(false)}
-          className="flex items-center gap-2.5 px-3 py-2 text-xs text-zinc-600 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors"
-        >
-          <Settings size={12} strokeWidth={2} />
-          Settings
-        </Link>
+        {/* ── Auth ── */}
         <button
           onClick={handleLogout}
           className="w-full text-left flex items-center gap-2.5 px-3 py-2 text-xs text-zinc-600 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors"
