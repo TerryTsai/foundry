@@ -1,36 +1,33 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLoaderData, useParams } from 'react-router-dom'
 import { projectApi } from '../../api.js'
-import { useShell } from '../../Shell.js'
+import type { Project } from '../../types.js'
 import { Field } from '../../components/form/Field.js'
 import { TextInput } from '../../components/form/TextInput.js'
 import { ActionButton } from '../../components/form/ActionButton.js'
 
 export function ProjectEditPage() {
-  const { projectId, project, revalidate } = useShell()
+  const project = useLoaderData() as Project
+  const { projectId } = useParams<{ projectId: string }>()
   const navigate = useNavigate()
-  const [name, setName] = useState('')
-  const [repo, setRepo] = useState('')
-  const [maxAgents, setMaxAgents] = useState('')
+  const [name, setName] = useState(project.name)
+  const [repo, setRepo] = useState(project.repo)
+  const [maxAgents, setMaxAgents] = useState(String(project.max_agents))
   const [error, setError] = useState('')
 
+  // Keep form in sync if loader re-runs
   useEffect(() => {
-    if (project) {
-      setName(project.name)
-      setRepo(project.repo)
-      setMaxAgents(String(project.max_agents))
-    }
+    setName(project.name)
+    setRepo(project.repo)
+    setMaxAgents(String(project.max_agents))
   }, [project])
-
-  if (!project) return null
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault()
     setError('')
     try {
-      await projectApi.update(projectId, { repo, max_agents: +maxAgents })
-      revalidate()
-      navigate(`/p/${projectId}/tickets`)
+      await projectApi.update(projectId!, { repo, max_agents: +maxAgents })
+      navigate('/settings/projects')
     } catch (err) { setError(err instanceof Error ? err.message : 'failed') }
   }
 

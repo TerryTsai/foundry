@@ -17,35 +17,28 @@ export function ProjectNewPage() {
     setError('')
     try {
       const saved = await projectApi.create({ name, repo, max_agents: +maxAgents })
-      navigate(`/p/${saved.id}/agents/new`)
+      navigate(`/p/${saved.id}/tickets`)
     } catch (err) { setError(err instanceof Error ? err.message : 'failed') }
   }
 
   return (
-    <div className="h-dvh flex flex-col bg-white dark:bg-zinc-950">
-      <div className="flex items-center gap-2.5 px-4 h-12 shrink-0 border-b border-zinc-200 dark:border-zinc-800/60">
-        <span className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">New Project</span>
-      </div>
-      <div className="flex-1 overflow-y-auto">
-        <div className="py-5 lg:max-w-2xl lg:mx-auto lg:px-6">
-          <form onSubmit={handleSubmit} className="space-y-4">
-            {error && <div className="text-sm text-red-400">{error}</div>}
-            <Field label="name">
-              <TextInput value={name} onChange={e => setName(e.target.value)} required />
-            </Field>
-            <Field label="github repo (owner/name)">
-              <TextInput value={repo} onChange={e => setRepo(e.target.value)} placeholder="TerryTsai/foundry" pattern="^[\w.-]+/[\w.-]+$" required />
-            </Field>
-            <Field label="max agents">
-              <TextInput type="number" value={maxAgents} onChange={e => setMaxAgents(e.target.value)} required min="1" />
-            </Field>
-            <div className="flex gap-2 pt-2">
-              <ActionButton label="cancel" variant="secondary" onClick={() => navigate(-1)} className="flex-1" />
-              <ActionButton label="create" type="submit" className="flex-1" />
-            </div>
-          </form>
+    <div className="py-5 lg:max-w-2xl lg:mx-auto lg:px-6">
+      <form onSubmit={handleSubmit} className="space-y-4">
+        {error && <div className="text-sm text-red-400">{error}</div>}
+        <Field label="name">
+          <TextInput value={name} onChange={e => setName(e.target.value)} required />
+        </Field>
+        <Field label="github repo (owner/name)">
+          <TextInput value={repo} onChange={e => setRepo(e.target.value)} placeholder="TerryTsai/foundry" pattern="^[\w.-]+/[\w.-]+$" required />
+        </Field>
+        <Field label="max agents">
+          <TextInput type="number" value={maxAgents} onChange={e => setMaxAgents(e.target.value)} required min="1" />
+        </Field>
+        <div className="flex gap-2 pt-2">
+          <ActionButton label="cancel" variant="secondary" onClick={() => navigate(-1)} className="flex-1" />
+          <ActionButton label="create" type="submit" className="flex-1" />
         </div>
-      </div>
+      </form>
     </div>
   )
 }

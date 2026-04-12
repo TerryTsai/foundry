@@ -38,42 +38,78 @@ export const router = createBrowserRouter([
     element: <SettingsLayout />,
     children: [
       { index: true, element: <SettingsIndexPlaceholder /> },
+
+      // Agents
       {
         path: 'agents',
-        element: <Outlet />,
+        element: <AgentsSplitLayout />,
+        loader: () => agentApi.list(),
         children: [
-          { index: true, element: <div className="p-6 text-sm text-zinc-500 dark:text-zinc-400">coming soon</div> },
-          { path: 'new', element: <div className="p-6 text-sm text-zinc-500 dark:text-zinc-400">coming soon</div> },
-          { path: ':agentId', element: <div className="p-6 text-sm text-zinc-500 dark:text-zinc-400">coming soon</div> },
+          { index: true, element: <AgentsIndexPlaceholder /> },
+          {
+            path: 'new',
+            element: <AgentNewPage />,
+            loader: () => connectionApi.list(),
+          },
+          {
+            path: ':agentId',
+            element: <AgentDetailPage />,
+            loader: async ({ params }) => {
+              const [agent, usage, connections] = await Promise.all([
+                agentApi.get(params.agentId!),
+                agentApi.usage(params.agentId!),
+                connectionApi.list(),
+              ])
+              return { agent, usage, connections }
+            },
+          },
         ],
       },
+
+      // Connections
       {
         path: 'connections',
         element: <Outlet />,
         children: [
-          { index: true, element: <div className="p-6 text-sm text-zinc-500 dark:text-zinc-400">coming soon</div> },
-          { path: 'new', element: <div className="p-6 text-sm text-zinc-500 dark:text-zinc-400">coming soon</div> },
-          { path: ':connectionId', element: <div className="p-6 text-sm text-zinc-500 dark:text-zinc-400">coming soon</div> },
+          {
+            index: true,
+            element: <ConnectionListPage />,
+            loader: () => connectionApi.list(),
+          },
+          { path: 'new', element: <ConnectionNewPage /> },
+          {
+            path: ':connectionId',
+            element: <ConnectionDetailPage />,
+            loader: async ({ params }) => {
+              const cs = await connectionApi.list()
+              return cs.find(c => c.id === params.connectionId!) ?? null
+            },
+          },
         ],
       },
+
+      // Projects
       {
         path: 'projects',
         element: <Outlet />,
         children: [
-          { index: true, element: <div className="p-6 text-sm text-zinc-500 dark:text-zinc-400">coming soon</div> },
-          { path: 'new', element: <div className="p-6 text-sm text-zinc-500 dark:text-zinc-400">coming soon</div> },
-          { path: ':projectId', element: <div className="p-6 text-sm text-zinc-500 dark:text-zinc-400">coming soon</div> },
+          {
+            index: true,
+            element: <ProjectListPage />,
+            loader: () => projectApi.list(),
+          },
+          { path: 'new', element: <ProjectNewPage /> },
+          {
+            path: ':projectId',
+            element: <ProjectEditPage />,
+            loader: ({ params }) => projectApi.get(params.projectId!),
+          },
         ],
       },
+
       { path: 'profile', element: <div className="p-6 text-sm text-zinc-500 dark:text-zinc-400">coming soon</div> },
     ],
   },
-  {
-    path: '/projects',
-    element: <ProjectListPage />,
-    loader: () => projectApi.list(),
-  },
-  { path: '/projects/new', element: <ProjectNewPage /> },
   {
     path: '/p/:projectId',
     element: <Shell />,
@@ -81,9 +117,6 @@ export const router = createBrowserRouter([
     loader: ({ params }) => projectApi.get(pid(params)),
     children: [
       { index: true, element: <Navigate to="tickets" replace /> },
-
-      // Project settings
-      { path: 'settings', element: <ProjectEditPage />, handle: { crumb: 'Settings' } },
 
       // Tickets
       {
@@ -162,63 +195,6 @@ export const router = createBrowserRouter([
           },
         ],
       },
-
-      // Agents
-      {
-        path: 'agents',
-        element: <AgentsSplitLayout />,
-        handle: { crumb: 'Agents' },
-        loader: () => agentApi.list(),
-        children: [
-          {
-            index: true,
-            element: <AgentsIndexPlaceholder />,
-          },
-          {
-            path: 'new',
-            element: <AgentNewPage />,
-            handle: { crumb: 'New' },
-            loader: () => connectionApi.list(),
-          },
-          {
-            path: ':agentId',
-            element: <AgentDetailPage />,
-            handle: { crumb: 'Agent' },
-            loader: async ({ params }) => {
-              const [agent, usage, connections] = await Promise.all([
-                agentApi.get(params.agentId!),
-                agentApi.usage(params.agentId!),
-                connectionApi.list(),
-              ])
-              return { agent, usage, connections }
-            },
-          },
-          {
-            path: 'connections',
-            element: <Passthrough />,
-            handle: { crumb: 'Connections' },
-            children: [
-              {
-                index: true,
-                element: <ConnectionListPage />,
-                loader: () => connectionApi.list(),
-              },
-              { path: 'new', element: <ConnectionNewPage />, handle: { crumb: 'New' } },
-              {
-                path: ':connectionId',
-                element: <ConnectionDetailPage />,
-                handle: { crumb: 'Connection' },
-                loader: async ({ params }) => {
-                  const cs = await connectionApi.list()
-                  return cs.find(c => c.id === params.connectionId!) ?? null
-                },
-              },
-            ],
-          },
-        ],
-      },
-
-      // Files
     ],
   },
 ])
