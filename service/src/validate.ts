@@ -106,6 +106,11 @@ export const commentCreate = z.object({
 
 const modelId = z.string().min(1).refine(s => !s.includes(':'), { message: 'model must be just the model id, no connection prefix (use connection_id to select the backend)' })
 
+const toolSelection = z.union([
+  z.array(z.string()),
+  z.record(z.string(), z.union([z.literal('*'), z.array(z.string())])),
+])
+
 export const agentList = z.object({
   accountId: z.string().optional(),
 })
@@ -119,7 +124,7 @@ export const agentCreate = z.object({
   max_steps:        z.number().int().positive().optional(),
   temperature:      z.number().min(0).max(2).optional(),
   reasoning_budget: z.number().int().positive().nullable().optional(),
-  tools:            z.array(z.string()).optional(),
+  tools:            toolSelection.optional(),
 })
 
 export const agentUpdate = z.object({
@@ -130,7 +135,7 @@ export const agentUpdate = z.object({
   max_steps:        z.number().int().positive().optional(),
   temperature:      z.number().min(0).max(2).nullable().optional(),
   reasoning_budget: z.number().int().positive().nullable().optional(),
-  tools:            z.array(z.string()).optional(),
+  tools:            toolSelection.optional(),
 })
 
 export const sessionStart   = z.object({ ticket_id: z.string() })

@@ -25,6 +25,7 @@ import * as router from './router.js'
 import * as domain from './domain.js'
 import * as database from './database.js'
 import * as validate from './validate.js'
+import { SERVER_IDS } from './mcp/registry.js'
 import { errors } from './middleware.js'
 import type { Config } from './config.js'
 
@@ -881,5 +882,31 @@ describe('TC10: Ticket CRUD regression', () => {
 
     const after = await request(app).get(`/ticket/${t.id}/tag`).set('x-test-account-id', account.id).expect(200)
     expect(after.body.map((x: any) => x.tag)).not.toContain('qa')
+  })
+})
+
+// ════════════════════════════════════════════════════════════════════════════
+// GET /agent/mcp — returns server-grouped tool metadata
+// ════════════════════════════════════════════════════════════════════════════
+
+describe('GET /agent/mcp returns registry', () => {
+  it('returns all 4 servers with tools', async () => {
+    const db = createTestDb()
+    const app = buildApp(db)
+    const res = await request(app).get('/agent/mcp').expect(200)
+    expect(res.body).toHaveLength(SERVER_IDS.length)
+    for (const server of res.body) {
+      expect(server).toHaveProperty('id')
+      expect(server).toHaveProperty('name')
+      expect(server).toHaveProperty('description')
+      expect(server).toHaveProperty('tools')
+      expect(Array.isArray(server.tools)).toBe(true)
+      for (const tool of server.tools) {
+        expect(tool).toHaveProperty('name')
+        expect(tool).toHaveProperty('description')
+      }
+    }
+    const ids = res.body.map((s: any) => s.id)
+    expect(ids).toEqual([...SERVER_IDS])
   })
 })
