@@ -29,6 +29,8 @@ export const info: McpServerInfo = {
     { name: 'ticketGet',     description: 'Fetch a ticket by id.' },
     { name: 'ticketCreate',  description: 'Create a new ticket in the current project.' },
     { name: 'ticketComment', description: 'Post a comment on a ticket.' },
+    { name: 'ticketTagAdd',    description: 'Add a tag to a ticket.' },
+    { name: 'ticketTagRemove', description: 'Remove a tag from a ticket.' },
     { name: 'agentsList',    description: 'List agents configured in the current project.' },
     { name: 'sessionList',   description: 'List agent sessions for a ticket.' },
     { name: 'connectionList',  description: 'List configured external connections (LLM backends, integrations).' },
@@ -48,6 +50,7 @@ export interface FoundryCtx {
 const ticketListArgs = z.object({
   status:   z.string().optional().describe('Filter by status (open, claimed, done, failed, blocked).'),
   agent_id: z.string().optional().describe('Filter by assigned agent id.'),
+  tag:      z.string().optional().describe('Filter by tag.'),
 })
 
 const ticketGetArgs = z.object({
@@ -64,6 +67,16 @@ const ticketCreateArgs = z.object({
 const ticketCommentArgs = z.object({
   ticket_id: z.string().optional().describe('Ticket to comment on. Defaults to the current session\'s ticket.'),
   body:      z.string().describe('Comment body, markdown allowed.'),
+})
+
+const ticketTagAddArgs = z.object({
+  ticket_id: z.string().optional().describe('Ticket id. Defaults to the current session\'s ticket.'),
+  tag:       z.string().describe('Tag to add (lowercase, max 50 chars).'),
+})
+
+const ticketTagRemoveArgs = z.object({
+  ticket_id: z.string().optional().describe('Ticket id. Defaults to the current session\'s ticket.'),
+  tag:       z.string().describe('Tag to remove.'),
 })
 
 const agentsListArgs  = z.object({})
@@ -83,6 +96,7 @@ async function handleTicketList(ctx: FoundryCtx, args: z.infer<typeof ticketList
       projectId: ctx.projectId,
       ...(args.status   ? { status:  args.status   } : {}),
       ...(args.agent_id ? { agentId: args.agent_id } : {}),
+      ...(args.tag      ? { tag:     args.tag      } : {}),
     })
   } catch (err) {
     return { error: err instanceof Error ? err.message : String(err) }
@@ -91,7 +105,9 @@ async function handleTicketList(ctx: FoundryCtx, args: z.infer<typeof ticketList
 
 async function handleTicketGet(ctx: FoundryCtx, args: z.infer<typeof ticketGetArgs>) {
   try {
-    return domain.ticketGet(ctx.db, args.id)
+    const ticket = domain.ticketGet(ctx.db, args.id)
+    const tags = domain.tagList(ctx.db, args.id)
+    return { ...ticket, tags: tags.map(t => t.tag) }
   } catch (err) {
     return { error: err instanceof Error ? err.message : String(err) }
   }
@@ -120,6 +136,25 @@ async function handleTicketComment(ctx: FoundryCtx, args: z.infer<typeof ticketC
       author: ctx.agentName,
       body:   args.body,
     })
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+async function handleTicketTagAdd(ctx: FoundryCtx, args: z.infer<typeof ticketTagAddArgs>) {
+  try {
+    const ticketId = args.ticket_id ?? ctx.ticketId
+    return domain.tagAdd(ctx.db, ticketId, args.tag)
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+async function handleTicketTagRemove(ctx: FoundryCtx, args: z.infer<typeof ticketTagRemoveArgs>) {
+  try {
+    const ticketId = args.ticket_id ?? ctx.ticketId
+    domain.tagRemove(ctx.db, ticketId, args.tag)
+    return { ok: true }
   } catch (err) {
     return { error: err instanceof Error ? err.message : String(err) }
   }
@@ -154,11 +189,13 @@ async function handleThink(_ctx: FoundryCtx, _args: z.infer<typeof thinkArgs>) {
 }
 
 const DESC = {
-  ticketList:    'List tickets in the current project. Optionally filter by status or assigned agent.',
-  ticketGet:     'Fetch a ticket by id, including its title, body, status, and parent chain.',
-  ticketCreate:  'Create a new ticket in the current project. The new ticket is parented to the current session\'s ticket by default, so sub-tasks chain back to the originating work.',
-  ticketComment: 'Post a comment on a ticket. Used for status updates, questions, or communicating with the Founder.',
-  agentsList:    'List agents configured in the current project. Useful for targeting sub-tickets at a specific agent.',
+  ticketList:      'List tickets in the current project. Optionally filter by status, assigned agent, or tag.',
+  ticketGet:       'Fetch a ticket by id, including its title, body, status, and parent chain.',
+  ticketCreate:    'Create a new ticket in the current project. The new ticket is parented to the current session\'s ticket by default, so sub-tasks chain back to the originating work.',
+  ticketComment:   'Post a comment on a ticket. Used for status updates, questions, or communicating with the Founder.',
+  ticketTagAdd:    'Add a tag to a ticket.',
+  ticketTagRemove: 'Remove a tag from a ticket.',
+  agentsList:      'List agents configured in the current project. Useful for targeting sub-tickets at a specific agent.',
   sessionList:   'List agent sessions for a ticket. Defaults to the current session\'s ticket if omitted.',
   connectionList:  'List configured LLM providers (model backends). Secrets are masked.',
   think:         'Use this tool to reason, plan, or analyze before taking action. No side effects.',
@@ -174,6 +211,8 @@ export function buildSdk(ctx: FoundryCtx) {
       sdkTool('ticketGet',     DESC.ticketGet,     ticketGetArgs.shape,     async a => asText(await handleTicketGet(ctx, a))),
       sdkTool('ticketCreate',  DESC.ticketCreate,  ticketCreateArgs.shape,  async a => asText(await handleTicketCreate(ctx, a))),
       sdkTool('ticketComment', DESC.ticketComment, ticketCommentArgs.shape, async a => asText(await handleTicketComment(ctx, a))),
+      sdkTool('ticketTagAdd',    DESC.ticketTagAdd,    ticketTagAddArgs.shape,    async a => asText(await handleTicketTagAdd(ctx, a))),
+      sdkTool('ticketTagRemove', DESC.ticketTagRemove, ticketTagRemoveArgs.shape, async a => asText(await handleTicketTagRemove(ctx, a))),
       sdkTool('agentsList',    DESC.agentsList,    agentsListArgs.shape,    async a => asText(await handleAgentsList(ctx, a))),
       sdkTool('sessionList',   DESC.sessionList,   sessionListArgs.shape,   async a => asText(await handleSessionList(ctx, a))),
       sdkTool('connectionList',  DESC.connectionList,  connectionListArgs.shape,  async a => asText(await handleConnectionList(ctx, a))),
@@ -205,6 +244,16 @@ export function buildAi(ctx: FoundryCtx) {
       description: DESC.ticketComment,
       inputSchema: ticketCommentArgs,
       execute:     (args: z.infer<typeof ticketCommentArgs>) => handleTicketComment(ctx, args),
+    }),
+    ticketTagAdd: tool({
+      description: DESC.ticketTagAdd,
+      inputSchema: ticketTagAddArgs,
+      execute:     (args: z.infer<typeof ticketTagAddArgs>) => handleTicketTagAdd(ctx, args),
+    }),
+    ticketTagRemove: tool({
+      description: DESC.ticketTagRemove,
+      inputSchema: ticketTagRemoveArgs,
+      execute:     (args: z.infer<typeof ticketTagRemoveArgs>) => handleTicketTagRemove(ctx, args),
     }),
     agentsList: tool({
       description: DESC.agentsList,
