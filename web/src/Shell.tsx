@@ -1,38 +1,16 @@
-import { Outlet, ScrollRestoration, useParams, useLoaderData, useRevalidator, Link } from 'react-router-dom'
+import { Outlet, ScrollRestoration, useParams, useLoaderData, useRevalidator } from 'react-router-dom'
 import { Ticket, type LucideIcon } from 'lucide-react'
 import type { Project } from './types.js'
-import { AvatarMenu } from './components/AvatarMenu.js'
 import { ProjectSwitcher } from './components/ProjectSwitcher.js'
+import { AppHeader } from './components/layout/AppHeader.js'
 
-// ── Foundry Mark ──
-export function FoundryMark() {
-  return (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" className="shrink-0 text-amber-400">
-      <path d="M10 1 L19 10 L10 19 L1 10 Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
-      <path d="M10 5.5 L14.5 10 L10 14.5 L5.5 10 Z" fill="currentColor" />
-    </svg>
-  )
-}
+// Re-export for consumers that import FoundryMark from Shell
+export { FoundryMark } from './components/layout/AppHeader.js'
 
 // ── Nav items (desktop sidebar / breadcrumb handles mobile) ──
 export const navItems: Array<{ to: string; label: string; Icon: LucideIcon }> = [
   { to: 'tickets', label: 'Tickets', Icon: Ticket },
 ]
-
-// ── Unified App Header ──
-function AppHeader({ projectId, project }: { projectId: string; project: Project | null }) {
-  return (
-    <header className="flex items-center h-12 shrink-0 px-4 gap-3 border-b border-zinc-300 dark:border-zinc-800/60 bg-white dark:bg-zinc-950">
-      <Link to="/" className="flex items-center gap-2.5 shrink-0 mr-1">
-        <FoundryMark />
-        <span className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 font-display">Foundry</span>
-      </Link>
-      <span className="text-zinc-300 dark:text-zinc-700 text-sm select-none">/</span>
-      <ProjectSwitcher current={project} projectId={projectId} />
-      <AvatarMenu />
-    </header>
-  )
-}
 
 // ── Shell ──
 export function Shell() {
@@ -42,7 +20,7 @@ export function Shell() {
 
   return (
     <div className="flex flex-col h-dvh bg-white dark:bg-zinc-950">
-      <AppHeader projectId={projectId!} project={project} />
+      <AppHeader><ProjectSwitcher current={project} projectId={projectId!} /></AppHeader>
       <main className="flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden">
         <ScrollRestoration />
         <Outlet context={{ project, projectId: projectId!, revalidate }} />

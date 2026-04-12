@@ -1,4 +1,4 @@
-import { FoundryMark } from '../../Shell.js'
+import { FoundryMark } from '../../components/layout/AppHeader.js'
 
 // lucide-react no longer ships brand marks; inline the GitHub octocat path.
 function GithubMark() {

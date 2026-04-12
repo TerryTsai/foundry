@@ -1,7 +1,6 @@
 import { Outlet, NavLink, Link, useMatch } from 'react-router-dom'
 import { Bot, Link2, FolderOpen, User, type LucideIcon } from 'lucide-react'
-import { FoundryMark } from '../../Shell.js'
-import { AvatarMenu } from '../../components/AvatarMenu.js'
+import { AppHeader } from '../../components/layout/AppHeader.js'
 import { ListRow } from '../../components/list/ListRow.js'
 
 const navItems: Array<{ to: string; label: string; Icon: LucideIcon; subtitle: string }> = [
@@ -28,15 +27,7 @@ export function SettingsLayout() {
 
   return (
     <div className="flex flex-col h-dvh bg-white dark:bg-zinc-950">
-      <header className="flex items-center h-12 shrink-0 px-4 gap-3 border-b border-zinc-300 dark:border-zinc-800/60 bg-white dark:bg-zinc-950">
-        <Link to="/" className="flex items-center gap-2.5 shrink-0 mr-1">
-          <FoundryMark />
-          <span className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 font-display">Foundry</span>
-        </Link>
-        <span className="text-zinc-300 dark:text-zinc-700 text-sm select-none">/</span>
-        <span className="text-sm text-zinc-500 dark:text-zinc-400 flex-1">Settings</span>
-        <AvatarMenu />
-      </header>
+      <AppHeader><span className="text-sm text-zinc-500 dark:text-zinc-400">Settings</span></AppHeader>
 
       <div className="flex flex-1 min-h-0">
         {/* ── Desktop sidebar ───────────────────────────────────────────────── */}
