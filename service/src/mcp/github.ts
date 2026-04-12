@@ -265,45 +265,48 @@ async function handleGitRemove(ctx: GithubCtx, args: z.infer<typeof gitRemoveArg
 }
 
 async function handleGitCommit(ctx: GithubCtx, args: z.infer<typeof gitCommitArgs>) {
+  // Single shell script: preflight + commit + capture HEAD. Runs in one
+  // container, produces one execution row. The commit message comes in
+  // via env (FULL_MSG) so we don't have to shell-escape multi-line text.
+  // A NOTHING_STAGED marker with exit 64 signals "empty index" distinct
+  // from a generic git failure.
   const fullMessage = `${args.message}\n\nSession: ${ctx.sessionId}\nTicket:  ${ctx.ticket.id}\n`
-  // Pre-flight: check there's something staged. git diff --cached --quiet
-  // exits 0 if index is clean, non-zero if staged changes exist. Invert.
-  const check = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace,
-    'git diff --cached --quiet', 'gitCommit', { phase: 'check' })
-  if (check.exitCode === 0) return { ok: false, error: 'nothing staged — call gitAdd first' }
-
-  // Commit + capture the resulting HEAD sha.
-  const command = `git commit -m ${esc(fullMessage)} && git rev-parse HEAD`
+  const command = [
+    'set -e',
+    'if git diff --cached --quiet; then',
+    '  echo NOTHING_STAGED',
+    '  exit 64',
+    'fi',
+    'git commit -m "$FULL_MSG" 1>&2',
+    'git rev-parse HEAD',
+  ].join('\n')
   const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace,
-    command, 'gitCommit', args)
+    command, 'gitCommit', args, { env: { FULL_MSG: fullMessage } })
+  if (r.exitCode === 64 || r.stdout.trim() === 'NOTHING_STAGED') {
+    return { ok: false, error: 'nothing staged — call gitAdd first' }
+  }
   if (r.exitCode !== 0) return { ok: false, error: r.stderr || r.stdout }
-  const lines = r.stdout.trim().split('\n')
-  return { ok: true, commit: lines[lines.length - 1] }
+  const sha = r.stdout.trim().split('\n').pop() ?? ''
+  return { ok: true, commit: sha }
 }
 
 // ── pullRequestCreate: tier-2 sandbox (push + PR create with secret) ──
+//
+// Single container, single execution row. Does preflight (base branch
+// detection + ahead count), push, and PR create all in one shell script
+// inside a tier-2 container with /work mounted read-only and the install
+// token in env. A NOTHING_TO_PUBLISH marker signals empty-branch distinct
+// from genuine errors. The curl response body is the script's stdout,
+// parsed by the handler to extract the PR URL.
 
 async function handlePullRequestCreate(ctx: GithubCtx, args: z.infer<typeof pullRequestCreateArgs>) {
-  // Pre-flight (tier-1): verify there are commits to publish.
-  const baseRefCheck = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace,
-    'git symbolic-ref refs/remotes/origin/HEAD', 'pullRequestCreate', { phase: 'base' })
-  const baseBranch = baseRefCheck.exitCode === 0
-    ? baseRefCheck.stdout.trim().replace(/^refs\/remotes\/origin\//, '')
-    : 'main'
-
-  const aheadCheck = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace,
-    `git rev-list --count ${esc(baseBranch)}..HEAD`, 'pullRequestCreate', { phase: 'ahead' })
-  if (aheadCheck.exitCode !== 0 || toInt(aheadCheck.stdout) === 0) {
-    return { ok: false, error: 'no commits to publish — call gitCommit first' }
-  }
-
   try {
     const proj = require(database.projectGet(ctx.db, ctx.ticket.project_id), `project ${ctx.ticket.project_id} not found`)
     if (!proj.repo) return { ok: false, error: 'project has no repo configured' }
     const { owner, name } = parseRepo(proj.repo)
     const branch = `foundry/${ctx.sessionId}`
 
-    // Mint a fresh installation token just before the push. Token lives
+    // Mint a fresh installation token just before the call. Token lives
     // for ~1 hour, but we only need seconds of it. Host process holds the
     // App private key; the sandbox never sees it.
     const installationId = await installationForRepo(ctx.config, owner, name)
@@ -311,20 +314,36 @@ async function handlePullRequestCreate(ctx: GithubCtx, args: z.infer<typeof pull
 
     const title = (args.title ?? `[${ctx.ticket.id}] ${ctx.ticket.title.trim() || '(no title)'}`).slice(0, 200)
     const body  = args.body ?? defaultPrBody(ctx.sessionId, ctx.ticket)
-    const prBody = JSON.stringify({ title, head: branch, base: baseBranch, body, draft: true })
 
-    // Combined push + PR-create command. All credential values come from
-    // env vars injected by podman; the logged command string contains
-    // only variable references ($INSTALL_TOKEN etc), not the expanded
-    // secrets. The shell inside the container expands them at run time.
-    // Any token that leaks into git's stderr is scrubbed before write by
-    // the execution-row scrubber in mcp/_shared.ts.
+    // Combined preflight + push + PR-create shell script. All credential
+    // values come from env vars injected by podman; the logged command
+    // string contains only variable references. The shell inside the
+    // container expands them at run time. Any token that leaks into git's
+    // stderr is scrubbed before write by the execution-row scrubber in
+    // mcp/_shared.ts.
+    //
+    // Output contract for the handler:
+    //   - exit 64 + "NOTHING_TO_PUBLISH" on stdout → empty branch
+    //   - exit 0 + JSON body + "\n<http_code>" on stdout → PR created
+    //   - anything else → generic failure
     const command = [
       'set -e',
       'cd /work',
       'export GIT_TERMINAL_PROMPT=0',
+      '# Detect the base branch (what origin/HEAD points at, default main).',
+      'BASE=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed "s|refs/remotes/origin/||" || echo main)',
+      '# Count commits ahead of the base. If zero, nothing to publish.',
+      'AHEAD=$(git rev-list --count "${BASE}..HEAD")',
+      'if [ "$AHEAD" -eq 0 ]; then',
+      '  echo NOTHING_TO_PUBLISH',
+      '  exit 64',
+      'fi',
+      '# Rebuild the PR body JSON with the actual detected base branch.',
+      'PR_BODY=$(printf \'%s\' "${PR_BODY_JSON}" | jq --arg b "$BASE" \'.base = $b\')',
+      '# Push the session branch.',
       'git push "https://x-access-token:${INSTALL_TOKEN}@github.com/${OWNER}/${REPO}" "HEAD:refs/heads/${BRANCH}" 1>&2',
-      'printf \'%s\' "${PR_BODY_JSON}" | curl -sS -w "\\n%{http_code}" -X POST \\',
+      '# Create the PR. Response body on stdout, status code appended on its own line.',
+      'printf \'%s\' "$PR_BODY" | curl -sS -w "\\n%{http_code}" -X POST \\',
       '  -H "Authorization: Bearer ${INSTALL_TOKEN}" \\',
       '  -H "Accept: application/vnd.github+json" \\',
       '  -H "Content-Type: application/json" \\',
@@ -332,8 +351,13 @@ async function handlePullRequestCreate(ctx: GithubCtx, args: z.infer<typeof pull
       '  "https://api.github.com/repos/${OWNER}/${REPO}/pulls"',
     ].join('\n')
 
+    // PR body is a JSON template with placeholder base; the shell script
+    // rewrites it to the detected BASE before posting. This way we don't
+    // have to round-trip the base branch out of the container first.
+    const prBodyTemplate = JSON.stringify({ title, head: branch, base: 'main', body, draft: true })
+
     const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace,
-      command, 'pullRequestCreate', { phase: 'publish' }, {
+      command, 'pullRequestCreate', {}, {
         network: true,
         mount:   'ro',
         env: {
@@ -341,11 +365,14 @@ async function handlePullRequestCreate(ctx: GithubCtx, args: z.infer<typeof pull
           OWNER:         owner,
           REPO:          name,
           BRANCH:        branch,
-          BASE:          baseBranch,
-          PR_BODY_JSON:  prBody,
+          PR_BODY_JSON:  prBodyTemplate,
         },
       })
 
+    // Marker exit code: nothing staged beyond the base branch.
+    if (r.exitCode === 64 || r.stdout.trim() === 'NOTHING_TO_PUBLISH') {
+      return { ok: false, error: 'no commits to publish — call gitCommit first' }
+    }
     if (r.exitCode !== 0) {
       return { ok: false, error: 'push or PR create failed (see execution row for details)' }
     }
