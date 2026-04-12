@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { Link } from 'react-router-dom'
 import { Settings, LogOut, Sun, Moon, Monitor } from 'lucide-react'
@@ -15,12 +15,16 @@ export function AvatarMenu() {
   const btnRef = useRef<HTMLButtonElement>(null)
   const { mode, setMode } = useTheme()
 
+  // Eager-load so avatar renders on initial page load
+  useEffect(() => {
+    authApi.me().then(setAccount).catch(console.error)
+  }, [])
+
   function handleOpen() {
     if (open) { setOpen(false); return }
     const rect = btnRef.current?.getBoundingClientRect()
     if (rect) setPos({ top: rect.bottom + 6, right: window.innerWidth - rect.right })
     setOpen(true)
-    if (!account) authApi.me().then(setAccount).catch(console.error)
   }
 
   async function handleLogout() {
