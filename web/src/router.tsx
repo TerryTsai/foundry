@@ -24,11 +24,13 @@ import { ConnectionListPage } from './pages/agents/ConnectionListPage.js'
 import { ConnectionNewPage } from './pages/agents/ConnectionNewPage.js'
 import { ConnectionDetailPage } from './pages/agents/ConnectionDetailPage.js'
 import { LoginPage } from './pages/auth/LoginPage.js'
+import { HealthPage } from './pages/HealthPage.js'
 
 const pid = (p: Params) => p.projectId!
 
 export const router = createBrowserRouter([
   { path: '/login', element: <LoginPage /> },
+  { path: '/health', element: <HealthPage /> },
   { path: '/', element: <RootRedirect /> },
   {
     path: '/projects',
