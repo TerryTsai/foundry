@@ -12,6 +12,26 @@ import { ToolPicker } from '../../components/form/ToolPicker.js'
 import { useBreadcrumbLabel } from '../../Breadcrumb.js'
 import { fmtDuration, fmtBytes } from '../../lib/format.js'
 
+// Render agent.tools for the infoRows display. Handles both the flat legacy
+// shape (string[]) and the nested McpToolSelection shape. Returns 'all' when
+// no selection is stored.
+function formatTools(raw: string | null): string {
+  if (!raw) return 'all'
+  try {
+    const parsed = JSON.parse(raw) as unknown
+    if (Array.isArray(parsed)) return (parsed as string[]).join(', ') || 'none'
+    if (parsed && typeof parsed === 'object') {
+      const parts: string[] = []
+      for (const [server, val] of Object.entries(parsed as Record<string, unknown>)) {
+        if (val === '*') parts.push(`${server}:*`)
+        else if (Array.isArray(val)) parts.push(`${server}:${val.length}`)
+      }
+      return parts.join(' · ') || 'none'
+    }
+    return 'all'
+  } catch { return 'malformed' }
+}
+
 export function AgentDetailPage() {
   const navigate = useNavigate()
   const { agent, usage, connections } = useLoaderData() as { agent: Agent; usage: UsageRollup; connections: Connection[] }
@@ -24,7 +44,26 @@ export function AgentDetailPage() {
   const [temperature, setTemperature] = useState(agent.temperature !== null ? String(agent.temperature) : '')
   const [reasoningBudget, setReasoningBudget] = useState(agent.reasoning_budget !== null ? String(agent.reasoning_budget) : '')
   const [availableTools, setAvailableTools] = useState<string[]>([])
-  const [selectedTools, setSelectedTools] = useState<Set<string>>(agent.tools ? new Set(JSON.parse(agent.tools) as string[]) : new Set())
+  // agent.tools can be either the legacy flat shape (string[]) or the new
+  // nested McpToolSelection shape ({foundry:'*'|[], github:'*'|[], ...}).
+  // Normalize to a flat Set for the picker by expanding wildcards against
+  // the available-tools list once it loads.
+  const [selectedTools, setSelectedTools] = useState<Set<string>>(new Set())
+  useEffect(() => {
+    if (!agent.tools) { setSelectedTools(new Set()); return }
+    try {
+      const parsed = JSON.parse(agent.tools) as unknown
+      if (Array.isArray(parsed)) { setSelectedTools(new Set(parsed as string[])); return }
+      if (parsed && typeof parsed === 'object') {
+        const flat = new Set<string>()
+        for (const val of Object.values(parsed as Record<string, unknown>)) {
+          if (val === '*') continue  // wildcard expanded below once availableTools loads
+          if (Array.isArray(val)) for (const t of val) flat.add(String(t))
+        }
+        setSelectedTools(flat)
+      }
+    } catch { /* malformed — leave empty */ }
+  }, [agent.tools])
   const [error, setError] = useState('')
 
   useEffect(() => { agentApi.tools().then(setAvailableTools).catch(() => {}) }, [])
@@ -73,7 +112,7 @@ export function AgentDetailPage() {
       infoRows={!editing ? [
         { label: 'connection',  value: connectionName },
         { label: 'model',       value: agent.model },
-        { label: 'tools',       value: agent.tools ? (JSON.parse(agent.tools) as string[]).join(', ') : 'all' },
+        { label: 'tools',       value: formatTools(agent.tools) },
         { label: 'temperature', value: agent.temperature !== null ? String(agent.temperature) : 'default' },
         { label: 'reasoning',   value: agent.reasoning_budget !== null ? `${agent.reasoning_budget} tokens` : 'off' },
         { label: 'max steps',   value: String(agent.max_steps) },
