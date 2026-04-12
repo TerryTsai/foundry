@@ -4,6 +4,7 @@ import { SectionLabel } from '../../components/detail/SectionLabel.js'
 import { DetailShell } from '../../components/layout/DetailShell.js'
 import { useBreadcrumbLabel } from '../../Breadcrumb.js'
 import { useShell } from '../../Shell.js'
+import { toolLabel } from '../../lib/tool-display.js'
 
 const codeCls = 'font-mono text-xs text-zinc-600 dark:text-zinc-400 whitespace-pre-wrap break-all leading-relaxed select-text bg-zinc-50 dark:bg-zinc-900/50 rounded p-3 mx-4 max-h-96 overflow-auto'
 
@@ -29,7 +30,7 @@ export function ExecutionDetailPage() {
   const sessionPath = `/p/${projectId}/tickets/${ticketId}/sessions/${sessionId}`
   return (
     <DetailShell
-      type="execution" id={execution.id} title={execution.tool_name ?? 'exec'} status={execution.status}
+      type="execution" id={execution.id} title={toolLabel(execution.tool_name, execution.tool_input)} status={execution.status}
       backLink={
         <Link
           to={sessionPath}

@@ -1,6 +1,6 @@
 // GitHub development-flow server. Git is a peer integration like any other
 // MCP server — the agent is responsible for populating the workspace via
-// gitClone, making changes, and publishing via pullRequestCreate. The
+// gitClone, making changes, and publishing via gitPullRequest. The
 // framework provides an empty workspace at /work and nothing else.
 //
 // Execution model:
@@ -15,7 +15,7 @@
 //   They need only filesystem access to /work; no credentials, no
 //   network. Get execution rows like every other tool.
 //
-//   pullRequestCreate runs in a TIER-2 sandbox: /work mounted read-only,
+//   gitPullRequest runs in a TIER-2 sandbox: /work mounted read-only,
 //   fresh install token in env, network enabled. Pushes the session
 //   branch and calls the GitHub PR create API. Token dies with the
 //   container.
@@ -53,7 +53,7 @@ export const info: McpServerInfo = {
     { name: 'gitAdd',            description: 'Stage specific paths for commit. Literal paths only — no -A, no wildcards.' },
     { name: 'gitRemove',         description: 'Remove paths from the working tree and index (git rm).' },
     { name: 'gitCommit',         description: 'Commit the staged index with a message.' },
-    { name: 'pullRequestCreate', description: 'Push the session branch and open a draft pull request.' },
+    { name: 'gitPullRequest',    description: 'Push the session branch and open a draft pull request.' },
   ],
 }
 
@@ -92,7 +92,7 @@ export async function workspaceDestroy(workDir: string): Promise<void> {
 // segment of the path is checked against this list. Guidance, not security:
 // an agent could still bypass via `exec git add -A`. The hard guarantee is
 // that such commits can't reach origin/main because push goes through
-// pullRequestCreate's tier-2 path which targets foundry/<sessionId> only.
+// gitPullRequest's tier-2 path which targets foundry/<sessionId> only.
 const DENIED_PATH_PREFIXES = new Set([
   '.git', '.foundry', 'node_modules', '.npm-cache',
   'dist', 'build', 'coverage', 'target', 'vendor',
@@ -151,7 +151,7 @@ const gitCommitArgs = z.object({
   message: z.string().min(1).describe('Commit message (first line is the subject).'),
 })
 
-const pullRequestCreateArgs = z.object({
+const gitPullRequestArgs = z.object({
   title: z.string().optional().describe('Optional PR title. Defaults to "[<ticket-id>] <ticket title>".'),
   body:  z.string().optional().describe('Optional PR body. Defaults to a summary pointing at the ticket.'),
 })
@@ -290,7 +290,7 @@ async function handleGitCommit(ctx: GithubCtx, args: z.infer<typeof gitCommitArg
   return { ok: true, commit: sha }
 }
 
-// ── pullRequestCreate: tier-2 sandbox (push + PR create with secret) ──
+// ── gitPullRequest: tier-2 sandbox (push + PR create with secret) ──
 //
 // Single container, single execution row. Does preflight (base branch
 // detection + ahead count), push, and PR create all in one shell script
@@ -299,7 +299,7 @@ async function handleGitCommit(ctx: GithubCtx, args: z.infer<typeof gitCommitArg
 // from genuine errors. The curl response body is the script's stdout,
 // parsed by the handler to extract the PR URL.
 
-async function handlePullRequestCreate(ctx: GithubCtx, args: z.infer<typeof pullRequestCreateArgs>) {
+async function handleGitPullRequest(ctx: GithubCtx, args: z.infer<typeof gitPullRequestArgs>) {
   try {
     const proj = require(database.projectGet(ctx.db, ctx.ticket.project_id), `project ${ctx.ticket.project_id} not found`)
     if (!proj.repo) return { ok: false, error: 'project has no repo configured' }
@@ -357,7 +357,7 @@ async function handlePullRequestCreate(ctx: GithubCtx, args: z.infer<typeof pull
     const prBodyTemplate = JSON.stringify({ title, head: branch, base: 'main', body, draft: true })
 
     const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace,
-      command, 'pullRequestCreate', {}, {
+      command, 'gitPullRequest', {}, {
         network: true,
         mount:   'ro',
         env: {
@@ -432,7 +432,7 @@ const DESC = {
   gitAdd:            'Stage specific paths for commit. Only literal repo-relative paths are accepted — no -A, no wildcards, no glob expansion. Paths inside .git/, .foundry/, node_modules/, build outputs, and caches are rejected. Requires a git workspace (see gitClone).',
   gitRemove:         'Remove paths from the working tree and index (git rm). Same validation as gitAdd — literal paths only, protected directories rejected. Requires a git workspace (see gitClone).',
   gitCommit:         'Commit the staged index with a message. Fails if nothing is staged. Session id and ticket id are appended to the commit trailer automatically. Requires a git workspace (see gitClone).',
-  pullRequestCreate: 'Push the session branch and open a draft pull request against the clone\'s default branch. Call after at least one gitCommit. Posts a comment on the current ticket with the PR URL. Requires a git workspace (see gitClone).',
+  gitPullRequest: 'Push the session branch and open a draft pull request against the clone\'s default branch. Call after at least one gitCommit. Posts a comment on the current ticket with the PR URL. Requires a git workspace (see gitClone).',
 }
 
 // ── Anthropic Claude Agent SDK adapter ──
@@ -447,7 +447,7 @@ export function buildSdk(ctx: GithubCtx) {
       sdkTool('gitAdd',            DESC.gitAdd,            gitAddArgs.shape,            async a => asText(await handleGitAdd(ctx, a))),
       sdkTool('gitRemove',         DESC.gitRemove,         gitRemoveArgs.shape,         async a => asText(await handleGitRemove(ctx, a))),
       sdkTool('gitCommit',         DESC.gitCommit,         gitCommitArgs.shape,         async a => asText(await handleGitCommit(ctx, a))),
-      sdkTool('pullRequestCreate', DESC.pullRequestCreate, pullRequestCreateArgs.shape, async a => asText(await handlePullRequestCreate(ctx, a))),
+      sdkTool('gitPullRequest', DESC.gitPullRequest, gitPullRequestArgs.shape, async a => asText(await handleGitPullRequest(ctx, a))),
     ],
   })
 }
@@ -486,10 +486,10 @@ export function buildAi(ctx: GithubCtx) {
       inputSchema: gitCommitArgs,
       execute:     (args: z.infer<typeof gitCommitArgs>) => handleGitCommit(ctx, args),
     }),
-    pullRequestCreate: tool({
-      description: DESC.pullRequestCreate,
-      inputSchema: pullRequestCreateArgs,
-      execute:     (args: z.infer<typeof pullRequestCreateArgs>) => handlePullRequestCreate(ctx, args),
+    gitPullRequest: tool({
+      description: DESC.gitPullRequest,
+      inputSchema: gitPullRequestArgs,
+      execute:     (args: z.infer<typeof gitPullRequestArgs>) => handleGitPullRequest(ctx, args),
     }),
   }
 }
