@@ -53,7 +53,8 @@ export const info: McpServerInfo = {
     { name: 'gitAdd',            description: 'Stage specific paths for commit. Literal paths only — no -A, no wildcards.' },
     { name: 'gitRemove',         description: 'Remove paths from the working tree and index (git rm).' },
     { name: 'gitCommit',         description: 'Commit the staged index with a message.' },
-    { name: 'gitPullRequest',    description: 'Push the session branch and open a draft pull request.' },
+    { name: 'gitPullRequest',    description: 'Push the session branch and open a pull request for review.' },
+    { name: 'gitMerge',          description: 'Push the session branch, open a PR, and merge it immediately. Fails on conflict.' },
   ],
 }
 
@@ -154,7 +155,12 @@ const gitCommitArgs = z.object({
 const gitPullRequestArgs = z.object({
   title: z.string().optional().describe('Optional PR title. Defaults to "[<ticket-id>] <ticket title>".'),
   body:  z.string().optional().describe('Optional PR body. Defaults to a summary pointing at the ticket.'),
-  draft: z.boolean().optional().describe('If true, open as a draft PR that requires manual merge. Default: false (auto-merge if clean).'),
+  draft: z.boolean().optional().describe('If true, open as a draft PR. Default: false (ready for review).'),
+})
+
+const gitMergeArgs = z.object({
+  title: z.string().optional().describe('Optional PR title. Defaults to "[<ticket-id>] <ticket title>".'),
+  body:  z.string().optional().describe('Optional PR body. Defaults to a summary pointing at the ticket.'),
 })
 
 // ── gitClone: tier-2 sandbox (install token isolated from the agent) ──
@@ -388,53 +394,135 @@ async function handleGitPullRequest(ctx: GithubCtx, args: z.infer<typeof gitPull
       return { ok: false, error: `PR create returned HTTP ${status}: ${jsonBody.slice(0, 500)}` }
     }
     let prUrl: string
-    let prNumber: number
     try {
-      const parsed = JSON.parse(jsonBody) as { html_url?: string; number?: number }
-      if (!parsed.html_url || !parsed.number) throw new Error('missing html_url or number in response')
+      const parsed = JSON.parse(jsonBody) as { html_url?: string }
+      if (!parsed.html_url) throw new Error('missing html_url in response')
       prUrl = parsed.html_url
-      prNumber = parsed.number
     } catch (err) {
       return { ok: false, error: `PR create response not parseable: ${err instanceof Error ? err.message : String(err)}` }
     }
 
-    // Auto-merge: attempt to merge the PR immediately. If clean, the
-    // agent's work lands on main in one tool call with no human step.
-    // If conflict, leave the PR open for rebase/manual resolution.
     const { commentCreate } = await import('../domain.js')
-    let merged = false
-    try {
-      const mergeRes = await fetch(
-        `https://api.github.com/repos/${owner}/${name}/pulls/${prNumber}/merge`,
-        {
-          method: 'PUT',
-          headers: {
-            Authorization:  `Bearer ${installToken}`,
-            Accept:         'application/vnd.github+json',
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ merge_method: 'merge' }),
-        },
-      )
-      merged = mergeRes.ok  // 200 = merged, 405/409 = not mergeable
-    } catch { /* merge attempt failed — leave PR open */ }
-
-    if (merged) {
-      commentCreate(ctx.db, ctx.ticket.id, {
-        author:     ctx.agentName,
-        body:       `Merged: ${prUrl}`,
-        session_id: ctx.sessionId,
-      })
-    } else {
-      commentCreate(ctx.db, ctx.ticket.id, {
-        author:     ctx.agentName,
-        body:       `PR opened (needs merge): ${prUrl}`,
-        session_id: ctx.sessionId,
-      })
-    }
+    commentCreate(ctx.db, ctx.ticket.id, {
+      author:     ctx.agentName,
+      body:       `PR opened: ${prUrl}`,
+      session_id: ctx.sessionId,
+    })
 
     const result: PublishResult = { branch, prUrl }
-    return { ok: true, merged, ...result }
+    return { ok: true, ...result }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+// ── gitMerge: push + PR + immediate merge (deterministic) ──
+// Unlike gitPullRequest, this tool ALWAYS merges. If there's a conflict,
+// it returns an error — it does not fall back to leaving a PR open.
+// The agent knows exactly what happened: either merged or failed.
+
+async function handleGitMerge(ctx: GithubCtx, args: z.infer<typeof gitMergeArgs>) {
+  try {
+    const proj = require(database.projectGet(ctx.db, ctx.ticket.project_id), `project ${ctx.ticket.project_id} not found`)
+    if (!proj.repo) return { ok: false, error: 'project has no repo configured' }
+    const { owner, name } = parseRepo(proj.repo)
+    const branch = `foundry/${ctx.sessionId}`
+
+    const installationId = await installationForRepo(ctx.config, owner, name)
+    const { token: installToken } = await installationToken(ctx.config, installationId)
+
+    const title = (args.title ?? `[${ctx.ticket.id}] ${ctx.ticket.title.trim() || '(no title)'}`).slice(0, 200)
+    const body  = args.body ?? defaultPrBody(ctx.sessionId, ctx.ticket)
+
+    // Same push + PR-create shell script as gitPullRequest.
+    const command = [
+      'set -e',
+      'cd /work',
+      'export GIT_TERMINAL_PROMPT=0',
+      'BASE=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed "s|refs/remotes/origin/||" || echo main)',
+      'AHEAD=$(git rev-list --count "${BASE}..HEAD")',
+      'if [ "$AHEAD" -eq 0 ]; then',
+      '  echo NOTHING_TO_PUBLISH',
+      '  exit 64',
+      'fi',
+      'PR_BODY=$(printf \'%s\' "${PR_BODY_JSON}" | jq --arg b "$BASE" \'.base = $b\')',
+      'git push "https://x-access-token:${INSTALL_TOKEN}@github.com/${OWNER}/${REPO}" "HEAD:refs/heads/${BRANCH}" 1>&2',
+      'printf \'%s\' "$PR_BODY" | curl -sS -w "\\n%{http_code}" -X POST \\',
+      '  -H "Authorization: Bearer ${INSTALL_TOKEN}" \\',
+      '  -H "Accept: application/vnd.github+json" \\',
+      '  -H "Content-Type: application/json" \\',
+      '  --data-binary @- \\',
+      '  "https://api.github.com/repos/${OWNER}/${REPO}/pulls"',
+    ].join('\n')
+
+    const prBodyTemplate = JSON.stringify({ title, head: branch, base: 'main', body, draft: false })
+
+    const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace,
+      command, 'gitMerge', {}, {
+        network: true,
+        mount:   'ro',
+        env: {
+          INSTALL_TOKEN: installToken,
+          OWNER:         owner,
+          REPO:          name,
+          BRANCH:        branch,
+          PR_BODY_JSON:  prBodyTemplate,
+        },
+      })
+
+    if (r.exitCode === 64 || r.stdout.trim() === 'NOTHING_TO_PUBLISH') {
+      return { ok: false, error: 'no commits to publish — call gitCommit first' }
+    }
+    if (r.exitCode !== 0) {
+      return { ok: false, error: 'push or PR create failed (see execution row for details)' }
+    }
+
+    const lines = r.stdout.trim().split('\n')
+    const statusLine = lines[lines.length - 1] ?? ''
+    const jsonBody   = lines.slice(0, -1).join('\n')
+    const status = toInt(statusLine)
+    if (status !== 201) {
+      return { ok: false, error: `PR create returned HTTP ${status}: ${jsonBody.slice(0, 500)}` }
+    }
+
+    let prUrl: string
+    let prNumber: number
+    try {
+      const parsed = JSON.parse(jsonBody) as { html_url?: string; number?: number }
+      if (!parsed.html_url || !parsed.number) throw new Error('missing html_url or number')
+      prUrl = parsed.html_url
+      prNumber = parsed.number
+    } catch (err) {
+      return { ok: false, error: `PR response not parseable: ${err instanceof Error ? err.message : String(err)}` }
+    }
+
+    // Merge the PR. This is the deterministic part — if it fails, we
+    // fail the whole tool call. No fallback to "leave PR open."
+    const mergeRes = await fetch(
+      `https://api.github.com/repos/${owner}/${name}/pulls/${prNumber}/merge`,
+      {
+        method: 'PUT',
+        headers: {
+          Authorization:  `Bearer ${installToken}`,
+          Accept:         'application/vnd.github+json',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ merge_method: 'merge' }),
+      },
+    )
+    if (!mergeRes.ok) {
+      const mergeErr = await mergeRes.text().catch(() => '')
+      return { ok: false, error: `merge failed (HTTP ${mergeRes.status}): ${mergeErr.slice(0, 300)}. PR is open at ${prUrl} — resolve conflicts and merge manually, or call gitRebase and retry.` }
+    }
+
+    const { commentCreate } = await import('../domain.js')
+    commentCreate(ctx.db, ctx.ticket.id, {
+      author:     ctx.agentName,
+      body:       `Merged: ${prUrl}`,
+      session_id: ctx.sessionId,
+    })
+
+    return { ok: true, merged: true, branch, prUrl }
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) }
   }
@@ -463,7 +551,8 @@ const DESC = {
   gitAdd:            'Stage specific paths for commit. Only literal repo-relative paths are accepted — no -A, no wildcards, no glob expansion. Paths inside .git/, .foundry/, node_modules/, build outputs, and caches are rejected. Requires a git workspace (see gitClone).',
   gitRemove:         'Remove paths from the working tree and index (git rm). Same validation as gitAdd — literal paths only, protected directories rejected. Requires a git workspace (see gitClone).',
   gitCommit:         'Commit the staged index with a message. Fails if nothing is staged. Session id and ticket id are appended to the commit trailer automatically. Requires a git workspace (see gitClone).',
-  gitPullRequest: 'Push the session branch, open a pull request against the clone\'s default branch, and auto-merge if clean. If there\'s a conflict, the PR stays open for manual resolution. Pass draft:true to skip auto-merge. Call after at least one gitCommit. Posts a "Merged" or "PR opened" comment on the current ticket. Requires a git workspace (see gitClone).',
+  gitPullRequest: 'Push the session branch and open a pull request against the clone\'s default branch. The PR is NOT merged — a human reviews and merges it. Use this when review is wanted before landing. Pass draft:true to mark as draft. Call after at least one gitCommit. Posts a "PR opened" comment on the ticket. Requires a git workspace (see gitClone).',
+  gitMerge:        'Push the session branch, open a PR, and merge it immediately to the default branch. This is the trunk-based tool — code lands on main in one call. Fails with an error if there\'s a merge conflict (the PR is left open for manual resolution or gitRebase). Call after at least one gitCommit. Posts a "Merged" comment on the ticket. Requires a git workspace (see gitClone).',
 }
 
 // ── Anthropic Claude Agent SDK adapter ──
@@ -479,6 +568,7 @@ export function buildSdk(ctx: GithubCtx) {
       sdkTool('gitRemove',         DESC.gitRemove,         gitRemoveArgs.shape,         async a => asText(await handleGitRemove(ctx, a))),
       sdkTool('gitCommit',         DESC.gitCommit,         gitCommitArgs.shape,         async a => asText(await handleGitCommit(ctx, a))),
       sdkTool('gitPullRequest', DESC.gitPullRequest, gitPullRequestArgs.shape, async a => asText(await handleGitPullRequest(ctx, a))),
+      sdkTool('gitMerge',       DESC.gitMerge,       gitMergeArgs.shape,       async a => asText(await handleGitMerge(ctx, a))),
     ],
   })
 }
@@ -521,6 +611,11 @@ export function buildAi(ctx: GithubCtx) {
       description: DESC.gitPullRequest,
       inputSchema: gitPullRequestArgs,
       execute:     (args: z.infer<typeof gitPullRequestArgs>) => handleGitPullRequest(ctx, args),
+    }),
+    gitMerge: tool({
+      description: DESC.gitMerge,
+      inputSchema: gitMergeArgs,
+      execute:     (args: z.infer<typeof gitMergeArgs>) => handleGitMerge(ctx, args),
     }),
   }
 }

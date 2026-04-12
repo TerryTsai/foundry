@@ -1,7 +1,7 @@
 import {
   Terminal, FileText, FilePen, FileDiff, Trash2, Search, Folder,
   Globe, Newspaper,
-  Download, GitBranch, GitCommit, GitPullRequest, Plus, Minus, ListTree,
+  Download, GitBranch, GitCommit, GitMerge, GitPullRequest, Plus, Minus, ListTree,
   Ticket, Bot, Brain, Activity,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
@@ -53,6 +53,7 @@ const TOOL_META: Record<string, ToolMeta> = {
   gitRemove:      { label: i => `git rm${asArray(i.paths)?.length ? ' ' + asArray(i.paths)!.join(' ') : ''}`, icon: Minus },
   gitCommit:      { label: i => `git commit${asString(i.message) ? ` "${truncate(asString(i.message)!, 50)}"` : ''}`, icon: GitCommit },
   gitPullRequest: { label: _ => 'git pull request', icon: GitPullRequest },
+  gitMerge:       { label: _ => 'git merge', icon: GitMerge },
 
   // ── foundry ──
   ticketList:    { label: _ => 'ticket list', icon: Ticket },
