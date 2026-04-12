@@ -47,7 +47,7 @@ export function ConnectionDetailPage() {
       type="connection" id={connection.id} title={connection.name}
       infoRows={[
         { label: 'kind',    value: connection.kind },
-        { label: 'scope',   value: connection.project_id ? 'project' : 'global' },
+        { label: 'scope',   value: 'account' },
         { label: 'key',     value: connection.api_key_preview },
         { label: 'added',   value: ts(connection.created_at) },
         { label: 'updated', value: connection.updated_at !== connection.created_at ? ts(connection.updated_at) : null },

@@ -166,7 +166,7 @@ export function connectionCreate(db: Db, input: z.infer<typeof validate.connecti
   if (!supported.includes(input.kind)) throw badRequest(`unsupported connection kind '${input.kind}' — supported: ${supported.join(', ')}`)
   if (database.connectionGetByName(db, input.name)) throw conflict(`connection '${input.name}' already exists`)
   const row = database.connectionInsert(db, {
-    project_id: input.project_id ?? null,
+    account_id: input.account_id,
     kind:       input.kind,
     name:       input.name,
     config:     JSON.stringify(input.config ?? {}),
@@ -455,8 +455,13 @@ export function ticketPriorHistory(db: Db, ticketId: string, sessionId: string, 
 // ════════════════════════════════════════════════════════════════════════════
 
 export function agentList(db: Db, filters: z.infer<typeof validate.agentList>): Agent[] {
-  const conditions = filters.projectId ? [eq(schema.agent.project_id, filters.projectId)] : []
-  return database.agentAll(db, conditions)
+  if (filters.accountId) return database.agentAll(db, [eq(schema.agent.account_id, filters.accountId)])
+  if (filters.projectId) {
+    const proj = database.projectGet(db, filters.projectId)
+    if (!proj) return []
+    return database.agentAll(db, [eq(schema.agent.account_id, proj.owner_id)])
+  }
+  return database.agentAll(db)
 }
 
 export function agentGet(db: Db, id: string): Agent {
@@ -464,13 +469,13 @@ export function agentGet(db: Db, id: string): Agent {
 }
 
 export function agentCreate(db: Db, input: z.infer<typeof validate.agentCreate>): Agent {
-  const { project_id, connection_id, name, model, prompt, max_tokens, max_steps, temperature, reasoning_budget, tools } = input
+  const { account_id, connection_id, name, model, prompt, max_tokens, max_steps, temperature, reasoning_budget, tools } = input
   require(database.connectionGet(db, connection_id), `connection '${connection_id}' not found`)
-  if (database.agentAll(db, [eq(schema.agent.project_id, project_id), eq(schema.agent.name, name)]).length > 0) {
-    throw conflict(`agent '${name}' already exists in project '${project_id}'`)
+  if (database.agentAll(db, [eq(schema.agent.account_id, account_id), eq(schema.agent.name, name)]).length > 0) {
+    throw conflict(`agent '${name}' already exists for this account`)
   }
   return database.agentInsert(db, {
-    project_id, connection_id, name, model, prompt,
+    account_id, connection_id, name, model, prompt,
     max_tokens: max_tokens ?? 8192, max_steps: max_steps ?? 20,
     temperature: temperature ?? null,
     reasoning_budget: reasoning_budget ?? null,

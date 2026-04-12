@@ -41,7 +41,7 @@ export const projectUpdate = z.object({
 // by the kind-specific resolver at session start. The validator only enforces
 // top-level shape; kind-specific validation happens in kind modules.
 export const connectionCreate = z.object({
-  project_id: z.string().optional(),               // NULL = global
+  account_id: z.string(),
   kind:       z.string().min(1),
   name:       z.string().min(1),
   config:     z.record(z.string(), z.unknown()).optional(),
@@ -105,10 +105,11 @@ const modelId = z.string().min(1).refine(s => !s.includes(':'), { message: 'mode
 
 export const agentList = z.object({
   projectId: z.string().optional(),
+  accountId: z.string().optional(),
 })
 
 export const agentCreate = z.object({
-  project_id:       z.string(),
+  account_id:       z.string(),
   connection_id:    z.string().min(1),
   name:             z.string().min(1),
   model:            modelId,

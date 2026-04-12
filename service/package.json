@@ -8,7 +8,8 @@
     "build": "tsc",
     "start": "node dist/server.js",
     "test": "vitest run",
-    "db:push": "drizzle-kit push"
+    "db:push": "drizzle-kit push",
+    "migrate": "tsx src/migrate.ts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.67",

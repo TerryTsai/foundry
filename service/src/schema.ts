@@ -49,19 +49,16 @@ export const project = sqliteTable('project', {
 export type Project = typeof project.$inferSelect
 export type NewProject = typeof project.$inferInsert
 
-// Unified "connection" concept: anything with credentials the project talks to.
+// Unified "connection" concept: anything with credentials the account owns.
 // Covers LLM providers (kind='anthropic', 'anthropic-subscription', future 'openai')
 // and MCP integrations (future 'github', 'slack', 'notion', ...).
-//
-// project_id IS NULL  → global connection, shared across all projects
-// project_id IS SET   → per-project connection (overrides global if kinds match)
 //
 // config  = non-secret settings (owner/repo, workspace id, base url, ...)
 // secrets = credential material (api_key, refresh_token, bot_token, ...)
 //           Never serialized to tool inputs, tool outputs, or execution rows.
 export const connection = sqliteTable('connection', {
   id:         text('id').primaryKey(),
-  project_id: text('project_id').references(() => project.id),
+  account_id: text('account_id').notNull().references(() => account.id),
   kind:       text('kind').notNull(),
   name:       text('name').notNull(),
   config:     text('config').notNull().default('{}'),
@@ -122,7 +119,7 @@ export type Comment = typeof comment.$inferSelect
 
 export const agent = sqliteTable('agent', {
   id:               text('id').primaryKey(),
-  project_id:       text('project_id').notNull(),
+  account_id:       text('account_id').notNull().references(() => account.id),
   connection_id:    text('connection_id').notNull().references(() => connection.id),
   name:             text('name').notNull(),
   model:            text('model').notNull(),
