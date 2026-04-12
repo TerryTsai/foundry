@@ -40,8 +40,7 @@ export const project = sqliteTable('project', {
   name:              text('name').notNull(),
   description:       text('description').notNull().default(''),
   status:            text('status').notNull().default('active'),
-  schedule_interval: integer('schedule_interval').notNull().default(600),
-  concurrency_limit: integer('concurrency_limit').notNull().default(3),
+  max_agents:        integer('max_agents').notNull().default(3),
   created_at:        text('created_at').notNull(),
   updated_at:        text('updated_at').notNull(),
 })

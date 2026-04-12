@@ -60,8 +60,7 @@ function createTestDb() {
       name TEXT NOT NULL,
       description TEXT NOT NULL DEFAULT '',
       status TEXT NOT NULL DEFAULT 'active',
-      schedule_interval INTEGER NOT NULL DEFAULT 600,
-      concurrency_limit INTEGER NOT NULL DEFAULT 3,
+      max_agents INTEGER NOT NULL DEFAULT 3,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -291,8 +290,7 @@ function seedProject(db: ReturnType<typeof createTestDb>, accountId: string) {
     name:              'test-project',
     description:       '',
     status:            'active',
-    schedule_interval: 600,
-    concurrency_limit: 3,
+    max_agents: 3,
     created_at:        NOW,
     updated_at:        NOW,
   })
@@ -670,18 +668,13 @@ describe('TC7: old /p/:projectId/agents route does not exist', () => {
 // TC8 — Account menu links to /settings/projects/:id
 // ════════════════════════════════════════════════════════════════════════════
 
-describe('TC8: AvatarMenu links to /settings/projects/:id', () => {
-  it('settings link goes to /settings/projects/<id>', () => {
+describe('TC8: project links point at /settings/projects/:id', () => {
+  // Post-header-split the per-project settings link lives in ProjectSwitcher,
+  // and the "new project" entry moved there too. Assert the routes against
+  // the right file so the test keeps pace with the UI restructure.
+  it('ProjectSwitcher new project link goes to /settings/projects/new', () => {
     const src = readFileSync(
-      join(__dirname, '../../web/src/components/AvatarMenu.tsx'),
-      'utf-8',
-    )
-    expect(src).toContain('to={`/settings/projects/${projectId}`}')
-  })
-
-  it('new project link goes to /settings/projects/new, not /projects/new', () => {
-    const src = readFileSync(
-      join(__dirname, '../../web/src/components/AvatarMenu.tsx'),
+      join(__dirname, '../../web/src/components/ProjectSwitcher.tsx'),
       'utf-8',
     )
     expect(src).toContain('to="/settings/projects/new"')

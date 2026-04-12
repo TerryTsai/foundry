@@ -44,29 +44,22 @@ export function projectGet(db: Db, accountId: string, id: string): schema.Projec
 }
 
 export function projectCreate(db: Db, accountId: string, input: z.infer<typeof validate.projectCreate>): schema.Project {
-  const { name, description = '', repo, schedule_interval = 600, concurrency_limit = 3 } = input
-  const row = database.projectInsert(db, {
+  const { name, description = '', repo, max_agents = 3 } = input
+  return database.projectInsert(db, {
     owner_id: accountId,
     repo, name, description, status: 'active',
-    schedule_interval, concurrency_limit, ...ts(),
+    max_agents, ...ts(),
   })
-  schedulerStart(db, row.id, row.schedule_interval)
-  return row
 }
 
 export function projectUpdate(db: Db, accountId: string, id: string, input: z.infer<typeof validate.projectUpdate>): schema.Project {
   const prev = projectGetOwned(db, id, accountId)
   const updates: Record<string, unknown> = {
-    ...pick(input, 'name', 'description', 'repo', 'status', 'schedule_interval', 'concurrency_limit'),
+    ...pick(input, 'name', 'description', 'repo', 'status', 'max_agents'),
     updated_at: now(),
   }
   if (Object.keys(updates).length <= 1) return prev
-
-  const row = database.projectUpdate(db, id, updates)
-  if (input.status === 'archived') schedulerStop(id)
-  if (input.status === 'active' && prev.status === 'archived') schedulerStart(db, id, row.schedule_interval)
-  if (input.schedule_interval !== undefined && row.status === 'active') schedulerStart(db, id, row.schedule_interval)
-  return row
+  return database.projectUpdate(db, id, updates)
 }
 
 export function projectRun(db: Db, accountId: string, id: string): { ok: true } {
@@ -199,8 +192,6 @@ export function connectionRemove(db: Db, accountId: string, id: string): { ok: t
 // SCHEDULER
 // ════════════════════════════════════════════════════════════════════════════
 
-const intervals = new Map<string, ReturnType<typeof setInterval>>()
-
 export async function schedulerDispatch(db: Db, projectId: string): Promise<void> {
   const proj = database.projectGet(db, projectId)
   if (!proj || proj.status !== 'active') return
@@ -210,7 +201,7 @@ export async function schedulerDispatch(db: Db, projectId: string): Promise<void
   const claimed  = ticketList(db, { projectId, status: 'claimed' })
   const agents   = agentList(db, { accountId: proj.owner_id })
 
-  if (claimed.length >= proj.concurrency_limit) return
+  if (claimed.length >= proj.max_agents) return
 
   const eligible = [...open, ...reopened].filter(t => {
     if (!t.agent_id || !agents.find(a => a.id === t.agent_id)) return false
@@ -222,7 +213,7 @@ export async function schedulerDispatch(db: Db, projectId: string): Promise<void
     return true
   })
 
-  for (const t of eligible.slice(0, proj.concurrency_limit - claimed.length)) {
+  for (const t of eligible.slice(0, proj.max_agents - claimed.length)) {
     const def = agents.find(a => a.id === t.agent_id)!
     // Atomic claim — if another dispatcher beat us to it, ticketClaim returns
     // null. Skip to the next eligible ticket rather than double-spawning a
@@ -249,8 +240,11 @@ export async function schedulerRecover(db: Db): Promise<void> {
   // Also fail any 'running' session rows attached to the stale ticket —
   // otherwise we end up with ghost running sessions whose processes died
   // long ago, and a fresh dispatch spawns a real session alongside them.
+  //
+  // Fixed 5-minute cutoff — no more per-project schedule_interval to
+  // multiply. A session that hasn't checked in for 5 minutes is dead.
+  const cutoff = new Date(Date.now() - 5 * 60 * 1000).toISOString()
   for (const proj of database.projectAll(db)) {
-    const cutoff = new Date(Date.now() - proj.schedule_interval * 3 * 1000).toISOString()
     for (const t of ticketList(db, { projectId: proj.id, status: 'claimed' })) {
       if (t.claimed_at && t.claimed_at < cutoff) {
         const sessions = database.sessionAll(db, [
@@ -269,29 +263,22 @@ export async function schedulerRecover(db: Db): Promise<void> {
   }
 }
 
-export function schedulerStart(db: Db, projectId: string, intervalSeconds: number): void {
-  schedulerStop(projectId)
-  intervals.set(projectId, setInterval(
-    () => schedulerDispatch(db, projectId).catch((err: unknown) =>
-      console.error(`dispatch error for project ${projectId}:`, err)),
-    intervalSeconds * 1000,
-  ))
+let globalInterval: ReturnType<typeof setInterval> | null = null
+
+export function schedulerGlobalStart(db: Db): void {
+  if (globalInterval) return
+  globalInterval = setInterval(() => {
+    for (const proj of database.projectAll(db, [eq(schema.project.status, 'active')])) {
+      schedulerDispatch(db, proj.id).catch((err: unknown) =>
+        console.error(`dispatch error for project ${proj.id}:`, err))
+    }
+  }, 5000)
 }
 
-export function schedulerStop(projectId: string): void {
-  const existing = intervals.get(projectId)
-  if (existing) { clearInterval(existing); intervals.delete(projectId) }
-}
-
-export function schedulerStartAll(db: Db): void {
-  for (const proj of database.projectAll(db, [eq(schema.project.status, 'active')])) {
-    schedulerStart(db, proj.id, proj.schedule_interval)
-  }
-}
-
+// Stop the global dispatch loop. Called from the SIGTERM handler so no new
+// sessions spawn while we drain in-flight work.
 export function schedulerStopAll(): void {
-  for (const [, timer] of intervals) clearInterval(timer)
-  intervals.clear()
+  if (globalInterval) { clearInterval(globalInterval); globalInterval = null }
 }
 
 // Fail all in-flight sessions and release their tickets for redispatch.
