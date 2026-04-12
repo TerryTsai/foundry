@@ -224,7 +224,10 @@ export async function schedulerDispatch(db: Db, projectId: string): Promise<void
 
   for (const t of eligible.slice(0, proj.concurrency_limit - claimed.length)) {
     const def = agents.find(a => a.id === t.agent_id)!
-    try { ticketClaim(db, t.id) } catch { continue }
+    // Atomic claim — if another dispatcher beat us to it, ticketClaim returns
+    // null. Skip to the next eligible ticket rather than double-spawning a
+    // session on something that's already being worked.
+    if (!ticketClaim(db, t.id)) continue
 
     const row = database.sessionInsert(db, {
       ticket_id: t.id, agent_id: def.id,
@@ -242,10 +245,24 @@ export async function schedulerRecover(db: Db): Promise<void> {
   // Stale claimed tickets (orphaned by a server restart or crashed session)
   // get released back to 'open' so they can be picked up again. This is a
   // direct status reset, not a user-driven reopen.
+  //
+  // Also fail any 'running' session rows attached to the stale ticket —
+  // otherwise we end up with ghost running sessions whose processes died
+  // long ago, and a fresh dispatch spawns a real session alongside them.
   for (const proj of database.projectAll(db)) {
     const cutoff = new Date(Date.now() - proj.schedule_interval * 3 * 1000).toISOString()
     for (const t of ticketList(db, { projectId: proj.id, status: 'claimed' })) {
       if (t.claimed_at && t.claimed_at < cutoff) {
+        const sessions = database.sessionAll(db, [
+          eq(schema.session.ticket_id, t.id),
+          eq(schema.session.status, 'running'),
+        ])
+        for (const s of sessions) {
+          database.sessionUpdate(db, s.id, {
+            status: 'failed', ended_at: now(),
+            error: 'recovered: ticket stale, session presumed dead',
+          })
+        }
         database.ticketUpdate(db, t.id, { status: 'open', claimed_at: null, updated_at: now() })
       }
     }
@@ -322,11 +339,13 @@ export function ticketUpdate(db: Db, id: string, input: z.infer<typeof validate.
   return database.ticketUpdate(db, id, { ...pick(input, 'title', 'body', 'agent_id', 'priority'), updated_at: now() })
 }
 
-export function ticketClaim(db: Db, id: string): Ticket {
-  return db.transaction(tx => {
-    assertStatus(require(database.ticketGet(tx as any, id)), ['open', 'reopened'])
-    return database.ticketUpdate(tx as any, id, { status: 'claimed', claimed_at: now(), updated_at: now() })
-  }) as Ticket
+// Attempt to claim a ticket. Returns the claimed row on success, null if another
+// dispatcher already claimed it (status no longer open/reopened). Atomic under
+// concurrent schedulerDispatch via conditional SQL UPDATE.
+export function ticketClaim(db: Db, id: string): Ticket | null {
+  const claimed = database.ticketClaimIfOpen(db, id, now())
+  if (!claimed) return null
+  return require(database.ticketGet(db, id))
 }
 
 export function ticketComplete(db: Db, id: string, opts?: { notes?: string; agentName?: string; sessionId?: string }): Ticket {
@@ -543,7 +562,7 @@ export function sessionListAll(db: Db) {
 
 export async function sessionStart(db: Db, config: Config, agentDefId: string, ticketId: string): Promise<Session> {
   const agentDef = require(database.agentGet(db, agentDefId), 'agent not found')
-  ticketClaim(db, ticketId)
+  require(ticketClaim(db, ticketId), 'ticket is not claimable (already claimed, done, or failed)')
   // Backfill ticket.agent_id on the first session so the ticket reflects
   // who's actually working on it. Don't overwrite if the founder already
   // pre-assigned it — that's an explicit routing preference for the

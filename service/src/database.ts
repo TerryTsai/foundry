@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3'
 import { drizzle } from 'drizzle-orm/better-sqlite3'
-import { eq, and, sql, type SQL } from 'drizzle-orm'
+import { eq, and, inArray, sql, type SQL } from 'drizzle-orm'
 import { ulid } from 'ulid'
 import * as schema from './schema.js'
 import type { Account, Agent, AuthSession, Comment, Connection, Execution, Message, Project, Session, Ticket, TicketTag } from './schema.js'
@@ -189,6 +189,17 @@ export function ticketInsert(d: Db, data: Record<string, unknown>): Ticket {
 export function ticketUpdate(d: Db, id: string, data: Record<string, unknown>): Ticket {
   if (Object.keys(data).length > 0) d.update(schema.ticket).set(data as any).where(eq(schema.ticket.id, id)).run()
   return d.select().from(schema.ticket).where(eq(schema.ticket.id, id)).get() as Ticket
+}
+
+// Conditional claim — only flips status if ticket is still open/reopened.
+// Returns true on success, false if another dispatcher already claimed it.
+// Single SQL UPDATE, so it's atomic even under concurrent schedulerDispatch calls.
+export function ticketClaimIfOpen(d: Db, id: string, claimedAt: string): boolean {
+  const r = d.update(schema.ticket)
+    .set({ status: 'claimed', claimed_at: claimedAt, updated_at: claimedAt })
+    .where(and(eq(schema.ticket.id, id), inArray(schema.ticket.status, ['open', 'reopened'])))
+    .run()
+  return r.changes > 0
 }
 
 export function ticketRemove(d: Db, id: string): void {
