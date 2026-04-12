@@ -154,19 +154,21 @@ function maskConnection(c: Connection): MaskedConnection {
   return { ...rest, api_key_preview: preview }
 }
 
-export function connectionList(db: Db): MaskedConnection[] {
-  return database.connectionAll(db).map(maskConnection)
+export function connectionList(db: Db, accountId: string): MaskedConnection[] {
+  return database.connectionAll(db, [eq(schema.connection.account_id, accountId)]).map(maskConnection)
 }
 
-export function connectionGet(db: Db, id: string): MaskedConnection {
-  return maskConnection(require(database.connectionGet(db, id), `connection '${id}' not found`))
+export function connectionGet(db: Db, accountId: string, id: string): MaskedConnection {
+  const row = require(database.connectionGet(db, id), `connection '${id}' not found`)
+  if (row.account_id !== accountId) throw notFound()
+  return maskConnection(row)
 }
 
-export function connectionCreate(db: Db, input: z.infer<typeof validate.connectionCreate>): MaskedConnection {
+export function connectionCreate(db: Db, accountId: string, input: z.infer<typeof validate.connectionCreate>): MaskedConnection {
   if (!supported.includes(input.kind)) throw badRequest(`unsupported connection kind '${input.kind}' — supported: ${supported.join(', ')}`)
   if (database.connectionGetByName(db, input.name)) throw conflict(`connection '${input.name}' already exists`)
   const row = database.connectionInsert(db, {
-    account_id: input.account_id,
+    account_id: accountId,
     kind:       input.kind,
     name:       input.name,
     config:     JSON.stringify(input.config ?? {}),
@@ -176,8 +178,9 @@ export function connectionCreate(db: Db, input: z.infer<typeof validate.connecti
   return maskConnection(row)
 }
 
-export function connectionUpdate(db: Db, id: string, input: z.infer<typeof validate.connectionUpdate>): MaskedConnection {
-  require(database.connectionGet(db, id), `connection '${id}' not found`)
+export function connectionUpdate(db: Db, accountId: string, id: string, input: z.infer<typeof validate.connectionUpdate>): MaskedConnection {
+  const row = require(database.connectionGet(db, id), `connection '${id}' not found`)
+  if (row.account_id !== accountId) throw notFound()
   const data: Record<string, unknown> = { updated_at: now() }
   if (input.name    !== undefined) data.name    = input.name
   if (input.config  !== undefined) data.config  = JSON.stringify(input.config)
@@ -185,8 +188,9 @@ export function connectionUpdate(db: Db, id: string, input: z.infer<typeof valid
   return maskConnection(database.connectionUpdate(db, id, data))
 }
 
-export function connectionRemove(db: Db, id: string): { ok: true } {
-  require(database.connectionGet(db, id), `connection '${id}' not found`)
+export function connectionRemove(db: Db, accountId: string, id: string): { ok: true } {
+  const row = require(database.connectionGet(db, id), `connection '${id}' not found`)
+  if (row.account_id !== accountId) throw notFound()
   database.connectionRemove(db, id)
   return { ok: true }
 }
@@ -204,7 +208,7 @@ export async function schedulerDispatch(db: Db, projectId: string): Promise<void
   const open     = ticketList(db, { projectId, status: 'open' })
   const reopened = ticketList(db, { projectId, status: 'reopened' })
   const claimed  = ticketList(db, { projectId, status: 'claimed' })
-  const agents   = agentList(db, { projectId })
+  const agents   = agentList(db, { accountId: proj.owner_id })
 
   if (claimed.length >= proj.concurrency_limit) return
 
@@ -456,11 +460,6 @@ export function ticketPriorHistory(db: Db, ticketId: string, sessionId: string, 
 
 export function agentList(db: Db, filters: z.infer<typeof validate.agentList>): Agent[] {
   if (filters.accountId) return database.agentAll(db, [eq(schema.agent.account_id, filters.accountId)])
-  if (filters.projectId) {
-    const proj = database.projectGet(db, filters.projectId)
-    if (!proj) return []
-    return database.agentAll(db, [eq(schema.agent.account_id, proj.owner_id)])
-  }
   return database.agentAll(db)
 }
 
@@ -468,14 +467,14 @@ export function agentGet(db: Db, id: string): Agent {
   return require(database.agentGet(db, id))
 }
 
-export function agentCreate(db: Db, input: z.infer<typeof validate.agentCreate>): Agent {
-  const { account_id, connection_id, name, model, prompt, max_tokens, max_steps, temperature, reasoning_budget, tools } = input
+export function agentCreate(db: Db, accountId: string, input: z.infer<typeof validate.agentCreate>): Agent {
+  const { connection_id, name, model, prompt, max_tokens, max_steps, temperature, reasoning_budget, tools } = input
   require(database.connectionGet(db, connection_id), `connection '${connection_id}' not found`)
-  if (database.agentAll(db, [eq(schema.agent.account_id, account_id), eq(schema.agent.name, name)]).length > 0) {
+  if (database.agentAll(db, [eq(schema.agent.account_id, accountId), eq(schema.agent.name, name)]).length > 0) {
     throw conflict(`agent '${name}' already exists for this account`)
   }
   return database.agentInsert(db, {
-    account_id, connection_id, name, model, prompt,
+    account_id: accountId, connection_id, name, model, prompt,
     max_tokens: max_tokens ?? 8192, max_steps: max_steps ?? 20,
     temperature: temperature ?? null,
     reasoning_budget: reasoning_budget ?? null,
@@ -484,16 +483,18 @@ export function agentCreate(db: Db, input: z.infer<typeof validate.agentCreate>)
   })
 }
 
-export function agentUpdate(db: Db, id: string, input: z.infer<typeof validate.agentUpdate>): Agent {
-  require(database.agentGet(db, id))
+export function agentUpdate(db: Db, accountId: string, id: string, input: z.infer<typeof validate.agentUpdate>): Agent {
+  const row = require(database.agentGet(db, id))
+  if (row.account_id !== accountId) throw notFound()
   if (input.connection_id) require(database.connectionGet(db, input.connection_id), `connection '${input.connection_id}' not found`)
   const data: Record<string, unknown> = { ...pick(input, 'connection_id', 'model', 'prompt', 'max_tokens', 'max_steps', 'temperature', 'reasoning_budget'), updated_at: now() }
   if (input.tools !== undefined) data.tools = JSON.stringify(input.tools)
   return database.agentUpdate(db, id, data)
 }
 
-export function agentRemove(db: Db, id: string): { ok: true } {
-  require(database.agentGet(db, id))
+export function agentRemove(db: Db, accountId: string, id: string): { ok: true } {
+  const row = require(database.agentGet(db, id))
+  if (row.account_id !== accountId) throw notFound()
   database.agentRemove(db, id)
   return { ok: true }
 }

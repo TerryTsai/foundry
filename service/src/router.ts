@@ -14,6 +14,15 @@ function accountId(req: Request): string {
   return req.account.id
 }
 
+// Auth session account preferred; falls back to explicit query param for
+// internal bearer-token calls (MCP tools curling back into the service).
+function accountIdOrQuery(req: Request): string {
+  if (req.account) return req.account.id
+  const qid = (req.data as any)?.accountId ?? req.query.accountId
+  if (typeof qid === 'string' && qid.length > 0) return qid
+  throw new AppError(401, 'unauthorized')
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // AUTH
 // ════════════════════════════════════════════════════════════════════════════
@@ -93,11 +102,11 @@ export function project(db: Db) {
 
 export function connection(db: Db) {
   const r = Router()
-  r.get   ('/',                                       run(()  => domain.connectionList(db)),                              send())
-  r.get   ('/:id',                                    run(req => domain.connectionGet(db, req.params.id)),                send())
-  r.post  ('/',    parse(validate.connectionCreate),  run(req => domain.connectionCreate(db, req.data)),                  send(201))
-  r.put   ('/:id', parse(validate.connectionUpdate),  run(req => domain.connectionUpdate(db, req.params.id, req.data)),   send())
-  r.delete('/:id',                                    run(req => domain.connectionRemove(db, req.params.id)),             send())
+  r.get   ('/',    parse(validate.connectionList, 'query'), run(req => domain.connectionList(db, accountIdOrQuery(req))),                              send())
+  r.get   ('/:id',                                    run(req => domain.connectionGet(db, accountId(req), req.params.id)),                send())
+  r.post  ('/',    parse(validate.connectionCreate),  run(req => domain.connectionCreate(db, accountId(req), req.data)),                  send(201))
+  r.put   ('/:id', parse(validate.connectionUpdate),  run(req => domain.connectionUpdate(db, accountId(req), req.params.id, req.data)),   send())
+  r.delete('/:id',                                    run(req => domain.connectionRemove(db, accountId(req), req.params.id)),             send())
   return r
 }
 
@@ -133,12 +142,12 @@ export function ticket(db: Db) {
 export function agent(db: Db, config: Config) {
   const r = Router()
   r.get   ('/tools',                                                            run(()  => [...TOOL_NAMES]),                                                            send())
-  r.get   ('/',                         parse(validate.agentList, 'query'),     run(req => domain.agentList(db, req.data)),                                             send())
-  r.post  ('/',                         parse(validate.agentCreate),            run(req => domain.agentCreate(db, req.data)),                                           send(201))
+  r.get   ('/',                         parse(validate.agentList, 'query'),     run(req => domain.agentList(db, { accountId: accountIdOrQuery(req) })),                  send())
+  r.post  ('/',                         parse(validate.agentCreate),            run(req => domain.agentCreate(db, accountId(req), req.data)),                            send(201))
   r.get   ('/:id',                                                              run(req => domain.agentGet(db, req.params.id)),                                         send())
   r.get   ('/:id/usage',                                                        run(req => domain.agentUsage(db, req.params.id)),                                       send())
-  r.put   ('/:id',                      parse(validate.agentUpdate),            run(req => domain.agentUpdate(db, req.params.id, req.data)),                            send())
-  r.delete('/:id',                                                              run(req => domain.agentRemove(db, req.params.id)),                                      send())
+  r.put   ('/:id',                      parse(validate.agentUpdate),            run(req => domain.agentUpdate(db, accountId(req), req.params.id, req.data)),             send())
+  r.delete('/:id',                                                              run(req => domain.agentRemove(db, accountId(req), req.params.id)),                       send())
   r.post  ('/:id/session',              parse(validate.sessionStart),           run(req => domain.sessionStart(db, config, req.params.id, req.data.ticket_id)),         send(201))
   r.get   ('/:id/session/:sid',                                                 run(req => domain.sessionGet(db, req.params.sid)),                                      send())
   r.get   ('/:id/session/:sid/status',                                          run(req => domain.sessionStatus(db, req.params.sid)),                                   send())

@@ -43,6 +43,7 @@ export interface FoundryCtx {
   sessionId:  string
   workspace:  string   // session tmpdir — mounted into the sandbox
   projectId:  string
+  accountId:  string   // owner of the project — used for agent/connection lookups
   ticketId:   string   // parent ticket — used as parent_id when agent creates sub-tickets
   agentName:  string   // used as author of comments and created_by for new tickets
 }
@@ -183,7 +184,7 @@ async function handleTicketTagRemove(ctx: FoundryCtx, args: z.infer<typeof ticke
 }
 
 async function handleAgentsList(ctx: FoundryCtx, _args: z.infer<typeof agentsListArgs>) {
-  return apiGet(ctx, 'agentsList', _args, `/agent?projectId=${ctx.projectId}`)
+  return apiGet(ctx, 'agentsList', _args, `/agent?accountId=${ctx.accountId}`)
 }
 
 async function handleSessionList(ctx: FoundryCtx, args: z.infer<typeof sessionListArgs>) {
@@ -192,7 +193,7 @@ async function handleSessionList(ctx: FoundryCtx, args: z.infer<typeof sessionLi
 }
 
 async function handleConnectionList(ctx: FoundryCtx, _args: z.infer<typeof connectionListArgs>) {
-  return apiGet(ctx, 'connectionList', _args, '/connection')
+  return apiGet(ctx, 'connectionList', _args, `/connection?accountId=${ctx.accountId}`)
 }
 
 async function handleThink(ctx: FoundryCtx, args: z.infer<typeof thinkArgs>) {

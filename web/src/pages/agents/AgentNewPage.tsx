@@ -11,7 +11,7 @@ import { ActionButton } from '../../components/form/ActionButton.js'
 import { ToolPicker } from '../../components/form/ToolPicker.js'
 
 export function AgentNewPage() {
-  const { projectId, project } = useShell()
+  const { projectId } = useShell()
   const navigate = useNavigate()
   const connections = useLoaderData() as Connection[]
   const [name, setName] = useState('')
@@ -35,7 +35,7 @@ export function AgentNewPage() {
     try {
       const tools = selectedTools.size > 0 ? [...selectedTools] : undefined
       await agentApi.create({
-        account_id: project!.owner_id, connection_id: connectionId, name, model, prompt,
+        connection_id: connectionId, name, model, prompt,
         max_tokens: +maxTokens, max_steps: +maxSteps,
         temperature: temperature ? +temperature : undefined,
         reasoning_budget: reasoningBudget ? +reasoningBudget : null,
