@@ -77,6 +77,7 @@ export const projectApi = {
     post<Project>('/project', data),
   update: (id: string, data: Partial<Project>) => put<Project>(`/project/${id}`, data),
   run: (id: string) => post<{ ok: boolean }>(`/project/${id}/run`),
+  tags: (projectId: string) => get<string[]>(`/project/${projectId}/tags`),
 }
 
 // Tickets
