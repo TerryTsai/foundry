@@ -5,7 +5,7 @@ import * as domain from './domain.js'
 import * as validate from './validate.js'
 import { AppError } from './functional.js'
 import { parse, run, send, parseCookie, serializeCookie, requireAuth } from './middleware.js'
-import { TOOL_NAMES } from './mcp/registry.js'
+import { TOOL_NAMES, registry } from './mcp/registry.js'
 
 // Each project handler resolves the caller's account from req (set by
 // requireAuth) and forwards it to the domain layer for ownership checks.
@@ -142,6 +142,7 @@ export function ticket(db: Db) {
 export function agent(db: Db, config: Config) {
   const r = Router()
   r.get   ('/tools',                                                            run(()  => [...TOOL_NAMES]),                                                            send())
+  r.get   ('/mcp',                                                              run(()  => registry),                                                                  send())
   r.get   ('/',                         parse(validate.agentList, 'query'),     run(req => domain.agentList(db, { accountId: accountIdOrQuery(req) })),                  send())
   r.post  ('/',                         parse(validate.agentCreate),            run(req => domain.agentCreate(db, accountId(req), req.data)),                            send(201))
   r.get   ('/:id',                                                              run(req => domain.agentGet(db, req.params.id)),                                         send())
