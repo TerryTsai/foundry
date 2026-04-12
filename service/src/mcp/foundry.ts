@@ -60,10 +60,11 @@ const ticketGetArgs = z.object({
 })
 
 const ticketCreateArgs = z.object({
-  title:    z.string().describe('Short title.'),
-  body:     z.string().describe('Full description, markdown allowed.'),
-  agent_id: z.string().optional().describe('Optional: assign to a specific agent by id. Use agentsList first to discover ids.'),
-  priority: z.number().int().optional().describe('Optional priority (default 0).'),
+  title:      z.string().describe('Short title.'),
+  body:       z.string().describe('Full description, markdown allowed.'),
+  agent_id:   z.string().optional().describe('Optional: assign to a specific agent by id. Use agentsList first to discover ids.'),
+  priority:   z.number().int().optional().describe('Optional priority (default 0).'),
+  blocked_by: z.string().optional().describe('Optional: ticket id this new ticket depends on. Scheduler will not dispatch until that ticket is done. Use to sequence dependent work.'),
 })
 
 const ticketCommentArgs = z.object({
@@ -158,7 +159,8 @@ async function handleTicketCreate(ctx: FoundryCtx, args: z.infer<typeof ticketCr
     title:      args.title,
     body:       args.body,
     priority:   args.priority ?? 0,
-    ...(args.agent_id ? { agent_id: args.agent_id } : {}),
+    ...(args.agent_id   ? { agent_id:   args.agent_id   } : {}),
+    ...(args.blocked_by ? { blocked_by: args.blocked_by } : {}),
   })
   return apiPost(ctx, 'ticketCreate', args, '/ticket', payload)
 }
