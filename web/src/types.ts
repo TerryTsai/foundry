@@ -131,3 +131,10 @@ export interface Message {
   tokens_in: number | null
   created_at: string
 }
+
+export interface TicketTag {
+  id: string
+  ticket_id: string
+  tag: string
+  created_at: string
+}

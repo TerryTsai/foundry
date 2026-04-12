@@ -1,17 +1,94 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate, useLoaderData, useRevalidator } from 'react-router-dom'
 import { User, Bot, Info } from 'lucide-react'
 import { ticketApi, commentApi, bustCache } from '../../api.js'
 import { ActivityRow } from '../../components/detail/ActivityRow.js'
 import { SectionLabel } from '../../components/detail/SectionLabel.js'
 import { DetailShell } from '../../components/layout/DetailShell.js'
-import type { Ticket, Agent, Comment, UsageRollup } from '../../types.js'
+import type { Ticket, Agent, Comment, UsageRollup, TicketTag } from '../../types.js'
 import { useShell } from '../../Shell.js'
 import { Field } from '../../components/form/Field.js'
 import { TextArea } from '../../components/form/TextArea.js'
 import { ActionButton } from '../../components/form/ActionButton.js'
 import { useBreadcrumbLabel } from '../../Breadcrumb.js'
 import { fmtDuration, fmtBytes, fmtActor } from '../../lib/format.js'
+
+// ── Tag Section ──
+
+function TagSection({ ticketId, initialTags }: { ticketId: string; initialTags: TicketTag[] }) {
+  const [tags, setTags] = useState(initialTags)
+  const [adding, setAdding] = useState(false)
+  const [value, setValue] = useState('')
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => { setTags(initialTags) }, [initialTags])
+
+  useEffect(() => {
+    if (adding) inputRef.current?.focus()
+  }, [adding])
+
+  async function refreshTags() {
+    bustCache()
+    setTags(await ticketApi.tags(ticketId))
+  }
+
+  async function handleRemove(tag: string) {
+    await ticketApi.removeTag(ticketId, tag)
+    await refreshTags()
+  }
+
+  async function commitAdd() {
+    const val = value.trim().toLowerCase()
+    setValue('')
+    setAdding(false)
+    if (!val) return
+    await ticketApi.addTag(ticketId, val)
+    await refreshTags()
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === 'Enter') { e.preventDefault(); void commitAdd() }
+    if (e.key === 'Escape') { setValue(''); setAdding(false) }
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      {tags.map(t => (
+        <span
+          key={t.id}
+          className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-zinc-200 dark:bg-zinc-800 text-xs text-zinc-700 dark:text-zinc-300"
+        >
+          {t.tag}
+          <button
+            onClick={() => void handleRemove(t.tag)}
+            className="leading-none text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 transition-colors ml-0.5"
+            aria-label={`Remove tag ${t.tag}`}
+          >
+            ×
+          </button>
+        </span>
+      ))}
+      {adding ? (
+        <input
+          ref={inputRef}
+          value={value}
+          onChange={e => setValue(e.target.value)}
+          onKeyDown={handleKeyDown}
+          onBlur={() => void commitAdd()}
+          placeholder="tag name"
+          className="text-xs bg-transparent border-b border-zinc-500 dark:border-zinc-600 focus:border-zinc-700 dark:focus:border-zinc-400 outline-none px-1 w-20 text-zinc-700 dark:text-zinc-300 placeholder:text-zinc-400 dark:placeholder:text-zinc-600 transition-colors"
+        />
+      ) : (
+        <button
+          onClick={() => setAdding(true)}
+          className="text-xs text-zinc-400 dark:text-zinc-600 hover:text-zinc-600 dark:hover:text-zinc-400 transition-colors leading-none"
+        >
+          + tag
+        </button>
+      )}
+    </div>
+  )
+}
 
 // ── Comments Section ──
 
@@ -51,13 +128,14 @@ interface TicketLoaderData {
   agents: Agent[]
   comments: Comment[]
   usage: UsageRollup
+  tags: TicketTag[]
 }
 
 // ── Ticket Detail Page ──
 
 export function TicketDetailPage() {
   const { projectId } = useShell()
-  const { ticket, agents, comments: initialComments, usage } = useLoaderData() as TicketLoaderData
+  const { ticket, agents, comments: initialComments, usage, tags: initialTags } = useLoaderData() as TicketLoaderData
   const { revalidate } = useRevalidator()
   const navigate = useNavigate()
   const [editing, setEditing] = useState(false)
@@ -135,6 +213,8 @@ export function TicketDetailPage() {
           </div>
         </div>
       )}
+
+      <TagSection ticketId={ticket.id} initialTags={initialTags} />
 
       <CommentsSection projectId={projectId} ticketId={ticket.id} comments={comments} onRefresh={refreshComments} />
 
