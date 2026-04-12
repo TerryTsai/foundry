@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { connectionApi } from '../../api.js'
-import { useShell } from '../../Shell.js'
 import { Field } from '../../components/form/Field.js'
 import { TextInput } from '../../components/form/TextInput.js'
 import { Select } from '../../components/form/Select.js'
@@ -10,7 +9,6 @@ import { ActionButton } from '../../components/form/ActionButton.js'
 const KINDS = ['anthropic', 'openai', 'anthropic-subscription']
 
 export function ConnectionNewPage() {
-  const { projectId } = useShell()
   const navigate = useNavigate()
   const [name, setName] = useState('')
   const [kind, setKind] = useState('anthropic')
@@ -22,7 +20,7 @@ export function ConnectionNewPage() {
     setError('')
     try {
       await connectionApi.create({ name, kind, secrets: { api_key: apiKey } })
-      navigate(`/p/${projectId}/agents/connections`)
+      navigate('/settings/connections')
     } catch (err) { setError(err instanceof Error ? err.message : 'failed') }
   }
 

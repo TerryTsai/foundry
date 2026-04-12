@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react'
 import { useNavigate, useLoaderData } from 'react-router-dom'
 import { agentApi } from '../../api.js'
 import type { Agent, Connection, UsageRollup } from '../../types.js'
-import { useShell } from '../../Shell.js'
 import { DetailShell } from '../../components/layout/DetailShell.js'
 import { Field } from '../../components/form/Field.js'
 import { TextInput } from '../../components/form/TextInput.js'
@@ -14,7 +13,6 @@ import { useBreadcrumbLabel } from '../../Breadcrumb.js'
 import { fmtDuration, fmtBytes } from '../../lib/format.js'
 
 export function AgentDetailPage() {
-  const { projectId } = useShell()
   const navigate = useNavigate()
   const { agent, usage, connections } = useLoaderData() as { agent: Agent; usage: UsageRollup; connections: Connection[] }
   const [editing, setEditing] = useState(false)
@@ -48,14 +46,14 @@ export function AgentDetailPage() {
         tools,
       })
       setEditing(false)
-      navigate(`/p/${projectId}/agents`)
+      navigate('/settings/agents')
     } catch (err) { setError(err instanceof Error ? err.message : 'failed') }
   }
 
   async function handleDelete() {
     if (!confirm('Delete this agent?')) return
     await agentApi.delete(agent.id)
-    navigate(`/p/${projectId}/agents`)
+    navigate('/settings/agents')
   }
 
   const ts = (s: string) => new Date(s).toLocaleString(undefined, {

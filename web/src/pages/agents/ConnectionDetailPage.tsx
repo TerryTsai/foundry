@@ -2,7 +2,6 @@ import { useState } from 'react'
 import { useNavigate, useLoaderData } from 'react-router-dom'
 import { connectionApi } from '../../api.js'
 import type { Connection } from '../../types.js'
-import { useShell } from '../../Shell.js'
 import { DetailShell } from '../../components/layout/DetailShell.js'
 import { Field } from '../../components/form/Field.js'
 import { TextInput } from '../../components/form/TextInput.js'
@@ -10,7 +9,6 @@ import { ActionButton } from '../../components/form/ActionButton.js'
 import { useBreadcrumbLabel } from '../../Breadcrumb.js'
 
 export function ConnectionDetailPage() {
-  const { projectId } = useShell()
   const navigate = useNavigate()
   const connection = useLoaderData() as Connection
   const [name, setName] = useState(connection.name)
@@ -28,14 +26,14 @@ export function ConnectionDetailPage() {
       if (apiKey)                            data.secrets = { api_key: apiKey }
       if (Object.keys(data).length === 0) { setError('nothing to update'); return }
       await connectionApi.update(connection.id, data)
-      navigate(`/p/${projectId}/agents/connections`)
+      navigate('/settings/connections')
     } catch (err) { setError(err instanceof Error ? err.message : 'failed') }
   }
 
   async function handleDelete() {
     if (!confirm('Remove this connection?')) return
     await connectionApi.delete(connection.id)
-    navigate(`/p/${projectId}/agents/connections`)
+    navigate('/settings/connections')
   }
 
   const ts = (s: string) => new Date(s).toLocaleString(undefined, {

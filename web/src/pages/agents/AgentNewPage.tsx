@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react'
 import { useNavigate, useLoaderData } from 'react-router-dom'
 import { agentApi } from '../../api.js'
 import type { Connection } from '../../types.js'
-import { useShell } from '../../Shell.js'
 import { Field } from '../../components/form/Field.js'
 import { TextInput } from '../../components/form/TextInput.js'
 import { TextArea } from '../../components/form/TextArea.js'
@@ -11,7 +10,6 @@ import { ActionButton } from '../../components/form/ActionButton.js'
 import { ToolPicker } from '../../components/form/ToolPicker.js'
 
 export function AgentNewPage() {
-  const { projectId } = useShell()
   const navigate = useNavigate()
   const connections = useLoaderData() as Connection[]
   const [name, setName] = useState('')
@@ -41,7 +39,7 @@ export function AgentNewPage() {
         reasoning_budget: reasoningBudget ? +reasoningBudget : null,
         tools,
       })
-      navigate(`/p/${projectId}/agents`)
+      navigate('/settings/agents')
     } catch (err) { setError(err instanceof Error ? err.message : 'failed') }
   }
 
