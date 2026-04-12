@@ -55,6 +55,7 @@ const TOOL_META: Record<string, ToolMeta> = {
   gitCommit:      { label: i => `git commit${asString(i.message) ? ` "${truncate(asString(i.message)!, 50)}"` : ''}`, icon: GitCommit },
   gitPullRequest: { label: _ => 'git pull request', icon: GitPullRequest },
   gitMerge:       { label: _ => 'git merge', icon: GitMerge },
+  gitRebase:      { label: _ => 'git rebase', icon: GitBranch },
 
   // ── foundry ──
   ticketList:    { label: _ => 'ticket list', icon: Ticket },

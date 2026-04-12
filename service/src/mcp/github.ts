@@ -55,6 +55,7 @@ export const info: McpServerInfo = {
     { name: 'gitCommit',         description: 'Commit the staged index with a message.' },
     { name: 'gitPullRequest',    description: 'Push the session branch and open a pull request for review.' },
     { name: 'gitMerge',          description: 'Push the session branch, open a PR, and merge it immediately. Fails on conflict.' },
+    { name: 'gitRebase',         description: 'Rebase the session branch against latest main. Use after a merge conflict.' },
   ],
 }
 
@@ -157,6 +158,8 @@ const gitPullRequestArgs = z.object({
   body:  z.string().optional().describe('Optional PR body. Defaults to a summary pointing at the ticket.'),
   draft: z.boolean().optional().describe('If true, open as a draft PR. Default: false (ready for review).'),
 })
+
+const gitRebaseArgs = z.object({})
 
 const gitMergeArgs = z.object({
   title: z.string().optional().describe('Optional PR title. Defaults to "[<ticket-id>] <ticket title>".'),
@@ -416,6 +419,48 @@ async function handleGitPullRequest(ctx: GithubCtx, args: z.infer<typeof gitPull
   }
 }
 
+// ── gitRebase: fetch latest main + rebase session branch ──
+// Tier-2: needs install token to fetch from a private repo. /work
+// mounted rw because rebase rewrites the session branch's commits.
+
+async function handleGitRebase(ctx: GithubCtx, _args: z.infer<typeof gitRebaseArgs>) {
+  try {
+    const proj = require(database.projectGet(ctx.db, ctx.ticket.project_id), `project ${ctx.ticket.project_id} not found`)
+    if (!proj.repo) return { ok: false, error: 'project has no repo configured' }
+    const { owner, name } = parseRepo(proj.repo)
+
+    const installationId = await installationForRepo(ctx.config, owner, name)
+    const { token: installToken } = await installationToken(ctx.config, installationId)
+
+    const command = [
+      'set -e',
+      'cd /work',
+      'export GIT_TERMINAL_PROMPT=0',
+      'git fetch "https://x-access-token:${INSTALL_TOKEN}@github.com/${OWNER}/${REPO}" main:refs/remotes/origin/main 1>&2',
+      'git rebase origin/main 1>&2',
+      'echo ok',
+    ].join('\n')
+
+    const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace,
+      command, 'gitRebase', {}, {
+        network: true,
+        mount:   'rw',
+        env: {
+          INSTALL_TOKEN: installToken,
+          OWNER:         owner,
+          REPO:          name,
+        },
+      })
+
+    if (r.exitCode !== 0) {
+      return { ok: false, error: `rebase failed: ${r.stderr || r.stdout}`.slice(0, 500) }
+    }
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
 // ── gitMerge: push + PR + immediate merge (deterministic) ──
 // Unlike gitPullRequest, this tool ALWAYS merges. If there's a conflict,
 // it returns an error — it does not fall back to leaving a PR open.
@@ -570,6 +615,7 @@ const DESC = {
   gitCommit:         'Commit the staged index with a message. Fails if nothing is staged. Session id and ticket id are appended to the commit trailer automatically. Requires a git workspace (see gitClone).',
   gitPullRequest: 'Push the session branch and open a pull request against the clone\'s default branch. The PR is NOT merged — a human reviews and merges it. Use this when review is wanted before landing. Pass draft:true to mark as draft. Call after at least one gitCommit. Posts a "PR opened" comment on the ticket. Requires a git workspace (see gitClone).',
   gitMerge:        'Push the session branch, open a PR, and merge it immediately to the default branch. This is the trunk-based tool — code lands on main in one call. Fails with an error if there\'s a merge conflict (the PR is left open for manual resolution or gitRebase). Call after at least one gitCommit. Posts a "Merged" comment on the ticket. Requires a git workspace (see gitClone).',
+  gitRebase:       'Fetch latest main from origin and rebase the session branch on top of it. Use this after gitMerge fails due to a merge conflict — rebase resolves the conflict by replaying your commits on the latest main, then retry gitMerge. If the rebase itself has conflicts that git cannot auto-resolve, this tool fails with the conflict details. Requires a git workspace (see gitClone).',
 }
 
 // ── Anthropic Claude Agent SDK adapter ──
@@ -586,6 +632,7 @@ export function buildSdk(ctx: GithubCtx) {
       sdkTool('gitCommit',         DESC.gitCommit,         gitCommitArgs.shape,         async a => asText(await handleGitCommit(ctx, a))),
       sdkTool('gitPullRequest', DESC.gitPullRequest, gitPullRequestArgs.shape, async a => asText(await handleGitPullRequest(ctx, a))),
       sdkTool('gitMerge',       DESC.gitMerge,       gitMergeArgs.shape,       async a => asText(await handleGitMerge(ctx, a))),
+      sdkTool('gitRebase',     DESC.gitRebase,     gitRebaseArgs.shape,     async a => asText(await handleGitRebase(ctx, a))),
     ],
   })
 }
@@ -633,6 +680,11 @@ export function buildAi(ctx: GithubCtx) {
       description: DESC.gitMerge,
       inputSchema: gitMergeArgs,
       execute:     (args: z.infer<typeof gitMergeArgs>) => handleGitMerge(ctx, args),
+    }),
+    gitRebase: tool({
+      description: DESC.gitRebase,
+      inputSchema: gitRebaseArgs,
+      execute:     (args: z.infer<typeof gitRebaseArgs>) => handleGitRebase(ctx, args),
     }),
   }
 }

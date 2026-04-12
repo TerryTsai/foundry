@@ -1,11 +1,52 @@
 import { query } from '@anthropic-ai/claude-agent-sdk'
+import { readFileSync } from 'fs'
+import { join } from 'path'
+import { homedir } from 'os'
 
 import { type Db } from '../database.js'
 import * as database from '../database.js'
 import type { Config } from '../config.js'
+import type { Connection } from '../schema.js'
 import { type Ticket, type Agent as AgentDef } from '../schema.js'
 import * as domain from '../domain.js'
 import { now, require } from '../functional.js'
+
+// ── Subscription token resolution ──
+// Reads ~/.claude/.credentials.json first (kept fresh by Claude Code's own
+// refresh cycle). If the file token is valid and differs from the stored
+// connection secret, updates the connection row so the DB stays in sync.
+// Falls back to the stored secret if the file is missing or unreadable
+// (e.g., server running on a different machine without Claude Code).
+
+function resolveSubscriptionToken(db: Db, conn: Connection): string {
+  const credPath = join(homedir(), '.claude', '.credentials.json')
+  try {
+    const raw = readFileSync(credPath, 'utf-8')
+    const cred = (JSON.parse(raw) as { claudeAiOauth?: { accessToken?: string; expiresAt?: number } }).claudeAiOauth
+    if (cred?.accessToken && cred.expiresAt && cred.expiresAt > Date.now()) {
+      // File token is fresh — use it. Update the connection row if it changed.
+      const stored = JSON.parse(conn.secrets) as Record<string, unknown>
+      if (stored.access_token !== cred.accessToken) {
+        stored.access_token = cred.accessToken
+        stored.api_key = cred.accessToken  // legacy fallback field
+        database.connectionUpdate(db, conn.id, {
+          secrets: JSON.stringify(stored),
+          updated_at: new Date().toISOString(),
+        })
+      }
+      return cred.accessToken
+    }
+  } catch { /* file missing or unreadable — fall through to stored secret */ }
+
+  // Fall back to whatever is in the connection row.
+  try {
+    const secrets = JSON.parse(conn.secrets) as Record<string, unknown>
+    const v = secrets.access_token ?? secrets.api_key
+    if (typeof v === 'string' && v) return v
+  } catch { /* malformed secrets */ }
+
+  throw new Error(`connection '${conn.id}': no valid subscription token (credentials file missing and connection secrets empty)`)
+}
 
 import { workspaceEmpty, workspaceDestroy } from '../mcp/github.js'
 import * as foundryServer from '../mcp/foundry.js'
@@ -35,18 +76,7 @@ export async function runAgentSessionViaSdk(
 ): Promise<void> {
   const startTime = Date.now()
   const conn = require(database.connectionGet(db, agentDef.connection_id), 'connection not found')
-  const oauthToken = (() => {
-    try {
-      const secrets = JSON.parse(conn.secrets) as Record<string, unknown>
-      // Legacy rows from the provider-era migration store the token under api_key.
-      // New rows should use access_token. Accept either.
-      const v = secrets.access_token ?? secrets.api_key
-      if (typeof v !== 'string' || !v) throw new Error('missing access_token in connection secrets')
-      return v
-    } catch (err) {
-      throw new Error(`connection '${conn.id}' secrets invalid: ${err instanceof Error ? err.message : String(err)}`)
-    }
-  })()
+  const oauthToken = resolveSubscriptionToken(db, conn)
 
   // Empty workspace — agent owns clone / bootstrap via gitClone tool.
   const workDir = await workspaceEmpty()
