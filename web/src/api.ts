@@ -1,4 +1,4 @@
-import type { Account, Connection, Project, Ticket, Comment, Agent, Session, Execution, UsageRollup, TicketTag } from './types.js'
+import type { Account, Connection, Project, Ticket, Comment, Agent, Session, Execution, UsageRollup, TicketTag, McpServerInfo, McpToolSelection } from './types.js'
 
 const cache = new Map<string, { data: unknown; at: number }>()
 const CACHE_TTL = 30_000 // 30 seconds
@@ -131,10 +131,10 @@ export const sessionApi = {
 export const agentApi = {
   list: () => get<Agent[]>('/agent'),
   get: (id: string) => get<Agent>(`/agent/${id}`),
-  tools: () => get<string[]>('/agent/tools'),
-  create: (data: { connection_id: string; name: string; model: string; prompt: string; max_tokens?: number; max_steps?: number; temperature?: number; reasoning_budget?: number | null; tools?: string[] }) =>
+  mcp: () => get<McpServerInfo[]>('/agent/mcp'),
+  create: (data: { connection_id: string; name: string; model: string; prompt: string; max_tokens?: number; max_steps?: number; temperature?: number; reasoning_budget?: number | null; tools?: McpToolSelection }) =>
     post<Agent>('/agent', data),
-  update: (id: string, data: { connection_id?: string; model?: string; prompt?: string; max_tokens?: number; max_steps?: number; temperature?: number; reasoning_budget?: number | null; tools?: string[] }) =>
+  update: (id: string, data: { connection_id?: string; model?: string; prompt?: string; max_tokens?: number; max_steps?: number; temperature?: number; reasoning_budget?: number | null; tools?: McpToolSelection }) =>
     put<Agent>(`/agent/${id}`, data),
   delete: (id: string) => del<{ ok: boolean }>(`/agent/${id}`),
   usage: (id: string) => get<UsageRollup>(`/agent/${id}/usage`),

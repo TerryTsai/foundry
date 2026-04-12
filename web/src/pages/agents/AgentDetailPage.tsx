@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, useLoaderData } from 'react-router-dom'
 import { agentApi } from '../../api.js'
-import type { Agent, Connection, UsageRollup } from '../../types.js'
+import type { Agent, Connection, UsageRollup, McpServerInfo, McpToolSelection } from '../../types.js'
 import { DetailShell } from '../../components/layout/DetailShell.js'
 import { Field } from '../../components/form/Field.js'
 import { TextInput } from '../../components/form/TextInput.js'
@@ -32,6 +32,29 @@ function formatTools(raw: string | null): string {
   } catch { return 'malformed' }
 }
 
+// Convert raw agent.tools JSON (legacy flat string[] or nested McpToolSelection)
+// into McpToolSelection, using the loaded server list to map legacy tool names.
+function normalizeSelection(raw: string | null, servers: McpServerInfo[]): McpToolSelection | null {
+  if (!raw) return null
+  try {
+    const parsed = JSON.parse(raw) as unknown
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed))
+      return parsed as McpToolSelection
+    if (Array.isArray(parsed)) {
+      const flat = parsed as string[]
+      if (!flat.length) return null
+      const result: McpToolSelection = {}
+      for (const srv of servers) {
+        const matched = flat.filter(n => srv.tools.some(t => t.name === n))
+        if (matched.length === srv.tools.length) result[srv.id] = '*'
+        else if (matched.length > 0) result[srv.id] = matched
+      }
+      return Object.keys(result).length === 0 ? null : result
+    }
+    return null
+  } catch { return null }
+}
+
 export function AgentDetailPage() {
   const navigate = useNavigate()
   const { agent, usage, connections } = useLoaderData() as { agent: Agent; usage: UsageRollup; connections: Connection[] }
@@ -43,30 +66,17 @@ export function AgentDetailPage() {
   const [maxSteps, setMaxSteps] = useState(String(agent.max_steps))
   const [temperature, setTemperature] = useState(agent.temperature !== null ? String(agent.temperature) : '')
   const [reasoningBudget, setReasoningBudget] = useState(agent.reasoning_budget !== null ? String(agent.reasoning_budget) : '')
-  const [availableTools, setAvailableTools] = useState<string[]>([])
-  // agent.tools can be either the legacy flat shape (string[]) or the new
-  // nested McpToolSelection shape ({foundry:'*'|[], github:'*'|[], ...}).
-  // Normalize to a flat Set for the picker by expanding wildcards against
-  // the available-tools list once it loads.
-  const [selectedTools, setSelectedTools] = useState<Set<string>>(new Set())
-  useEffect(() => {
-    if (!agent.tools) { setSelectedTools(new Set()); return }
-    try {
-      const parsed = JSON.parse(agent.tools) as unknown
-      if (Array.isArray(parsed)) { setSelectedTools(new Set(parsed as string[])); return }
-      if (parsed && typeof parsed === 'object') {
-        const flat = new Set<string>()
-        for (const val of Object.values(parsed as Record<string, unknown>)) {
-          if (val === '*') continue  // wildcard expanded below once availableTools loads
-          if (Array.isArray(val)) for (const t of val) flat.add(String(t))
-        }
-        setSelectedTools(flat)
-      }
-    } catch { /* malformed — leave empty */ }
-  }, [agent.tools])
+  const [servers, setServers] = useState<McpServerInfo[]>([])
+  const [toolSelection, setToolSelection] = useState<McpToolSelection | null>(null)
   const [error, setError] = useState('')
 
-  useEffect(() => { agentApi.tools().then(setAvailableTools).catch(() => {}) }, [])
+  // Load servers then normalize stored tools against the real server/tool list
+  useEffect(() => {
+    agentApi.mcp().then(srv => {
+      setServers(srv)
+      setToolSelection(normalizeSelection(agent.tools, srv))
+    }).catch(() => {})
+  }, [agent.tools])
 
   useBreadcrumbLabel(agent.name)
 
@@ -76,7 +86,7 @@ export function AgentDetailPage() {
     e.preventDefault()
     setError('')
     try {
-      const tools = selectedTools.size > 0 ? [...selectedTools] : undefined
+      const tools = toolSelection && Object.keys(toolSelection).length > 0 ? toolSelection : undefined
       await agentApi.update(agent.id, {
         connection_id: connectionId, model, prompt,
         max_tokens: +maxTokens, max_steps: +maxSteps,
@@ -157,7 +167,7 @@ export function AgentDetailPage() {
           <Field label="reasoning budget (tokens)">
             <TextInput type="number" value={reasoningBudget} onChange={e => setReasoningBudget(e.target.value)} min="1024" placeholder="off" />
           </Field>
-          <ToolPicker available={availableTools} selected={selectedTools} onChange={setSelectedTools} />
+          <ToolPicker servers={servers} selection={toolSelection} onChange={setToolSelection} />
           <div className="flex gap-2 pt-2">
             <ActionButton label="cancel" variant="secondary" onClick={() => setEditing(false)} className="flex-1" />
             <ActionButton label="save" type="submit" className="flex-1" />
