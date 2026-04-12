@@ -24,14 +24,18 @@ type StepResult = Awaited<ReturnType<typeof generateText<ToolSet>>>
 // SYSTEM PROMPT
 // ════════════════════════════════════════════════════════════════════════════
 
-function buildSystemPrompt(agentPrompt: string, agentMd: string, chain: TicketChainEntry[], ticketData: Ticket, priorHistory: string): string {
+function buildSystemPrompt(projectDescription: string, agentPrompt: string, agentMd: string, chain: TicketChainEntry[], ticketData: Ticket, priorHistory: string): string {
   const chainText = chain.slice(0, -1)
     .map(t => `### ${t.title} (${t.status})\n${t.body}`)
     .join('\n\n')
-  // AGENT.md is read opportunistically from the workspace. With the new
-  // empty-workspace model it will be missing at session start (the agent
-  // hasn't cloned yet); only include the section when there's actual content.
-  const sections: string[] = [agentPrompt, '', '---']
+  const sections: string[] = []
+  // Project description — shared context every agent in this project sees.
+  if (projectDescription.trim()) {
+    sections.push('## Project', '', projectDescription.trim(), '', '---')
+  }
+  // Agent role prompt.
+  sections.push('', agentPrompt, '', '---')
+  // AGENT.md from the workspace (available after gitClone).
   if (agentMd.trim()) {
     sections.push('', '## Project Context (AGENT.md)', '', agentMd)
   }
@@ -62,10 +66,11 @@ async function readAgentMd(workDir: string): Promise<string> {
 async function buildContext(
   db: Db, config: Config, sessionId: string, ticketData: Ticket, agentDef: AgentDef, workDir: string,
 ): Promise<{ system: string; tools: ToolSet }> {
+  const proj         = database.projectGet(db, ticketData.project_id)
   const chain        = readChain(db, ticketData.id)
   const agentMd      = await readAgentMd(workDir)
   const priorHistory = domain.ticketPriorHistory(db, ticketData.id, sessionId, agentDef.name)
-  const system       = buildSystemPrompt(agentDef.prompt, agentMd, chain, ticketData, priorHistory)
+  const system       = buildSystemPrompt(proj?.description ?? '', agentDef.prompt, agentMd, chain, ticketData, priorHistory)
   database.sessionUpdate(db, sessionId, { system_prompt: system })
 
   // Merge all four MCP server tool surfaces. Tool names are flat (no

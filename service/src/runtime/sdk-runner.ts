@@ -57,14 +57,25 @@ export async function runAgentSessionViaSdk(
 
   try {
     domain.commentCreate(db, ticketData.id, { author: agentDef.name, body: 'Session started (SDK)', session_id: sessionId })
+    // Build the system prompt: project description + agent role prompt.
+    // Prior to this, the SDK runner was running without the agent's own
+    // prompt — a long-standing oversight. Tool descriptions + ticket body
+    // carried enough signal for basic tasks, but complex agent
+    // personalities (Backend Developer's style rules, etc.) were lost.
+    const proj = database.projectGet(db, ticketData.project_id)
+    const systemParts: string[] = []
+    if (proj?.description?.trim()) systemParts.push(`## Project\n\n${proj.description.trim()}`)
+    if (agentDef.prompt.trim())     systemParts.push(agentDef.prompt.trim())
+    const systemPrompt = systemParts.join('\n\n---\n\n') || undefined
+
     const priorHistory = domain.ticketPriorHistory(db, ticketData.id, sessionId, agentDef.name)
     const prompt = priorHistory
       ? `${ticketData.body}\n\n---\n\n${priorHistory}`
       : ticketData.body
     domain.sessionMessage(db, sessionId, 'user', prompt)
+    if (systemPrompt) database.sessionUpdate(db, sessionId, { system_prompt: systemPrompt })
 
-    // Build the four in-process MCP servers. Each buildSdk returns a live
-    // createSdkMcpServer ready to be passed to query().
+    // Build the four in-process MCP servers.
     const foundryMcp = foundryServer.buildSdk({
       db, config, sessionId, workspace: workDir, projectId: ticketData.project_id, ticketId: ticketData.id, agentName: agentDef.name,
     })
@@ -83,6 +94,7 @@ export async function runAgentSessionViaSdk(
     for await (const message of query({
       prompt,
       options: {
+        systemPrompt,
         cwd:             workDir,
         tools:           [],          // disable all built-ins; only Foundry MCP tools
         mcpServers:      { foundry: foundryMcp, github: githubMcp, sandbox: sandboxMcp, browser: browserMcp },

@@ -44,10 +44,10 @@ export function projectGet(db: Db, accountId: string, id: string): schema.Projec
 }
 
 export function projectCreate(db: Db, accountId: string, input: z.infer<typeof validate.projectCreate>): schema.Project {
-  const { name, repo, schedule_interval = 600, concurrency_limit = 3 } = input
+  const { name, description = '', repo, schedule_interval = 600, concurrency_limit = 3 } = input
   const row = database.projectInsert(db, {
     owner_id: accountId,
-    repo, name, status: 'active',
+    repo, name, description, status: 'active',
     schedule_interval, concurrency_limit, ...ts(),
   })
   schedulerStart(db, row.id, row.schedule_interval)
@@ -57,7 +57,7 @@ export function projectCreate(db: Db, accountId: string, input: z.infer<typeof v
 export function projectUpdate(db: Db, accountId: string, id: string, input: z.infer<typeof validate.projectUpdate>): schema.Project {
   const prev = projectGetOwned(db, id, accountId)
   const updates: Record<string, unknown> = {
-    ...pick(input, 'name', 'repo', 'status', 'schedule_interval', 'concurrency_limit'),
+    ...pick(input, 'name', 'description', 'repo', 'status', 'schedule_interval', 'concurrency_limit'),
     updated_at: now(),
   }
   if (Object.keys(updates).length <= 1) return prev
