@@ -1,22 +1,21 @@
-// Foundry harness introspection server. Exposes read-mostly access to the
-// Foundry DB: tickets, agents, sessions, connections. Also hosts `think`,
-// the no-side-effect scratch reasoning tool.
+// Foundry harness introspection server. Every tool call runs in the
+// sandbox via runCommand, curling back into the service's HTTP API with
+// the per-boot internal bearer token. This gives each call the same
+// execution-row treatment as sandbox/github/browser tools: full cgroup
+// stats (memory, CPU, network), resource offloading to the container,
+// and consistent observability in the activity timeline.
 //
-// Structure: handler functions are SDK-agnostic. buildSdk wraps them as
-// Anthropic Claude Agent SDK tools. buildAi wraps them as Vercel ai SDK
-// tools. Both runners consume the same handlers.
-//
-// Tools call domain.* functions directly rather than curl'ing the service
-// HTTP API — the MCP server is an in-process component of the service and
-// shares the same trust level.
+// The internal token is never exposed to the agent — it lives in the
+// tier-2 container's env and dies with the container. The agent sees
+// the tool by name and arguments; the curl is an implementation detail.
 
 import { createSdkMcpServer, tool as sdkTool } from '@anthropic-ai/claude-agent-sdk'
 import { tool } from 'ai'
 import { z } from 'zod'
 
 import type { Db } from '../database.js'
-import * as domain from '../domain.js'
-import { asText } from './_shared.js'
+import type { Config } from '../config.js'
+import { asText, esc, runCommand } from './_shared.js'
 
 import type { McpServerInfo } from './registry.js'
 
@@ -38,8 +37,11 @@ export const info: McpServerInfo = {
 
 export interface FoundryCtx {
   db:         Db
+  config:     Config
+  sessionId:  string
+  workspace:  string   // session tmpdir — mounted into the sandbox
   projectId:  string
-  ticketId:   string   // parent ticket for the session — used as parent_id when agent creates sub-tickets
+  ticketId:   string   // parent ticket — used as parent_id when agent creates sub-tickets
   agentName:  string   // used as author of comments and created_by for new tickets
 }
 
@@ -75,82 +77,88 @@ const thinkArgs        = z.object({
   thought: z.string().describe('The reasoning step.'),
 })
 
+// ── Internal API helper ──
+// All foundry tools curl back to the service through the sandbox. The
+// internal bearer token authenticates the call without needing a user
+// session cookie. mount='none' because foundry tools don't need workspace
+// state; network=true because they need to reach the host.
+
+async function apiGet(ctx: FoundryCtx, toolName: string, toolInput: unknown, path: string) {
+  const command = `curl -sf -H "Authorization: Bearer $INTERNAL_TOKEN" "http://host.containers.internal:${ctx.config.port}${path}"`
+  const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace,
+    command, toolName, toolInput, {
+      network: true,
+      mount:   'none',
+      env:     { INTERNAL_TOKEN: ctx.config.internalApiToken },
+    })
+  if (r.exitCode !== 0) return { error: r.stderr || r.stdout || `API call failed (exit ${r.exitCode})` }
+  try { return JSON.parse(r.stdout) } catch { return { content: r.stdout } }
+}
+
+async function apiPost(ctx: FoundryCtx, toolName: string, toolInput: unknown, path: string, body: string) {
+  const command = `curl -sf -X POST -H "Authorization: Bearer $INTERNAL_TOKEN" -H "Content-Type: application/json" -d ${esc(body)} "http://host.containers.internal:${ctx.config.port}${path}"`
+  const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace,
+    command, toolName, toolInput, {
+      network: true,
+      mount:   'none',
+      env:     { INTERNAL_TOKEN: ctx.config.internalApiToken },
+    })
+  if (r.exitCode !== 0) return { error: r.stderr || r.stdout || `API call failed (exit ${r.exitCode})` }
+  try { return JSON.parse(r.stdout) } catch { return { content: r.stdout } }
+}
+
 // ── Handlers ──
 
 async function handleTicketList(ctx: FoundryCtx, args: z.infer<typeof ticketListArgs>) {
-  try {
-    return domain.ticketList(ctx.db, {
-      projectId: ctx.projectId,
-      ...(args.status   ? { status:  args.status   } : {}),
-      ...(args.agent_id ? { agentId: args.agent_id } : {}),
-    })
-  } catch (err) {
-    return { error: err instanceof Error ? err.message : String(err) }
-  }
+  const qs = new URLSearchParams({ projectId: ctx.projectId })
+  if (args.status)   qs.set('status', args.status)
+  if (args.agent_id) qs.set('agentId', args.agent_id)
+  return apiGet(ctx, 'ticketList', args, `/ticket?${qs}`)
 }
 
 async function handleTicketGet(ctx: FoundryCtx, args: z.infer<typeof ticketGetArgs>) {
-  try {
-    return domain.ticketGet(ctx.db, args.id)
-  } catch (err) {
-    return { error: err instanceof Error ? err.message : String(err) }
-  }
+  return apiGet(ctx, 'ticketGet', args, `/ticket/${args.id}`)
 }
 
 async function handleTicketCreate(ctx: FoundryCtx, args: z.infer<typeof ticketCreateArgs>) {
-  try {
-    return domain.ticketCreate(ctx.db, {
-      project_id: ctx.projectId,
-      parent_id:  ctx.ticketId,
-      created_by: ctx.agentName,
-      title:      args.title,
-      body:       args.body,
-      priority:   args.priority ?? 0,
-      ...(args.agent_id ? { agent_id: args.agent_id } : {}),
-    })
-  } catch (err) {
-    return { error: err instanceof Error ? err.message : String(err) }
-  }
+  const payload = JSON.stringify({
+    project_id: ctx.projectId,
+    parent_id:  ctx.ticketId,
+    created_by: ctx.agentName,
+    title:      args.title,
+    body:       args.body,
+    priority:   args.priority ?? 0,
+    ...(args.agent_id ? { agent_id: args.agent_id } : {}),
+  })
+  return apiPost(ctx, 'ticketCreate', args, '/ticket', payload)
 }
 
 async function handleTicketComment(ctx: FoundryCtx, args: z.infer<typeof ticketCommentArgs>) {
-  try {
-    const targetTicket = args.ticket_id ?? ctx.ticketId
-    return domain.commentCreate(ctx.db, targetTicket, {
-      author: ctx.agentName,
-      body:   args.body,
-    })
-  } catch (err) {
-    return { error: err instanceof Error ? err.message : String(err) }
-  }
+  const targetTicket = args.ticket_id ?? ctx.ticketId
+  const payload = JSON.stringify({ author: ctx.agentName, body: args.body })
+  return apiPost(ctx, 'ticketComment', args, `/ticket/${targetTicket}/comment`, payload)
 }
 
 async function handleAgentsList(ctx: FoundryCtx, _args: z.infer<typeof agentsListArgs>) {
-  try {
-    return domain.agentList(ctx.db, { projectId: ctx.projectId })
-  } catch (err) {
-    return { error: err instanceof Error ? err.message : String(err) }
-  }
+  return apiGet(ctx, 'agentsList', _args, `/agent?projectId=${ctx.projectId}`)
 }
 
 async function handleSessionList(ctx: FoundryCtx, args: z.infer<typeof sessionListArgs>) {
-  try {
-    return domain.sessionByTicket(ctx.db, args.ticket_id ?? ctx.ticketId)
-  } catch (err) {
-    return { error: err instanceof Error ? err.message : String(err) }
-  }
+  const tid = args.ticket_id ?? ctx.ticketId
+  return apiGet(ctx, 'sessionList', args, `/ticket/${tid}/session`)
 }
 
 async function handleConnectionList(ctx: FoundryCtx, _args: z.infer<typeof connectionListArgs>) {
-  try {
-    return domain.connectionList(ctx.db)
-  } catch (err) {
-    return { error: err instanceof Error ? err.message : String(err) }
-  }
+  return apiGet(ctx, 'connectionList', _args, '/connection')
 }
 
-async function handleThink(_ctx: FoundryCtx, _args: z.infer<typeof thinkArgs>) {
-  return { ok: true }
+async function handleThink(ctx: FoundryCtx, args: z.infer<typeof thinkArgs>) {
+  // Think is a no-op but still goes through the sandbox for consistency.
+  // The container boots, echoes "ok", dies. Gives a real execution row
+  // with timing for how long the model spent on this reasoning step.
+  const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace,
+    'echo ok', 'think', args, { mount: 'none' })
+  return { ok: r.exitCode === 0 }
 }
 
 const DESC = {
@@ -160,8 +168,8 @@ const DESC = {
   ticketComment: 'Post a comment on a ticket. Used for status updates, questions, or communicating with the Founder.',
   agentsList:    'List agents configured in the current project. Useful for targeting sub-tickets at a specific agent.',
   sessionList:   'List agent sessions for a ticket. Defaults to the current session\'s ticket if omitted.',
-  connectionList:  'List configured LLM providers (model backends). Secrets are masked.',
-  think:         'Use this tool to reason, plan, or analyze before taking action. No side effects.',
+  connectionList:  'List configured external connections (LLM backends, integrations). Secrets are masked.',
+  think:         'Use this tool to reason, plan, or analyze before taking action. No side effects. Still runs in the sandbox for consistent execution tracking.',
 }
 
 // ── Anthropic Claude Agent SDK adapter ──
@@ -176,7 +184,7 @@ export function buildSdk(ctx: FoundryCtx) {
       sdkTool('ticketComment', DESC.ticketComment, ticketCommentArgs.shape, async a => asText(await handleTicketComment(ctx, a))),
       sdkTool('agentsList',    DESC.agentsList,    agentsListArgs.shape,    async a => asText(await handleAgentsList(ctx, a))),
       sdkTool('sessionList',   DESC.sessionList,   sessionListArgs.shape,   async a => asText(await handleSessionList(ctx, a))),
-      sdkTool('connectionList',  DESC.connectionList,  connectionListArgs.shape,  async a => asText(await handleConnectionList(ctx, a))),
+      sdkTool('connectionList', DESC.connectionList, connectionListArgs.shape, async a => asText(await handleConnectionList(ctx, a))),
       sdkTool('think',         DESC.think,         thinkArgs.shape,         async a => asText(await handleThink(ctx, a))),
     ],
   })

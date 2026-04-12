@@ -4,6 +4,7 @@ import { AppError, badRequest } from './functional.js'
 import type { Account } from './schema.js'
 import * as database from './database.js'
 import type { Db } from './database.js'
+import type { Config } from './config.js'
 
 declare global {
   namespace Express {
@@ -44,9 +45,24 @@ export function serializeCookie(name: string, value: string, opts: {
 }
 
 // ── Auth ──
+// Two credentials accepted:
+//   1. `foundry_session` cookie — real users via GitHub OAuth.
+//   2. `Authorization: Bearer <config.internalApiToken>` — sandbox-hosted
+//      tool calls (foundry introspection, integrations) that curl back
+//      into the service from inside a podman container. Presenting the
+//      token authenticates the request but does NOT populate req.account,
+//      so any handler that calls accountId(req) still 401s — only the
+//      project-scoped tool endpoints (ticket list/get/create, agent list,
+//      etc.) work without an owner identity.
 
-export const requireAuth = (db: Db): RequestHandler =>
+export const requireAuth = (db: Db, config: Config): RequestHandler =>
   (req: Request, _res: Response, next: NextFunction) => {
+    // Internal bearer token — sandbox tools curling back into the service.
+    const authHeader = req.headers.authorization
+    if (authHeader?.startsWith('Bearer ') && authHeader.slice(7) === config.internalApiToken) {
+      return next()
+    }
+    // Session cookie — real user.
     const sid = parseCookie(req.headers.cookie, 'foundry_session')
     if (!sid) return next(new AppError(401, 'unauthorized'))
     const session = database.authSessionGet(db, sid)

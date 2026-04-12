@@ -66,7 +66,7 @@ export async function runAgentSessionViaSdk(
     // Build the four in-process MCP servers. Each buildSdk returns a live
     // createSdkMcpServer ready to be passed to query().
     const foundryMcp = foundryServer.buildSdk({
-      db, projectId: ticketData.project_id, ticketId: ticketData.id, agentName: agentDef.name,
+      db, config, sessionId, workspace: workDir, projectId: ticketData.project_id, ticketId: ticketData.id, agentName: agentDef.name,
     })
     const githubMcp  = githubServer.buildSdk({
       db, config, sessionId, workspace: workDir, ticket: ticketData, agentName: agentDef.name,

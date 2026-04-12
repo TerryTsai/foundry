@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { readFileSync } from 'fs'
+import { randomBytes } from 'crypto'
 
 const schema = z.object({
   port:                z.coerce.number().int().default(3000),
@@ -62,5 +63,12 @@ const gitHubAppPrivateKey = parsed.gitHubAppPrivateKeyPath
   ? readFileSync(parsed.gitHubAppPrivateKeyPath, 'utf-8')
   : undefined
 
-export const config = { ...parsed, gitHubAppPrivateKey }
+// Internal API token: generated fresh per boot, accepted by requireAuth as
+// an alternative to a session cookie. Used by sandbox-hosted tool calls
+// (foundry introspection, future integrations) to curl back into the
+// service. Every sandbox the token authorizes is a child of this process,
+// so we don't need persistence across reboots.
+const internalApiToken = process.env.INTERNAL_API_TOKEN ?? randomBytes(32).toString('hex')
+
+export const config = { ...parsed, gitHubAppPrivateKey, internalApiToken }
 export type Config = typeof config
