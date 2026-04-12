@@ -50,7 +50,8 @@ function wrapCommand(command: string): string {
   return [
     `sh -c ${escapeShellArg(command)}`,
     `__ec=$?`,
-    `echo "${STATS_DELIM}"`,
+    `echo ""`,              // guarantee a newline after user output so the
+    `echo "${STATS_DELIM}"`,// delimiter always starts on its own line
     `cat /sys/fs/cgroup/cpu.stat 2>/dev/null || true`,
     `echo "---"`,
     `cat /sys/fs/cgroup/memory.peak 2>/dev/null || cat /sys/fs/cgroup/memory/memory.max_usage_in_bytes 2>/dev/null || echo 0`,

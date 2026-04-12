@@ -477,23 +477,40 @@ async function handleGitMerge(ctx: GithubCtx, args: z.infer<typeof gitMergeArgs>
       return { ok: false, error: 'push or PR create failed (see execution row for details)' }
     }
 
+    // Parse stdout: last line = HTTP status, rest = JSON body.
+    // If status is 201, PR was just created. If 422, a PR already exists
+    // for this branch (retry scenario) — look it up and skip to merge.
     const lines = r.stdout.trim().split('\n')
     const statusLine = lines[lines.length - 1] ?? ''
     const jsonBody   = lines.slice(0, -1).join('\n')
     const status = toInt(statusLine)
-    if (status !== 201) {
-      return { ok: false, error: `PR create returned HTTP ${status}: ${jsonBody.slice(0, 500)}` }
-    }
 
     let prUrl: string
     let prNumber: number
-    try {
-      const parsed = JSON.parse(jsonBody) as { html_url?: string; number?: number }
-      if (!parsed.html_url || !parsed.number) throw new Error('missing html_url or number')
-      prUrl = parsed.html_url
-      prNumber = parsed.number
-    } catch (err) {
-      return { ok: false, error: `PR response not parseable: ${err instanceof Error ? err.message : String(err)}` }
+
+    if (status === 201) {
+      // Fresh PR created.
+      try {
+        const parsed = JSON.parse(jsonBody) as { html_url?: string; number?: number }
+        if (!parsed.html_url || !parsed.number) throw new Error('missing html_url or number')
+        prUrl = parsed.html_url
+        prNumber = parsed.number
+      } catch (err) {
+        return { ok: false, error: `PR response not parseable: ${err instanceof Error ? err.message : String(err)}` }
+      }
+    } else if (status === 422 && jsonBody.includes('already exists')) {
+      // PR already open for this branch (retry). Look it up.
+      const lookupRes = await fetch(
+        `https://api.github.com/repos/${owner}/${name}/pulls?head=${encodeURIComponent(`${owner}:${branch}`)}&state=open`,
+        { headers: { Authorization: `Bearer ${installToken}`, Accept: 'application/vnd.github+json' } },
+      )
+      if (!lookupRes.ok) return { ok: false, error: `PR lookup failed: ${lookupRes.status}` }
+      const prs = await lookupRes.json() as Array<{ html_url: string; number: number }>
+      if (!prs.length) return { ok: false, error: 'PR reported as existing but not found via API' }
+      prUrl = prs[0].html_url
+      prNumber = prs[0].number
+    } else {
+      return { ok: false, error: `PR create returned HTTP ${status}: ${jsonBody.slice(0, 500)}` }
     }
 
     // Merge the PR. This is the deterministic part — if it fails, we
