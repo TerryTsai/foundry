@@ -44,6 +44,14 @@ export function createDatabase(path: string): Db {
     WHERE role = 'assistant' AND tool_call_count IS NULL AND content LIKE '[%'
   `)
 
+  // Migrate concurrency_limit → max_agents, drop schedule_interval.
+  const cols = sqlite.pragma('table_info(project)') as { name: string }[]
+  const hasMaxAgents = cols.some(c => c.name === 'max_agents')
+  if (!hasMaxAgents) {
+    sqlite.exec(`ALTER TABLE project ADD COLUMN max_agents INTEGER NOT NULL DEFAULT 3`)
+    sqlite.exec(`UPDATE project SET max_agents = concurrency_limit WHERE concurrency_limit != 3`)
+  }
+
   return drizzle(sqlite, { schema })
 }
 
