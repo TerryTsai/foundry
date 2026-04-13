@@ -129,7 +129,7 @@ export function TicketsSplitLayout() {
       if (!matchesDateFilter(t.claimed_at, claimedFilter)) return false
     }
     return true
-  })
+  }).slice().sort((a, b) => b.created_at.localeCompare(a.created_at))
 
   // ── Shared filter chip group ───────────────────────────────────────────────
 
