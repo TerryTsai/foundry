@@ -58,12 +58,15 @@ function iconFor(a: Activity, payload: Record<string, unknown>): React.ReactNode
   }
 }
 
+// All labels are simple present-tense verbs so the feed reads uniformly.
+// Tool calls already arrive as imperative verb phrases via toolLabel
+// ("git clone X", "read file", "run cmd") and fit the same shape.
 function labelFor(a: Activity, payload: Record<string, unknown>): string {
   switch (a.kind) {
     case 'prompt':    return 'prompt'
-    case 'thought':   return 'thought'
-    case 'said':      return 'said'
-    case 'reconcile': return 'reconciliation'
+    case 'thought':   return 'think'
+    case 'said':      return 'say'
+    case 'reconcile': return 'reconcile'
     case 'tool_call': {
       const input = payload.input !== undefined ? JSON.stringify(payload.input) : null
       return toolLabel(bareToolName(payload.name), input)
