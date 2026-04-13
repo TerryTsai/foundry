@@ -214,23 +214,30 @@ export async function runAgentSessionViaSdk(
         numTurns   = message.num_turns
         stopReason = message.stop_reason ?? message.subtype
         if (message.subtype === 'success') finalText = message.result
-        // Reconcile against the SDK's authoritative cumulative totals. If
-        // modelUsage is higher than our per-turn sum there was a billable
-        // event we didn't see as an 'assistant' message — record the delta
-        // as a synthetic message so the totals match what was actually
-        // billed. Zero delta in practice; this is a safety net.
-        const models = Object.values(message.modelUsage)
+        // modelUsage is the SDK's authoritative cumulative per-model rollup
+        // — it includes billable work that doesn't surface as 'assistant'
+        // stream messages (internal SDK iterations, context reshaping, etc.).
+        // After the run, write a single reconciliation row carrying the
+        // SIGNED delta so SUM(message tokens) == modelUsage exactly. Signed
+        // deltas mean an over-count (e.g. a missed dedupe) corrects
+        // downward; under-count corrects upward. The synthetic row is
+        // skipped when delta is zero.
+        const models   = Object.values(message.modelUsage)
         const modelIn  = models.reduce((s, m) => s + m.inputTokens + m.cacheReadInputTokens + m.cacheCreationInputTokens, 0)
         const modelOut = models.reduce((s, m) => s + m.outputTokens, 0)
+        const costUsd  = models.reduce((s, m) => s + (m.costUSD ?? 0), 0)
         const deltaIn  = modelIn  - inputTokens
         const deltaOut = modelOut - outputTokens
-        if (deltaIn > 0 || deltaOut > 0) {
+        if (deltaIn !== 0 || deltaOut !== 0) {
           domain.sessionMessage(db, sessionId, 'system',
-            JSON.stringify({ reconcile: 'modelUsage delta', deltaIn, deltaOut }),
-            Math.max(0, deltaOut), Math.max(0, deltaIn), 0)
+            JSON.stringify({ reconcile: 'modelUsage delta', deltaIn, deltaOut, modelIn, modelOut }),
+            deltaOut, deltaIn, 0)
           inputTokens  = modelIn
           outputTokens = modelOut
         }
+        // Persist authoritative cost on the session row. Analytics can query
+        // either SUM(message.tokens) or session.cost_usd and both agree.
+        database.sessionUpdate(db, sessionId, { cost_usd: costUsd })
       }
     }
 
