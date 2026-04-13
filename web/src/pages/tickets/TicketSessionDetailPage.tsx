@@ -3,7 +3,7 @@ import { Link, useLoaderData, useParams, useRevalidator } from 'react-router-dom
 import { MessageSquare, Brain, FileText, Scale, Wrench } from 'lucide-react'
 import type { Session, Execution, Message, UsageRollup, Ticket } from '../../types.js'
 import { fmtDuration, fmtBytes } from '../../lib/format.js'
-import { toolIcon } from '../../lib/tool-display.js'
+import { toolIcon, toolLabel } from '../../lib/tool-display.js'
 import { SectionLabel } from '../../components/detail/SectionLabel.js'
 import { ActivityRow } from '../../components/detail/ActivityRow.js'
 import { DetailShell } from '../../components/layout/DetailShell.js'
@@ -80,10 +80,14 @@ function MessageRow({ m }: { m: Message }) {
   const [asMarkdown, setAsMarkdown] = useState(false)
   const { blocks, plainText, parsedObj } = parseContent(m.content)
 
-  // Label: role + content shape
-  let label = m.role
-  if (blocks)           label = `${m.role} · ${blockTypesLabel(blocks)}`
-  else if (parsedObj && typeof parsedObj.reconcile === 'string') label = `${m.role} · ${parsedObj.reconcile}`
+  // Label: role + content shape. Rename the two bookend rows for
+  // readability — the initial founder message is the "prompt", and the
+  // trailing modelUsage-delta system row is "reconciliation".
+  let label: string
+  if (m.role === 'user') label = 'prompt'
+  else if (parsedObj && typeof parsedObj.reconcile === 'string') label = 'reconciliation'
+  else if (blocks)       label = `${m.role} · ${blockTypesLabel(blocks)}`
+  else                   label = m.role
 
   // Raw view body: prettified JSON for structured content; plain text
   // otherwise. This is the message-details view — not execution details.
@@ -133,7 +137,7 @@ function ExecutionRow({ e, sub }: { e: Execution; sub: string }) {
     <ActivityRow
       key={`e-${e.id}`}
       icon={toolIcon(e.tool_name)}
-      label={name}
+      label={toolLabel(e.tool_name, e.tool_input)}
       status={e.status}
       meta={dateShort(e.started_at)}
       sub={{ to: sub, label: 'view execution' }}
