@@ -96,8 +96,14 @@ export function project(db: Db) {
   r.get   ('/:id',                                            run(req => domain.projectGet(db, accountId(req), req.params.id)),                   send())
   r.put   ('/:id',      parse(validate.projectUpdate),        run(req => domain.projectUpdate(db, accountId(req), req.params.id, req.data)),      send())
   r.get   ('/:id/tags',                                       run(req => domain.projectTagList(db, accountId(req), req.params.id)),               send())
-  r.get   ('/:id/analytics', parse(validate.projectAnalytics, 'query'), run(req => domain.projectAnalytics(db, accountId(req), req.params.id, req.data.days)), send())
   r.post  ('/:id/run',                                        run(req => domain.projectRun(db, accountId(req), req.params.id)),                   send(202))
+  return r
+}
+
+export function analytics(db: Db) {
+  const r = Router()
+  r.get('/', parse(validate.accountAnalytics, 'query'),
+    run(req => domain.accountAnalytics(db, accountId(req), req.data)), send())
   return r
 }
 

@@ -38,6 +38,12 @@ export const projectAnalytics = z.object({
   days: z.coerce.number().int().min(1).max(365).default(30),
 })
 
+export const accountAnalytics = z.object({
+  days:      z.coerce.number().int().min(1).max(365).default(30),
+  projectId: z.string().optional(),   // narrow to a single project (must be owned by the account)
+  agentId:   z.string().optional(),   // narrow sessions by agent
+})
+
 // Connection (generalized provider + integration).
 // `config` and `secrets` are free-form JSON blobs whose shape is interpreted
 // by the kind-specific resolver at session start. The validator only enforces

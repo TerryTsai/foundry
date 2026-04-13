@@ -1,9 +1,10 @@
 import { useState } from 'react'
-import { useLoaderData, useParams } from 'react-router-dom'
+import { useLoaderData } from 'react-router-dom'
 import { PageShell } from '../../components/layout/PageShell.js'
-import { projectApi } from '../../api.js'
-import type { Analytics, AnalyticsDay, AnalyticsAgent, AnalyticsTag } from '../../types.js'
+import { analyticsApi } from '../../api.js'
+import type { Analytics, AnalyticsDay, AnalyticsAgent, AnalyticsTag, Project, Agent } from '../../types.js'
 import { fmtTokens, fmtDuration, fmtBytes } from '../../lib/format.js'
+import { MultiSelect } from '../../components/primitives/MultiSelect.js'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -21,7 +22,7 @@ function shortDate(iso: string): string {
   return `${d.getMonth() + 1}/${d.getDate()}`
 }
 
-// ── Date range filter ─────────────────────────────────────────────────────────
+// ── Filter options ────────────────────────────────────────────────────────────
 
 const RANGE_OPTIONS = [
   { label: '7d',  days: 7 },
@@ -29,31 +30,8 @@ const RANGE_OPTIONS = [
   { label: '90d', days: 90 },
   { label: 'all', days: 365 },
 ]
-
-interface RangeFilterProps {
-  days: number
-  onChange: (days: number) => void
-}
-
-function RangeFilter({ days, onChange }: RangeFilterProps) {
-  return (
-    <div className="flex gap-1 self-start">
-      {RANGE_OPTIONS.map(o => (
-        <button
-          key={o.days}
-          onClick={() => onChange(o.days)}
-          className={`px-2.5 py-1 rounded text-xs font-mono transition-colors ${
-            days === o.days
-              ? 'bg-zinc-700 text-zinc-100'
-              : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50'
-          }`}
-        >
-          {o.label}
-        </button>
-      ))}
-    </div>
-  )
-}
+const RANGE_LABELS = RANGE_OPTIONS.map(o => o.label)
+const RANGE_BY_LABEL: Record<string, number> = Object.fromEntries(RANGE_OPTIONS.map(o => [o.label, o.days]))
 
 // ── Summary stats ─────────────────────────────────────────────────────────────
 
@@ -280,34 +258,69 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
+interface AnalyticsLoaderData {
+  analytics: Analytics
+  projects: Project[]
+  agents: Agent[]
+}
+
 export function AnalyticsPage() {
-  const { projectId } = useParams<{ projectId: string }>()
-  const initial = useLoaderData() as Analytics
-  const [days, setDays] = useState(30)
-  const [data, setData] = useState<Analytics>(initial)
+  const { analytics: initial, projects, agents } = useLoaderData() as AnalyticsLoaderData
+
+  // Filter state. MultiSelects for parity with the tickets filter bar,
+  // but narrowing only honors a single choice per dimension — the backend
+  // accepts one projectId / agentId at a time. If the founder picks more
+  // than one the first stays effective and the rest are decorative.
+  const [range,   setRange]   = useState<Set<string>>(new Set(['30d']))
+  const [project, setProject] = useState<Set<string>>(new Set())
+  const [agent,   setAgent]   = useState<Set<string>>(new Set())
+  const [data,    setData]    = useState<Analytics>(initial)
   const [loading, setLoading] = useState(false)
 
-  async function handleRangeChange(d: number) {
-    setDays(d)
+  const days = RANGE_BY_LABEL[[...range][0] ?? '30d'] ?? 30
+  const projectName = (id: string) => projects.find(p => p.id === id)?.name ?? id
+  const agentName   = (id: string) => agents.find(a => a.id === id)?.name   ?? id
+  const projectOptions = projects.map(p => p.name)
+  const agentOptions   = agents.map(a => a.name)
+
+  async function refetch(opts: { days: number; projectId?: string; agentId?: string }) {
     setLoading(true)
-    try {
-      const fresh = await projectApi.analytics(projectId!, d)
-      setData(fresh)
-    } finally {
-      setLoading(false)
-    }
+    try { setData(await analyticsApi.get(opts)) }
+    finally { setLoading(false) }
   }
 
-  async function handleRefresh() {
-    const fresh = await projectApi.analytics(projectId!, days)
-    setData(fresh)
+  function currentFilters(): { days: number; projectId?: string; agentId?: string } {
+    const pickedProjectName = [...project][0]
+    const pickedAgentName   = [...agent][0]
+    const projectId = pickedProjectName ? projects.find(p => p.name === pickedProjectName)?.id : undefined
+    const agentId   = pickedAgentName   ? agents.find(a => a.name === pickedAgentName)?.id     : undefined
+    return { days, projectId, agentId }
   }
+
+  function handleRangeChange(next: Set<string>)   { setRange(next);   refetch({ ...currentFilters(), days: RANGE_BY_LABEL[[...next][0] ?? '30d'] ?? 30 }) }
+  function handleProjectChange(next: Set<string>) { setProject(next); const pid = [...next][0]; refetch({ ...currentFilters(), projectId: pid ? projects.find(p => p.name === pid)?.id : undefined }) }
+  function handleAgentChange(next: Set<string>)   { setAgent(next);   const aid = [...next][0]; refetch({ ...currentFilters(), agentId:   aid ? agents.find(a => a.name === aid)?.id     : undefined }) }
+
+  async function handleRefresh() { await refetch(currentFilters()) }
+
+  // Suppress lint: projectName/agentName currently unused — kept for future
+  // inline display (e.g. "Foundry only" banner when filtered).
+  void projectName; void agentName
 
   return (
     <PageShell onRefresh={handleRefresh}>
       <div className={`space-y-8 max-w-3xl mx-auto pb-8 transition-opacity ${loading ? 'opacity-50' : 'opacity-100'}`}>
 
-        <RangeFilter days={days} onChange={handleRangeChange} />
+        {/* Filter bar — same pattern as tickets. Scrolls horizontally on small viewports. */}
+        <div className="flex items-center gap-2 overflow-x-auto no-scrollbar -mx-1 px-1">
+          <MultiSelect label="Range"   options={RANGE_LABELS}    selected={range}   onChange={handleRangeChange} />
+          {projectOptions.length > 1 && (
+            <MultiSelect label="Project" options={projectOptions} selected={project} onChange={handleProjectChange} />
+          )}
+          {agentOptions.length > 0 && (
+            <MultiSelect label="Agent"   options={agentOptions}   selected={agent}   onChange={handleAgentChange} />
+          )}
+        </div>
 
         <Section title="summary">
           <SummarySection data={data.summary} />

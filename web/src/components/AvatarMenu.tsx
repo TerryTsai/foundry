@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { Link } from 'react-router-dom'
-import { Settings, LogOut, Sun, Moon, Monitor } from 'lucide-react'
+import { Settings, LogOut, Sun, Moon, Monitor, BarChart3 } from 'lucide-react'
 import { authApi } from '../api.js'
 import type { Account } from '../types.js'
 import { useTheme, type ThemeMode } from '../theme.js'
@@ -56,7 +56,15 @@ export function AvatarMenu() {
           </div>
         )}
 
-        {/* ── App settings ── */}
+        {/* ── Account-level views ── */}
+        <Link
+          to="/analytics"
+          onClick={() => setOpen(false)}
+          className="flex items-center gap-2.5 px-3 py-2 text-xs text-zinc-600 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors"
+        >
+          <BarChart3 size={12} strokeWidth={2} />
+          Analytics
+        </Link>
         <Link
           to="/settings"
           onClick={() => setOpen(false)}

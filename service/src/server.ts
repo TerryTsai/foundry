@@ -30,7 +30,7 @@ if (existsSync(webDist)) {
   app.use(express.static(webDist))
   // SPA fallback: non-API GET requests serve index.html for client-side
   // routing. API paths pass through to requireAuth + route handlers below.
-  const apiPrefixes = ['/project', '/connection', '/ticket', '/agent', '/session', '/execution', '/health', '/auth']
+  const apiPrefixes = ['/project', '/connection', '/ticket', '/agent', '/session', '/execution', '/analytics', '/health', '/auth']
   app.use((req, res, next) => {
     if (req.method !== 'GET' || apiPrefixes.some(p => req.path.startsWith(p))) return next()
     res.sendFile(join(webDist, 'index.html'))
@@ -46,6 +46,7 @@ app.use('/ticket',     router.ticket(db))
 app.use('/agent',     router.agent(db, config))
 app.use('/session',   router.session(db))
 app.use('/execution', router.execution(db, config))
+app.use('/analytics', router.analytics(db))
 
 app.use(errors)
 

@@ -686,16 +686,18 @@ describe('TC8: project links point at /settings/projects/:id', () => {
 // TC9 — No tab bar on mobile; Shell nav is tickets-only
 // ════════════════════════════════════════════════════════════════════════════
 
-describe('TC9: Shell header-only nav, no bottom tab bar', () => {
-  it('Shell navItems contains only Tickets, not Agents or Connections', () => {
+describe('TC9: Shell header-only nav, no tab bar', () => {
+  it('Shell has no tab nav for project sections', () => {
     const src = readFileSync(
       join(__dirname, '../../web/src/Shell.tsx'),
       'utf-8',
     )
-    // navItems declaration
-    expect(src).toContain("label: 'Tickets'")
-    expect(src).not.toContain("label: 'Agents'")
-    expect(src).not.toContain("label: 'Connections'")
+    // Tabs + per-project secondary nav were removed; ticket list is the
+    // sole founder-facing project surface. Analytics / settings live in
+    // the avatar menu.
+    expect(src).not.toContain('navItems')
+    expect(src).not.toContain('BarChart3')   // no Analytics tab icon
+    expect(src).not.toMatch(/NavLink/)        // no tab NavLinks
   })
 
   it('Shell renders no bottom tab bar component', () => {
@@ -703,11 +705,9 @@ describe('TC9: Shell header-only nav, no bottom tab bar', () => {
       join(__dirname, '../../web/src/Shell.tsx'),
       'utf-8',
     )
-    // Should have no tab bar div/nav with fixed bottom positioning
     expect(src).not.toMatch(/TabBar|tab.bar|bottom-tab/i)
-    // Header-only nav via AppHeader + AvatarMenu
+    // Header-only nav via AppHeader (avatar menu lives inside it).
     expect(src).toContain('AppHeader')
-    expect(src).toContain('AvatarMenu')
   })
 
   it('mobile layout in Shell has no tab bar — header only', () => {

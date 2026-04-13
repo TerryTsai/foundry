@@ -1,6 +1,6 @@
 import { createBrowserRouter, Navigate, Outlet, useOutletContext } from 'react-router-dom'
 import type { Params } from 'react-router-dom'
-import { projectApi, ticketApi, agentApi, connectionApi, commentApi, sessionApi, executionApi } from './api.js'
+import { projectApi, ticketApi, agentApi, connectionApi, commentApi, sessionApi, executionApi, analyticsApi } from './api.js'
 
 function Passthrough() {
   const ctx = useOutletContext()
@@ -34,6 +34,22 @@ export const router = createBrowserRouter([
   { path: '/login', element: <LoginPage /> },
   { path: '/health', element: <HealthPage /> },
   { path: '/', element: <RootRedirect /> },
+
+  // Account-level analytics. Lives outside the project shell because it
+  // aggregates across every project the account owns; project/agent
+  // narrowing happens via filter chips on the page itself.
+  {
+    path: '/analytics',
+    element: <AnalyticsPage />,
+    loader: async () => {
+      const [analytics, projects, agents] = await Promise.all([
+        analyticsApi.get({ days: 30 }),
+        projectApi.list(),
+        agentApi.list(),
+      ])
+      return { analytics, projects, agents }
+    },
+  },
   {
     path: '/settings',
     element: <SettingsLayout />,
@@ -118,13 +134,6 @@ export const router = createBrowserRouter([
     loader: ({ params }) => projectApi.get(pid(params)),
     children: [
       { index: true, element: <Navigate to="tickets" replace /> },
-
-      // Analytics
-      {
-        path: 'analytics',
-        element: <AnalyticsPage />,
-        loader: ({ params }) => projectApi.analytics(pid(params), 30),
-      },
 
       // Tickets
       {
