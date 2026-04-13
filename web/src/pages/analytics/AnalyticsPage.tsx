@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useLoaderData } from 'react-router-dom'
 import { PageShell } from '../../components/layout/PageShell.js'
+import { AppHeader } from '../../components/layout/AppHeader.js'
 import { analyticsApi } from '../../api.js'
 import type { Analytics, AnalyticsDay, AnalyticsAgent, AnalyticsTag, Project, Agent } from '../../types.js'
 import { fmtTokens, fmtDuration, fmtBytes } from '../../lib/format.js'
@@ -308,8 +309,11 @@ export function AnalyticsPage() {
   void projectName; void agentName
 
   return (
-    <PageShell onRefresh={handleRefresh}>
-      <div className={`space-y-8 max-w-3xl mx-auto pb-8 transition-opacity ${loading ? 'opacity-50' : 'opacity-100'}`}>
+    <div className="flex flex-col h-dvh bg-white dark:bg-zinc-950">
+      <AppHeader><span className="text-sm text-zinc-500 dark:text-zinc-400">Analytics</span></AppHeader>
+      <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
+        <PageShell onRefresh={handleRefresh}>
+          <div className={`space-y-8 max-w-3xl mx-auto pb-8 transition-opacity ${loading ? 'opacity-50' : 'opacity-100'}`}>
 
         {/* Filter bar — same pattern as tickets. Scrolls horizontally on small viewports. */}
         <div className="flex items-center gap-2 overflow-x-auto no-scrollbar -mx-1 px-1">
@@ -344,7 +348,9 @@ export function AnalyticsPage() {
           <TicketThroughput summary={data.summary} />
         </Section>
 
+          </div>
+        </PageShell>
       </div>
-    </PageShell>
+    </div>
   )
 }
