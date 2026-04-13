@@ -38,7 +38,7 @@ export function ActivityRow({ label, icon, status, meta, sub, body, mono, footer
               onClick={e => e.stopPropagation()}
               className="font-mono text-[10px] text-amber-500 dark:text-amber-400 hover:underline"
             >
-              {sub.label} →
+              {sub.label}
             </Link>
           )}
         </div>
