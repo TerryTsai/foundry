@@ -11,6 +11,38 @@ import { type Ticket, type Agent as AgentDef } from '../schema.js'
 import * as domain from '../domain.js'
 import { now, require } from '../functional.js'
 
+// ── Block merge ──
+// Union `incoming` into `prior` for one BetaMessage across SDK stream
+// emissions. Preserves block order, dedupes tool_use by `id`, and keeps
+// the longest version of any streamed text / thinking block.
+
+type ContentBlock = { type: string; id?: string; text?: string; thinking?: string }
+
+function mergeBlocks(prior: ContentBlock[], incoming: ContentBlock[]): ContentBlock[] {
+  const merged = prior.slice()
+  for (const b of incoming) {
+    if (b.type === 'tool_use' && b.id) {
+      if (!merged.some(x => x.type === 'tool_use' && x.id === b.id)) merged.push(b)
+      continue
+    }
+    if (b.type === 'text') {
+      const idx = merged.findIndex(x => x.type === 'text')
+      if (idx < 0) merged.push(b)
+      else if ((b.text ?? '').length >= (merged[idx].text ?? '').length) merged[idx] = b
+      continue
+    }
+    if (b.type === 'thinking') {
+      const idx = merged.findIndex(x => x.type === 'thinking')
+      if (idx < 0) merged.push(b)
+      else if ((b.thinking ?? '').length >= (merged[idx].thinking ?? '').length) merged[idx] = b
+      continue
+    }
+    // Unknown block type — append conservatively.
+    merged.push(b)
+  }
+  return merged
+}
+
 // ── Session summary formatter ──
 // Produces the compact closing line posted as the single ticket comment
 // when a session finishes. Keeps the ticket view scannable: one line per
@@ -165,14 +197,23 @@ export async function runAgentSessionViaSdk(
 
     let stopReason: string | null = null
     let numTurns = 0
-    // When a turn has both a thinking block and a tool_use block the SDK
-    // emits the same BetaMessage twice — once when thinking is complete,
-    // again when tool_use is appended — with identical `usage`. Track the
-    // DB row id we created per BetaMessage so we can overwrite content on
-    // the second emission (getting the full block list + correct
-    // tool_call_count) without double-billing tokens.
-    const seenMessages = new Map<string, string>()   // BetaMessage.id → message row id
-    const messageToolCounts = new Map<string, number>() // BetaMessage.id → last seen tool_call count
+    // The SDK streams a single BetaMessage across multiple emissions — each
+    // emission carries only the currently-streaming block (tool_use,
+    // thinking, or text), not the cumulative set. If we simply overwrite
+    // on repeat `msgId` we end up storing just the LAST block, silently
+    // dropping the others. Observed: a turn with 5 parallel tool_use
+    // blocks was persisted as 1 tool_use (the final one in the stream).
+    //
+    // Fix: accumulate blocks per `msgId` across emissions. tool_use blocks
+    // dedupe by their `id` (Anthropic assigns a unique `toolu_…` per
+    // invocation). text and thinking blocks dedupe by taking whichever
+    // version is longest (streaming grows the text; later emissions
+    // supersede earlier partials). On each emission we rewrite the
+    // message row with the merged block list so `tool_call_count` and the
+    // stored content stay accurate without re-adding tokens.
+    const seenMessages      = new Map<string, string>()              // msgId → row id
+    const accumulatedBlocks = new Map<string, Array<{ type: string; id?: string; text?: string; thinking?: string }>>()
+    const messageToolCounts = new Map<string, number>()              // msgId → last persisted tool_call_count
 
     // Persist tokens incrementally, one row per assistant turn. Previously we
     // read `modelUsage` off the final `result` message and wrote a single
@@ -197,32 +238,35 @@ export async function runAgentSessionViaSdk(
       if (message.type === 'assistant') {
         const msgId = message.message.id
         const u = message.message.usage
-        const blocks  = Array.isArray(message.message.content) ? message.message.content : []
-        const toolCalls = blocks.filter((b: { type: string }) => b.type === 'tool_use').length
-        // Store a human-readable text body when there's a text block, else a
-        // compact JSON summary of the content shape. Timeline view already
-        // skips JSON-looking content, so tool-only turns stay out of the feed
-        // while still contributing tokens + tool_call_count.
+        const incoming = (Array.isArray(message.message.content) ? message.message.content : []) as ContentBlock[]
+        // Merge incoming blocks into whatever we've seen for this msgId so
+        // the stored content reflects the full turn, not just the last
+        // streamed block. First emission of a msgId starts fresh.
+        const prior  = msgId ? accumulatedBlocks.get(msgId) ?? [] : []
+        const blocks = msgId ? mergeBlocks(prior, incoming) : incoming
+        if (msgId) accumulatedBlocks.set(msgId, blocks)
+
+        const toolCalls = blocks.filter(b => b.type === 'tool_use').length
+        // Readable text body when present, else a compact JSON dump of the
+        // block list. Timeline view treats JSON-looking content as mono.
         const textParts: string[] = []
         for (const b of blocks) {
-          if (b.type === 'text' && typeof (b as { text?: unknown }).text === 'string') {
-            const t = (b as { text: string }).text
-            if (t.length > 0) textParts.push(t)
-          }
+          if (b.type === 'text' && typeof b.text === 'string' && b.text.length > 0) textParts.push(b.text)
         }
         const body = textParts.length > 0 ? textParts.join('\n\n') : JSON.stringify(blocks)
 
         const existingRowId = msgId ? seenMessages.get(msgId) : undefined
         if (existingRowId) {
-          // Same BetaMessage, fuller content (e.g. thinking → thinking+tool_use).
-          // Overwrite content + tool_call_count; do NOT re-add tokens. Adjust
-          // the running tool-call total by the delta from the prior emission.
+          // Subsequent emission of the same BetaMessage. Content is now the
+          // merged view; do NOT re-add tokens (billing already counted once
+          // on the first emission). Adjust the running tool-call total by
+          // the delta so it stays in sync with the merged blocks.
           database.messageUpdate(db, existingRowId, { content: body, tool_call_count: toolCalls })
           toolCallTotal += toolCalls - (messageToolCounts.get(msgId ?? '') ?? 0)
         } else {
-          // Total input = prompt + cache reads + cache creation. Each turn
-          // re-bills the full history, so summing per-turn input across the
-          // session matches what `result.modelUsage` reports cumulatively.
+          // First emission. Input = prompt + cache reads + cache creation;
+          // each turn re-bills the full history so summing per-turn input
+          // matches result.modelUsage cumulatively.
           const turnIn  = (u.input_tokens ?? 0)
                         + (u.cache_read_input_tokens ?? 0)
                         + (u.cache_creation_input_tokens ?? 0)
