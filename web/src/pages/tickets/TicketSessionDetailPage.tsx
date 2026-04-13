@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import { Link, useLoaderData, useParams, useRevalidator } from 'react-router-dom'
 import { marked } from 'marked'
-import { MessageSquare, Brain, FileText, Scale, Wrench, ChevronRight } from 'lucide-react'
+import { MessageSquare, Brain, FileText, Scale, ChevronRight } from 'lucide-react'
 import type { Session, Execution, Activity, UsageRollup, Ticket } from '../../types.js'
 import { fmtDuration, fmtBytes } from '../../lib/format.js'
+import { toolIcon, toolLabel } from '../../lib/tool-display.js'
 import { SectionLabel } from '../../components/detail/SectionLabel.js'
 import { ActivityRow } from '../../components/detail/ActivityRow.js'
 import { DetailShell } from '../../components/layout/DetailShell.js'
@@ -35,24 +36,30 @@ function parsePayload(raw: string): Record<string, unknown> {
   } catch { return {} }
 }
 
-// Activity icon + label are deterministic per kind. No content parsing.
-function iconFor(kind: Activity['kind']): React.ReactNode {
-  switch (kind) {
+// Activity icon + label are deterministic per kind. Tool calls get their
+// richer per-tool icon and human-readable label via toolIcon/toolLabel
+// ("git clone TerryTsai/foundry" rather than "called gitClone").
+function iconFor(a: Activity, payload: Record<string, unknown>): React.ReactNode {
+  switch (a.kind) {
     case 'prompt':    return <FileText size={14} />
     case 'thought':   return <Brain size={14} />
     case 'said':      return <MessageSquare size={14} />
-    case 'tool_call': return <Wrench size={14} />
     case 'reconcile': return <Scale size={14} />
+    case 'tool_call': return toolIcon(typeof payload.name === 'string' ? payload.name : null, 14)
   }
 }
 
-function labelFor(kind: Activity['kind'], payload: Record<string, unknown>): string {
-  switch (kind) {
+function labelFor(a: Activity, payload: Record<string, unknown>): string {
+  switch (a.kind) {
     case 'prompt':    return 'prompt'
     case 'thought':   return 'thought'
     case 'said':      return 'said'
     case 'reconcile': return 'reconciliation'
-    case 'tool_call': return `called ${typeof payload.name === 'string' ? payload.name : 'tool'}`
+    case 'tool_call': {
+      const name = typeof payload.name === 'string' ? payload.name : null
+      const input = payload.input !== undefined ? JSON.stringify(payload.input) : null
+      return toolLabel(name, input)
+    }
   }
 }
 
@@ -164,8 +171,8 @@ function ActivityEntry({ a, execById, execHref }: {
 
   return (
     <ActivityRow
-      icon={iconFor(a.kind)}
-      label={labelFor(a.kind, payload)}
+      icon={iconFor(a, payload)}
+      label={labelFor(a, payload)}
       status="done"
       meta={dateShort(a.created_at)}
       sub={sub}
