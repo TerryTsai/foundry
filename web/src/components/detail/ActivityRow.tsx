@@ -58,7 +58,7 @@ export function ActivityRow({ label, icon, detailHref, detailLabel, status, meta
           )}
           {body ? (
             mono ? (
-              <pre className="font-mono text-xs text-zinc-500 dark:text-zinc-400 whitespace-pre-wrap break-all leading-relaxed select-text">{body}</pre>
+              <pre className="font-mono text-xs text-zinc-500 dark:text-zinc-400 whitespace-pre leading-relaxed select-text overflow-x-auto">{body}</pre>
             ) : (
               <div className="prose-zinc text-sm" dangerouslySetInnerHTML={{ __html: marked.parse(body) as string }} />
             )
