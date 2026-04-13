@@ -43,57 +43,6 @@ function ExecutionBody({ e }: { e: Execution }) {
   )
 }
 
-// ── Timeline ──
-
-function isJsonContent(content: string): boolean {
-  const t = content.trimStart()
-  return t.startsWith('[{') || t.startsWith('[  {')
-}
-
-type TimelineEntry =
-  | { kind: 'execution'; data: Execution; at: string }
-  | { kind: 'message'; data: Message; at: string }
-
-function buildTimeline(messages: Message[], executions: Execution[]): TimelineEntry[] {
-  const entries: TimelineEntry[] = []
-
-  let firstUser = true
-  for (const m of messages) {
-    if (m.role === 'user') {
-      if (firstUser) { firstUser = false }
-      else { continue }
-    }
-    if (isJsonContent(m.content)) continue
-    entries.push({ kind: 'message', data: m, at: m.created_at })
-  }
-
-  for (const e of executions) {
-    entries.push({ kind: 'execution', data: e, at: e.started_at })
-  }
-
-  entries.sort((a, b) => a.at.localeCompare(b.at))
-
-  for (let i = 1; i < entries.length; i++) {
-    if (entries[i].kind !== 'message') continue
-    let j = i - 1
-    while (j >= 0 && entries[j].kind === 'execution') j--
-    const prevMsgAt = j >= 0 && entries[j].kind === 'message' ? entries[j].at : ''
-    let insertAt = i
-    for (let k = j + 1; k < i; k++) {
-      if (entries[k].kind === 'execution' && entries[k].at > prevMsgAt) {
-        insertAt = k
-        break
-      }
-    }
-    if (insertAt < i) {
-      const msg = entries.splice(i, 1)[0]
-      entries.splice(insertAt, 0, msg)
-    }
-  }
-
-  return entries
-}
-
 // ── Page ──
 
 export function TicketSessionDetailPage() {
@@ -110,7 +59,6 @@ export function TicketSessionDetailPage() {
     month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
   })
   const duration = session.duration_ms !== null ? `${(session.duration_ms / 1000).toFixed(1)}s` : null
-  const timeline = buildTimeline(messages, executions)
   const execPath = (eId: string) => `/p/${projectId}/tickets/${ticketId}/sessions/${sessionId}/executions/${eId}`
   const ticketPath = `/p/${projectId}/tickets/${ticketId}`
 
@@ -147,41 +95,43 @@ export function TicketSessionDetailPage() {
         </div>
       )}
 
+      {/* Executions and messages are genuinely different units (resources
+          vs. model I/O); splitting them into two sections keeps each
+          surface honest about what it's measuring. Ticket comments stay
+          on the ticket page — this page is the audit view. */}
       <div>
-        <SectionLabel label={`activity (${timeline.length})`} onRefresh={refreshActivity} />
-        {timeline.length === 0
-          ? <EmptyState message="no activity" />
-          : timeline.map(entry => {
-              if (entry.kind === 'execution') {
-                const e = entry.data
-                // Per-row resource breakdown so "activity" visibly accounts
-                // for the cost of each step, not just the session total.
-                const parts = [ts(e.started_at)]
-                if (e.duration_ms !== null && e.duration_ms > 0) parts.push(fmtDuration(e.duration_ms))
-                if (e.cpu_ms !== null && e.cpu_ms > 0)           parts.push(`${fmtDuration(e.cpu_ms)} cpu`)
-                if (e.peak_memory_mb !== null && e.peak_memory_mb > 0) parts.push(`${e.peak_memory_mb.toFixed(0)} MB`)
-                const net = (e.net_rx_bytes ?? 0) + (e.net_tx_bytes ?? 0)
-                if (net > 0) parts.push(fmtBytes(net))
-                return (
-                  <ActivityRow
-                    key={`e-${e.id}`}
-                    icon={toolIcon(e.tool_name)}
-                    label={toolLabel(e.tool_name, e.tool_input)}
-                    status={e.status}
-                    meta={parts.join(' · ')}
-                    body=""
-                    footer={<ExecutionBody e={e} />}
-                    detailHref={execPath(e.id)}
-                    detailLabel="view execution"
-                  />
-                )
-              }
-              const m = entry.data
+        <SectionLabel label={`activity (${executions.length})`} onRefresh={refreshActivity} />
+        {executions.length === 0
+          ? <EmptyState message="no executions" />
+          : executions.map(e => {
+              const parts = [ts(e.started_at)]
+              if (e.duration_ms !== null && e.duration_ms > 0) parts.push(fmtDuration(e.duration_ms))
+              if (e.cpu_ms !== null && e.cpu_ms > 0)           parts.push(`${fmtDuration(e.cpu_ms)} cpu`)
+              if (e.peak_memory_mb !== null && e.peak_memory_mb > 0) parts.push(`${e.peak_memory_mb.toFixed(0)} MB`)
+              const net = (e.net_rx_bytes ?? 0) + (e.net_tx_bytes ?? 0)
+              if (net > 0) parts.push(fmtBytes(net))
+              return (
+                <ActivityRow
+                  key={`e-${e.id}`}
+                  icon={toolIcon(e.tool_name)}
+                  label={toolLabel(e.tool_name, e.tool_input)}
+                  status={e.status}
+                  meta={parts.join(' · ')}
+                  body=""
+                  footer={<ExecutionBody e={e} />}
+                  detailHref={execPath(e.id)}
+                  detailLabel="view execution"
+                />
+              )
+            })
+        }
+      </div>
 
-              // System 'reconcile' rows record the signed delta between our
-              // per-turn token sum and the SDK's authoritative modelUsage
-              // totals. Render as a distinct, compact row instead of dumping
-              // the raw JSON.
+      <div>
+        <SectionLabel label={`messages (${messages.length})`} />
+        {messages.length === 0
+          ? <EmptyState message="no messages" />
+          : messages.map(m => {
               if (m.role === 'system' && m.content.includes('"reconcile"')) {
                 let payload: { deltaIn?: number; deltaOut?: number; modelIn?: number; modelOut?: number } = {}
                 try { payload = JSON.parse(m.content) } catch { /* keep empty */ }
@@ -202,7 +152,6 @@ export function TicketSessionDetailPage() {
                   />
                 )
               }
-
               const icon = m.role === 'reasoning' ? <Brain size={14} /> : m.role === 'user' ? <FileText size={14} /> : <MessageSquare size={14} />
               const label = m.role === 'reasoning' ? 'thinking' : m.role === 'user' ? 'prompt' : 'message'
               const mParts = [ts(m.created_at)]

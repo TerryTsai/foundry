@@ -11,6 +11,26 @@ import { type Ticket, type Agent as AgentDef } from '../schema.js'
 import * as domain from '../domain.js'
 import { now, require } from '../functional.js'
 
+// ── Session summary formatter ──
+// Produces the compact closing line posted as the single ticket comment
+// when a session finishes. Keeps the ticket view scannable: one line per
+// session with what it cost, not a dump of the model's final text.
+
+function fmtTokensShort(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
+  if (n >= 1_000)     return `${(n / 1_000).toFixed(1)}k`
+  return String(n)
+}
+
+function summarizeSession(toolCalls: number, tokensIn: number, tokensOut: number, costUsd: number, durationMs: number): string {
+  const parts: string[] = []
+  if (toolCalls > 0)       parts.push(`${toolCalls} tool${toolCalls === 1 ? '' : 's'}`)
+  if (tokensIn + tokensOut > 0) parts.push(`${fmtTokensShort(tokensIn)} in · ${fmtTokensShort(tokensOut)} out`)
+  if (costUsd > 0)         parts.push(`$${costUsd.toFixed(4)}`)
+  if (durationMs > 0)      parts.push(`${(durationMs / 1000).toFixed(1)}s`)
+  return parts.length > 0 ? parts.join(' · ') : ''
+}
+
 // ── Subscription token resolution ──
 // Reads ~/.claude/.credentials.json first (kept fresh by Claude Code's own
 // refresh cycle). If the file token is valid and differs from the stored
@@ -76,6 +96,12 @@ export async function runAgentSessionViaSdk(
   db: Db, config: Config, sessionId: string, agentDef: AgentDef, ticketData: Ticket,
 ): Promise<void> {
   const startTime = Date.now()
+  // Accumulators hoisted outside the try so the catch block can still
+  // produce a summary + persist cost when the SDK throws mid-stream.
+  let inputTokens  = 0
+  let outputTokens = 0
+  let toolCallTotal = 0
+  let costUsd       = 0
   const conn = require(database.connectionGet(db, agentDef.connection_id), 'connection not found')
   const oauthToken = resolveSubscriptionToken(db, conn)
 
@@ -87,7 +113,6 @@ export async function runAgentSessionViaSdk(
   process.env.CLAUDE_CODE_OAUTH_TOKEN = oauthToken
 
   try {
-    domain.commentCreate(db, ticketData.id, { author: agentDef.name, body: 'Session started (SDK)', session_id: sessionId })
     // Build the system prompt: project description + agent role prompt.
     // Prior to this, the SDK runner was running without the agent's own
     // prompt — a long-standing oversight. Tool descriptions + ticket body
@@ -138,9 +163,6 @@ export async function runAgentSessionViaSdk(
       )
     }
 
-    let finalText    = ''
-    let inputTokens  = 0
-    let outputTokens = 0
     let stopReason: string | null = null
     let numTurns = 0
     // When a turn has both a thinking block and a tool_use block the SDK
@@ -150,6 +172,7 @@ export async function runAgentSessionViaSdk(
     // the second emission (getting the full block list + correct
     // tool_call_count) without double-billing tokens.
     const seenMessages = new Map<string, string>()   // BetaMessage.id → message row id
+    const messageToolCounts = new Map<string, number>() // BetaMessage.id → last seen tool_call count
 
     // Persist tokens incrementally, one row per assistant turn. Previously we
     // read `modelUsage` off the final `result` message and wrote a single
@@ -192,8 +215,10 @@ export async function runAgentSessionViaSdk(
         const existingRowId = msgId ? seenMessages.get(msgId) : undefined
         if (existingRowId) {
           // Same BetaMessage, fuller content (e.g. thinking → thinking+tool_use).
-          // Overwrite content + tool_call_count; do NOT re-add tokens.
+          // Overwrite content + tool_call_count; do NOT re-add tokens. Adjust
+          // the running tool-call total by the delta from the prior emission.
           database.messageUpdate(db, existingRowId, { content: body, tool_call_count: toolCalls })
+          toolCallTotal += toolCalls - (messageToolCounts.get(msgId ?? '') ?? 0)
         } else {
           // Total input = prompt + cache reads + cache creation. Each turn
           // re-bills the full history, so summing per-turn input across the
@@ -204,16 +229,14 @@ export async function runAgentSessionViaSdk(
           const turnOut = u.output_tokens ?? 0
           inputTokens  += turnIn
           outputTokens += turnOut
+          toolCallTotal += toolCalls
           const row = domain.sessionMessage(db, sessionId, 'assistant', body, turnOut, turnIn, toolCalls)
           if (msgId) seenMessages.set(msgId, row.id)
         }
-        // Last non-empty text block is what the founder sees in the final
-        // ticketComment when the session closes cleanly.
-        if (textParts.length > 0) finalText = textParts.join('\n\n')
+        if (msgId) messageToolCounts.set(msgId, toolCalls)
       } else if (message.type === 'result') {
         numTurns   = message.num_turns
         stopReason = message.stop_reason ?? message.subtype
-        if (message.subtype === 'success') finalText = message.result
         // modelUsage is the SDK's authoritative cumulative per-model rollup
         // — it includes billable work that doesn't surface as 'assistant'
         // stream messages (internal SDK iterations, context reshaping, etc.).
@@ -225,7 +248,7 @@ export async function runAgentSessionViaSdk(
         const models   = Object.values(message.modelUsage)
         const modelIn  = models.reduce((s, m) => s + m.inputTokens + m.cacheReadInputTokens + m.cacheCreationInputTokens, 0)
         const modelOut = models.reduce((s, m) => s + m.outputTokens, 0)
-        const costUsd  = models.reduce((s, m) => s + (m.costUSD ?? 0), 0)
+        costUsd        = models.reduce((s, m) => s + (m.costUSD ?? 0), 0)
         const deltaIn  = modelIn  - inputTokens
         const deltaOut = modelOut - outputTokens
         if (deltaIn !== 0 || deltaOut !== 0) {
@@ -241,30 +264,36 @@ export async function runAgentSessionViaSdk(
       }
     }
 
-    if (finalText) {
-      domain.commentCreate(db, ticketData.id, { author: agentDef.name, body: finalText, session_id: sessionId })
-    }
+    // Do NOT auto-publish the agent's final text as a ticket comment.
+    // That used to duplicate the last assistant message (already visible
+    // on the session page) and blurred the ticket view with conversation
+    // artifacts. Agents post to the ticket explicitly via ticketComment
+    // when they have something to communicate (e.g. "Merged PR #42").
+    //
+    // ticketComplete below writes one summary comment instead —
+    // "Session complete · N tools · Nk tokens · $0.NN · Ns" — giving
+    // the ticket a single compact closure line per session.
 
-    // No framework-level publish — the agent is responsible for calling
-    // gitAdd → gitCommit → pullRequestCreate itself. If it didn't publish,
-    // the session branch never leaves the tmpdir and is discarded on
-    // workspaceDestroy below.
-
-    domain.ticketComplete(db, ticketData.id, { agentName: agentDef.name, sessionId })
+    const durationMs = Date.now() - startTime
+    const summary = summarizeSession(toolCallTotal, inputTokens, outputTokens, costUsd, durationMs)
+    domain.ticketComplete(db, ticketData.id, { agentName: agentDef.name, sessionId, notes: summary })
     database.sessionUpdate(db, sessionId, {
       status:        'done',
       ended_at:      now(),
-      duration_ms:   Date.now() - startTime,
+      duration_ms:   durationMs,
       finish_reason: stopReason ?? `sdk:${numTurns}-turns`,
     })
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
-    try { domain.ticketFail(db, ticketData.id, { notes: msg, agentName: agentDef.name, sessionId }) } catch {}
+    const failSummary = summarizeSession(toolCallTotal, inputTokens, outputTokens, costUsd, Date.now() - startTime)
+    const failNotes = failSummary ? `${msg}\n\n${failSummary}` : msg
+    try { domain.ticketFail(db, ticketData.id, { notes: failNotes, agentName: agentDef.name, sessionId }) } catch {}
     database.sessionUpdate(db, sessionId, {
       status:      'failed',
       error:       msg,
       ended_at:    now(),
       duration_ms: Date.now() - startTime,
+      cost_usd:    costUsd,
     })
   } finally {
     if (prevToken !== undefined) process.env.CLAUDE_CODE_OAUTH_TOKEN = prevToken
