@@ -55,7 +55,9 @@
 .hljs-zinc .hljs-addition      { color: #86efac; background: #052e1622; }
 
 /* Markdown prose — zinc dark */
-.prose-zinc { color: #a1a1aa; line-height: 1.75; }
+.prose-zinc { color: #a1a1aa; line-height: 1.75; max-width: 100%; overflow-wrap: anywhere; word-break: break-word; }
+.prose-zinc table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; }
+.prose-zinc img   { max-width: 100%; height: auto; }
 
 .prose-zinc h1, .prose-zinc h2, .prose-zinc h3,
 .prose-zinc h4, .prose-zinc h5, .prose-zinc h6 {

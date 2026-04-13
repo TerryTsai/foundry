@@ -60,7 +60,7 @@ export function ActivityRow({ label, icon, detailHref, detailLabel, status, meta
             mono ? (
               <pre className="font-mono text-xs text-zinc-500 dark:text-zinc-400 whitespace-pre leading-relaxed select-text overflow-x-auto">{body}</pre>
             ) : (
-              <div className="prose-zinc text-sm" dangerouslySetInnerHTML={{ __html: marked.parse(body) as string }} />
+              <div className="prose-zinc text-sm max-w-full overflow-x-auto" dangerouslySetInnerHTML={{ __html: marked.parse(body) as string }} />
             )
           ) : (
             <div className="text-xs text-zinc-500 dark:text-zinc-500 italic">no content</div>

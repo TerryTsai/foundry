@@ -26,7 +26,7 @@ export function DetailHeader({ type, title, subtitle, status, mono, actions }: D
         {status && <div className="shrink-0"><StatusBadge status={status} /></div>}
       </div>
       {subtitle && (
-        <div className="prose-zinc text-sm text-zinc-700 dark:text-zinc-400 mt-1" dangerouslySetInnerHTML={{ __html: marked.parse(subtitle) as string }} />
+        <div className="prose-zinc text-sm text-zinc-700 dark:text-zinc-400 mt-1 max-w-full overflow-x-auto" dangerouslySetInnerHTML={{ __html: marked.parse(subtitle) as string }} />
       )}
     </div>
   )
