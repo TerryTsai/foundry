@@ -1,7 +1,7 @@
 import { Link, useLoaderData, useParams, useRevalidator } from 'react-router-dom'
 import { MessageSquare, Brain, FileText, Scale } from 'lucide-react'
 import type { Session, Execution, Message, UsageRollup, Ticket } from '../../types.js'
-import { fmtDuration, fmtBytes, fmtTokens } from '../../lib/format.js'
+import { fmtDuration, fmtBytes } from '../../lib/format.js'
 import { toolLabel, toolIcon } from '../../lib/tool-display.js'
 import { SectionLabel } from '../../components/detail/SectionLabel.js'
 import { ActivityRow } from '../../components/detail/ActivityRow.js'
@@ -103,27 +103,19 @@ export function TicketSessionDetailPage() {
         <SectionLabel label={`activity (${executions.length})`} onRefresh={refreshActivity} />
         {executions.length === 0
           ? <EmptyState message="no executions" />
-          : executions.map(e => {
-              const parts = [ts(e.started_at)]
-              if (e.duration_ms !== null && e.duration_ms > 0) parts.push(fmtDuration(e.duration_ms))
-              if (e.cpu_ms !== null && e.cpu_ms > 0)           parts.push(`${fmtDuration(e.cpu_ms)} cpu`)
-              if (e.peak_memory_mb !== null && e.peak_memory_mb > 0) parts.push(`${e.peak_memory_mb.toFixed(0)} MB`)
-              const net = (e.net_rx_bytes ?? 0) + (e.net_tx_bytes ?? 0)
-              if (net > 0) parts.push(fmtBytes(net))
-              return (
-                <ActivityRow
-                  key={`e-${e.id}`}
-                  icon={toolIcon(e.tool_name)}
-                  label={toolLabel(e.tool_name, e.tool_input)}
-                  status={e.status}
-                  meta={parts.join(' · ')}
-                  body=""
-                  footer={<ExecutionBody e={e} />}
-                  detailHref={execPath(e.id)}
-                  detailLabel="view execution"
-                />
-              )
-            })
+          : executions.map(e => (
+              <ActivityRow
+                key={`e-${e.id}`}
+                icon={toolIcon(e.tool_name)}
+                label={toolLabel(e.tool_name, e.tool_input)}
+                status={e.status}
+                meta={ts(e.started_at)}
+                body=""
+                footer={<ExecutionBody e={e} />}
+                detailHref={execPath(e.id)}
+                detailLabel="view execution"
+              />
+            ))
         }
       </div>
 
@@ -135,10 +127,6 @@ export function TicketSessionDetailPage() {
               if (m.role === 'system' && m.content.includes('"reconcile"')) {
                 let payload: { deltaIn?: number; deltaOut?: number; modelIn?: number; modelOut?: number } = {}
                 try { payload = JSON.parse(m.content) } catch { /* keep empty */ }
-                const sign = (n?: number) => n === undefined ? '' : (n >= 0 ? `+${n}` : String(n))
-                const rParts = [ts(m.created_at)]
-                if (payload.deltaIn  !== undefined) rParts.push(`Δ ${sign(payload.deltaIn)} in`)
-                if (payload.deltaOut !== undefined) rParts.push(`Δ ${sign(payload.deltaOut)} out`)
                 const body = payload.modelIn !== undefined && payload.modelOut !== undefined
                   ? `Reconciled against SDK modelUsage: **${payload.modelIn.toLocaleString()}** in / **${payload.modelOut.toLocaleString()}** out billed. Per-turn sum adjusted so session total matches exactly.`
                   : ''
@@ -147,24 +135,20 @@ export function TicketSessionDetailPage() {
                     key={`m-${m.id}`}
                     icon={<Scale size={14} />}
                     label="reconciliation"
-                    meta={rParts.join(' · ')}
+                    meta={ts(m.created_at)}
                     body={body}
                   />
                 )
               }
               const icon = m.role === 'reasoning' ? <Brain size={14} /> : m.role === 'user' ? <FileText size={14} /> : <MessageSquare size={14} />
               const label = m.role === 'reasoning' ? 'thinking' : m.role === 'user' ? 'prompt' : 'message'
-              const mParts = [ts(m.created_at)]
-              if (m.tokens_in !== null && m.tokens_in > 0) mParts.push(`${fmtTokens(m.tokens_in)} in`)
-              if (m.tokens    !== null && m.tokens    > 0) mParts.push(`${fmtTokens(m.tokens)} out`)
-              if (m.tool_call_count !== null && m.tool_call_count > 0) mParts.push(`${m.tool_call_count} tool${m.tool_call_count === 1 ? '' : 's'}`)
               return (
                 <ActivityRow
                   key={`m-${m.id}`}
                   icon={icon}
                   label={label}
                   status="done"
-                  meta={mParts.join(' · ')}
+                  meta={ts(m.created_at)}
                   body={m.content}
                 />
               )
