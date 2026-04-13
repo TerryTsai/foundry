@@ -12,12 +12,15 @@ interface ActivityRowProps {
   /** Optional secondary link rendered under the status badge.
    *  Reusable slot for "view execution", "view session", etc. */
   sub?:    { to: string; label: string }
-  body:    string
+  body?:   string
   mono?:   boolean
   footer?: React.ReactNode
+  /** Fully custom expanded content. When provided, replaces the default
+   *  body/mono/footer layout. Use for rich block-by-block renders. */
+  children?: React.ReactNode
 }
 
-export function ActivityRow({ label, icon, status, meta, sub, body, mono, footer }: ActivityRowProps) {
+export function ActivityRow({ label, icon, status, meta, sub, body, mono, footer, children }: ActivityRowProps) {
   const [expanded, setExpanded] = useState(false)
 
   const row = (
@@ -62,7 +65,7 @@ export function ActivityRow({ label, icon, status, meta, sub, body, mono, footer
 
       {expanded && (
         <div className="pb-3 -mt-1">
-          {body ? (
+          {children ?? (body ? (
             mono ? (
               <pre className="font-mono text-xs text-zinc-500 dark:text-zinc-400 whitespace-pre leading-relaxed select-text overflow-x-auto">{body}</pre>
             ) : (
@@ -70,7 +73,7 @@ export function ActivityRow({ label, icon, status, meta, sub, body, mono, footer
             )
           ) : (
             <div className="text-xs text-zinc-500 dark:text-zinc-500 italic">no content</div>
-          )}
+          ))}
           {footer}
         </div>
       )}
