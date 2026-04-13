@@ -7,12 +7,6 @@ import { fmtTokens, fmtDuration, fmtBytes } from '../../lib/format.js'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function fmtCost(usd: number): string {
-  if (usd === 0) return '$0.00'
-  if (usd < 0.01) return `$${usd.toFixed(4)}`
-  return `$${usd.toFixed(2)}`
-}
-
 function fmtPct(n: number, d: number): string {
   if (d === 0) return '—'
   return `${Math.round((n / d) * 100)}%`
@@ -81,7 +75,6 @@ function SummarySection({ data }: { data: Analytics['summary'] }) {
   const successRate = pct(data.sessions_done, data.total_sessions)
   return (
     <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
-      <StatCard label="cost" value={fmtCost(data.total_cost_usd)} />
       <StatCard label="sessions" value={String(data.total_sessions)} />
       <StatCard label="success rate" value={data.total_sessions === 0 ? '—' : `${successRate}%`} />
       <StatCard label="tokens in" value={fmtTokens(data.total_tokens_in)} />
@@ -100,13 +93,11 @@ function DailyChart({ daily }: { daily: AnalyticsDay[] }) {
 
   // Only show last N days where we have data. Filter out leading zero days for display.
   const maxSessions = Math.max(...daily.map(d => d.sessions), 1)
-  const maxCost = Math.max(...daily.map(d => d.cost_usd), 0.000001)
 
   // Show every Nth date label to avoid crowding
   const labelEvery = daily.length > 30 ? 14 : daily.length > 14 ? 7 : 1
 
   const BAR_H = 80  // px height for session bars
-  const COST_H = 40 // px height for cost bars
 
   return (
     <div className="space-y-1">
@@ -128,7 +119,7 @@ function DailyChart({ daily }: { daily: AnalyticsDay[] }) {
             >
               {isHov && (
                 <div className="absolute bottom-full mb-1 left-1/2 -translate-x-1/2 z-10 bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-100 whitespace-nowrap pointer-events-none">
-                  {shortDate(d.date)}: {d.sessions} sess · {fmtCost(d.cost_usd)}
+                  {shortDate(d.date)}: {d.sessions} sessions
                 </div>
               )}
               {failH > 0 && (
@@ -156,31 +147,6 @@ function DailyChart({ daily }: { daily: AnalyticsDay[] }) {
         ))}
       </div>
 
-      {/* Cost bars */}
-      <div className="mt-3 space-y-1">
-        <span className="text-xs text-zinc-500 uppercase tracking-wide">cost / day</span>
-        <div className="flex items-end gap-px" style={{ height: COST_H }}>
-          {daily.map((d, i) => {
-            const h = Math.round((d.cost_usd / maxCost) * COST_H)
-            const isHov = hovered === i
-            return (
-              <div
-                key={d.date}
-                className="flex-1 flex flex-col justify-end cursor-default"
-                style={{ height: COST_H }}
-                onMouseEnter={() => setHovered(i)}
-                onMouseLeave={() => setHovered(null)}
-              >
-                {h > 0
-                  ? <div className={`w-full transition-colors ${isHov ? 'bg-amber-400/70' : 'bg-amber-500/40'}`} style={{ height: h }} />
-                  : <div className="w-full bg-zinc-800/40" style={{ height: 2 }} />
-                }
-              </div>
-            )
-          })}
-        </div>
-      </div>
-
       {/* Legend */}
       <div className="flex gap-4 pt-1">
         <span className="flex items-center gap-1.5 text-xs text-zinc-500">
@@ -188,9 +154,6 @@ function DailyChart({ daily }: { daily: AnalyticsDay[] }) {
         </span>
         <span className="flex items-center gap-1.5 text-xs text-zinc-500">
           <span className="inline-block w-2.5 h-2.5 rounded-sm bg-rose-500/60" /> failed
-        </span>
-        <span className="flex items-center gap-1.5 text-xs text-zinc-500">
-          <span className="inline-block w-2.5 h-2.5 rounded-sm bg-amber-500/40" /> cost
         </span>
       </div>
     </div>
@@ -211,9 +174,7 @@ function AgentTable({ agents }: { agents: AnalyticsAgent[] }) {
             <th className="text-left font-normal pb-2 pr-4">agent</th>
             <th className="text-right font-normal pb-2 pr-4">sessions</th>
             <th className="text-left font-normal pb-2 pr-4 min-w-[120px]">success</th>
-            <th className="text-right font-normal pb-2 pr-4">avg cost</th>
-            <th className="text-right font-normal pb-2 pr-4">avg dur</th>
-            <th className="text-right font-normal pb-2">total cost</th>
+            <th className="text-right font-normal pb-2">avg dur</th>
           </tr>
         </thead>
         <tbody>
@@ -231,9 +192,7 @@ function AgentTable({ agents }: { agents: AnalyticsAgent[] }) {
                     <span className="font-mono text-zinc-400 w-8 text-right shrink-0">{fmtPct(a.sessions_done, a.sessions)}</span>
                   </div>
                 </td>
-                <td className="py-2 pr-4 text-right font-mono text-amber-400/80">{fmtCost(a.avg_cost_usd)}</td>
-                <td className="py-2 pr-4 text-right font-mono text-zinc-400">{a.avg_duration_ms > 0 ? fmtDuration(a.avg_duration_ms) : '—'}</td>
-                <td className="py-2 text-right font-mono text-amber-400">{fmtCost(a.cost_usd)}</td>
+                <td className="py-2 text-right font-mono text-zinc-400">{a.avg_duration_ms > 0 ? fmtDuration(a.avg_duration_ms) : '—'}</td>
               </tr>
             )
           })}
@@ -247,7 +206,7 @@ function AgentTable({ agents }: { agents: AnalyticsAgent[] }) {
 
 function TagTable({ tags }: { tags: AnalyticsTag[] }) {
   if (tags.length === 0) return null
-  const sorted = [...tags].sort((a, b) => b.cost_usd - a.cost_usd)
+  const sorted = [...tags].sort((a, b) => b.sessions - a.sessions)
   return (
     <div className="overflow-x-auto -mx-4 px-4">
       <table className="w-full text-xs min-w-[440px]">
@@ -256,7 +215,6 @@ function TagTable({ tags }: { tags: AnalyticsTag[] }) {
             <th className="text-left font-normal pb-2 pr-4">tag</th>
             <th className="text-right font-normal pb-2 pr-4">tickets</th>
             <th className="text-right font-normal pb-2 pr-4">sessions</th>
-            <th className="text-right font-normal pb-2 pr-4">cost</th>
             <th className="text-right font-normal pb-2">duration</th>
           </tr>
         </thead>
@@ -268,7 +226,6 @@ function TagTable({ tags }: { tags: AnalyticsTag[] }) {
               </td>
               <td className="py-2 pr-4 text-right font-mono text-zinc-400">{t.tickets}</td>
               <td className="py-2 pr-4 text-right font-mono text-zinc-400">{t.sessions}</td>
-              <td className="py-2 pr-4 text-right font-mono text-amber-400">{fmtCost(t.cost_usd)}</td>
               <td className="py-2 text-right font-mono text-zinc-400">{t.duration_ms > 0 ? fmtDuration(t.duration_ms) : '—'}</td>
             </tr>
           ))}
@@ -365,7 +322,7 @@ export function AnalyticsPage() {
         </Section>
 
         {data.tags.length > 0 && (
-          <Section title="feature cost by tag">
+          <Section title="activity by tag">
             <TagTable tags={data.tags} />
           </Section>
         )}
