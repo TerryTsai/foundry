@@ -52,6 +52,15 @@ export function createDatabase(path: string): Db {
     sqlite.exec(`UPDATE project SET max_agents = concurrency_limit WHERE concurrency_limit != 3`)
   }
 
+  // Correlate executions back to the assistant message tool_use block
+  // that caused them. Nullable; populated by runCommand from the SDK's
+  // handler `_meta["claudecode/toolUseId"]`.
+  const execCols = sqlite.pragma('table_info(execution)') as { name: string }[]
+  if (!execCols.some(c => c.name === 'tool_use_id')) {
+    sqlite.exec(`ALTER TABLE execution ADD COLUMN tool_use_id TEXT`)
+    sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_execution_tool_use_id ON execution(tool_use_id)`)
+  }
+
   return drizzle(sqlite, { schema })
 }
 

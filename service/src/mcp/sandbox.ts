@@ -24,7 +24,7 @@ import { ulid } from 'ulid'
 import type { Db } from '../database.js'
 import type { Config } from '../config.js'
 import * as validate from '../validate.js'
-import { asText, bounded, boundedOutput, esc, runCommand } from './_shared.js'
+import { asText, bounded, boundedOutput, esc, runCommand, toolUseId } from './_shared.js'
 import { filterTools, type McpServerInfo } from './registry.js'
 
 export const info: McpServerInfo = {
@@ -48,6 +48,9 @@ export interface SandboxCtx {
   config:    Config
   sessionId: string
   workspace: string
+  /** Per-call: tool_use block id the handler is responding to. Set by
+   *  the sdkTool wrapper from `extra._meta["claudecode/toolUseId"]`. */
+  toolUseId?: string
 }
 
 // ── Local helpers ──
@@ -94,7 +97,7 @@ function assertSafeWritePath(p: string): void {
 async function handleShell(ctx: SandboxCtx, toolName: string, args: z.infer<typeof validate.toolExec>) {
   const command = args.cwd ? `cd ${esc(args.cwd)} && ${args.command}` : args.command
   try {
-    const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace, command, toolName, args, { network: args.network ?? false })
+    const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace, command, toolName, args, { network: args.network ?? false, toolUseId: ctx.toolUseId })
     return { ...bounded(ctx.workspace, r.stdout), stderr: r.stderr, exitCode: r.exitCode }
   } catch (err) {
     return { content: '', stderr: '', exitCode: -1, error: err instanceof Error ? err.message : String(err) }
@@ -115,7 +118,7 @@ async function handleRead(ctx: SandboxCtx, args: z.infer<typeof validate.toolRea
     ? `sed -n '${(args.offset ?? 0) + 1},${(args.offset ?? 0) + (args.limit ?? 1_000_000)}p' ${path}`
     : `cat ${path}`
   try {
-    const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace, command, 'read', args)
+    const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace, command, 'read', args, { toolUseId: ctx.toolUseId })
     if (r.exitCode !== 0) return { content: '', error: r.stderr || 'file not found or unreadable' }
     return bounded(ctx.workspace, r.stdout)
   } catch (err) {
@@ -131,7 +134,7 @@ async function handleWrite(ctx: SandboxCtx, args: z.infer<typeof validate.toolWr
   const dest = esc(workPath(args.path))
   const command = `mkdir -p "$(dirname ${dest})" && mv /work/${esc(tmpRel)} ${dest}`
   try {
-    const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace, command, 'write', { path: args.path })
+    const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace, command, 'write', { path: args.path }, { toolUseId: ctx.toolUseId })
     return r.exitCode === 0 ? { ok: true } : { ok: false, error: r.stderr || 'write failed' }
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) }
@@ -158,7 +161,7 @@ open(m["path"],"w").write(c.replace(m["old"],m["new"],1))
 print("ok")
 '`
   try {
-    const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace, command, 'patch', { path: args.path })
+    const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace, command, 'patch', { path: args.path }, { toolUseId: ctx.toolUseId })
     return r.exitCode === 0 ? { ok: true } : { ok: false, error: r.stderr || r.stdout || 'patch failed' }
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) }
@@ -176,7 +179,7 @@ async function handleRemove(ctx: SandboxCtx, args: z.infer<typeof removeSchema>)
   const target = esc(workPath(args.path))
   const command = `rm -rf ${target}`
   try {
-    const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace, command, 'remove', { path: args.path })
+    const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace, command, 'remove', { path: args.path }, { toolUseId: ctx.toolUseId })
     return r.exitCode === 0 ? { ok: true } : { ok: false, error: r.stderr || 'remove failed' }
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) }
@@ -190,7 +193,7 @@ async function handleSearch(ctx: SandboxCtx, args: z.infer<typeof validate.toolS
   parts.push('-e', esc(args.pattern), esc(searchPath))
   const command = `${parts.join(' ')} | sed 's|/work/||g' || true`
   try {
-    const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace, command, 'search', args)
+    const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace, command, 'search', args, { toolUseId: ctx.toolUseId })
     const output = r.stdout.trimEnd()
     if (!output) return { content: '' }
     return bounded(ctx.workspace, output)
@@ -205,7 +208,7 @@ async function handleFind(ctx: SandboxCtx, args: z.infer<typeof validate.toolFin
   const parts = ['find', esc(searchPath), '-maxdepth', String(depth), '-type', 'f', '-name', esc(args.pattern), '-print']
   const command = `${parts.join(' ')} | sed 's|/work/||g'`
   try {
-    const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace, command, 'find', args)
+    const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace, command, 'find', args, { toolUseId: ctx.toolUseId })
     const output = r.stdout.trim()
     if (!output) return { content: '' }
     return bounded(ctx.workspace, output)
@@ -239,15 +242,16 @@ const DESC = {
 // ── Anthropic Claude Agent SDK adapter ──
 
 export function buildSdk(ctx: SandboxCtx, allowed?: string[] | '*' | null) {
+  const tu = (x: unknown): SandboxCtx => ({ ...ctx, toolUseId: toolUseId(x) })
   const all = [
-    sdkTool('run',    DESC.run,    validate.toolExec.shape,   async a => asText(await handleRun(ctx, a))),
-    sdkTool('exec',   DESC.exec,   validate.toolExec.shape,   async a => asText(await handleExec(ctx, a))),
-    sdkTool('read',   DESC.read,   validate.toolRead.shape,   async a => asText(await handleRead(ctx, a))),
-    sdkTool('write',  DESC.write,  validate.toolWrite.shape,  async a => asText(await handleWrite(ctx, a))),
-    sdkTool('patch',  DESC.patch,  validate.toolPatch.shape,  async a => asText(await handlePatch(ctx, a))),
-    sdkTool('remove', DESC.remove, removeSchema.shape,        async a => asText(await handleRemove(ctx, a))),
-    sdkTool('search', DESC.search, validate.toolSearch.shape, async a => asText(await handleSearch(ctx, a))),
-    sdkTool('find',   DESC.find,   validate.toolFind.shape,   async a => asText(await handleFind(ctx, a))),
+    sdkTool('run',    DESC.run,    validate.toolExec.shape,   async (a, x) => asText(await handleRun(tu(x), a))),
+    sdkTool('exec',   DESC.exec,   validate.toolExec.shape,   async (a, x) => asText(await handleExec(tu(x), a))),
+    sdkTool('read',   DESC.read,   validate.toolRead.shape,   async (a, x) => asText(await handleRead(tu(x), a))),
+    sdkTool('write',  DESC.write,  validate.toolWrite.shape,  async (a, x) => asText(await handleWrite(tu(x), a))),
+    sdkTool('patch',  DESC.patch,  validate.toolPatch.shape,  async (a, x) => asText(await handlePatch(tu(x), a))),
+    sdkTool('remove', DESC.remove, removeSchema.shape,        async (a, x) => asText(await handleRemove(tu(x), a))),
+    sdkTool('search', DESC.search, validate.toolSearch.shape, async (a, x) => asText(await handleSearch(tu(x), a))),
+    sdkTool('find',   DESC.find,   validate.toolFind.shape,   async (a, x) => asText(await handleFind(tu(x), a))),
   ]
   return createSdkMcpServer({ name: 'sandbox', tools: filterTools(all, allowed) })
 }

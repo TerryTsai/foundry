@@ -15,7 +15,7 @@ import { z } from 'zod'
 
 import type { Db } from '../database.js'
 import type { Config } from '../config.js'
-import { asText, esc, runCommand } from './_shared.js'
+import { asText, esc, runCommand, toolUseId } from './_shared.js'
 
 import { filterTools, type McpServerInfo } from './registry.js'
 
@@ -46,6 +46,7 @@ export interface FoundryCtx {
   accountId:  string   // owner of the project — used for agent/connection lookups
   ticketId:   string   // parent ticket — used as parent_id when agent creates sub-tickets
   agentName:  string   // used as author of comments and created_by for new tickets
+  toolUseId?: string   // per-call: BetaMessage tool_use block id. Set by the sdkTool wrapper from extra._meta["claudecode/toolUseId"]; passed to runCommand so every resulting execution row carries its correlation back to the agent-domain message.
 }
 
 // ── Schemas ──
@@ -105,6 +106,7 @@ async function apiGet(ctx: FoundryCtx, toolName: string, toolInput: unknown, pat
       network: true,
       mount:   'none',
       env:     { INTERNAL_TOKEN: ctx.config.internalApiToken },
+      toolUseId: ctx.toolUseId,
     })
   if (r.exitCode !== 0) return { error: r.stderr || r.stdout || `API call failed (exit ${r.exitCode})` }
   try { return JSON.parse(r.stdout) } catch { return { content: r.stdout } }
@@ -117,6 +119,7 @@ async function apiPost(ctx: FoundryCtx, toolName: string, toolInput: unknown, pa
       network: true,
       mount:   'none',
       env:     { INTERNAL_TOKEN: ctx.config.internalApiToken },
+      toolUseId: ctx.toolUseId,
     })
   if (r.exitCode !== 0) return { error: r.stderr || r.stdout || `API call failed (exit ${r.exitCode})` }
   try { return JSON.parse(r.stdout) } catch { return { content: r.stdout } }
@@ -129,6 +132,7 @@ async function apiDelete(ctx: FoundryCtx, toolName: string, toolInput: unknown, 
       network: true,
       mount:   'none',
       env:     { INTERNAL_TOKEN: ctx.config.internalApiToken },
+      toolUseId: ctx.toolUseId,
     })
   if (r.exitCode !== 0) return { error: r.stderr || r.stdout || `API call failed (exit ${r.exitCode})` }
   if (!r.stdout.trim()) return { ok: true }
@@ -196,12 +200,12 @@ async function handleConnectionList(ctx: FoundryCtx, _args: z.infer<typeof conne
   return apiGet(ctx, 'connectionList', _args, `/connection?accountId=${ctx.accountId}`)
 }
 
-async function handleThink(ctx: FoundryCtx, args: z.infer<typeof thinkArgs>) {
+async function handleThink(ctx: FoundryCtx, args: z.infer<typeof thinkArgs>, tuId?: string) {
   // Think is a no-op but still goes through the sandbox for consistency.
   // The container boots, echoes "ok", dies. Gives a real execution row
   // with timing for how long the model spent on this reasoning step.
   const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace,
-    'echo ok', 'think', args, { mount: 'none' })
+    'echo ok', 'think', args, { mount: 'none', toolUseId: tuId ?? ctx.toolUseId })
   return { ok: r.exitCode === 0 }
 }
 
@@ -221,17 +225,22 @@ const DESC = {
 // ── Anthropic Claude Agent SDK adapter ──
 
 export function buildSdk(ctx: FoundryCtx, allowed?: string[] | '*' | null) {
+  // Per-call ctx: stamp the tool_use block id onto a shallow copy so the
+  // api helpers (which read ctx.toolUseId) and runCommand write it onto
+  // the execution row. Keeping it per-call avoids races when tool calls
+  // execute in parallel within a single turn.
+  const tu = (extra: unknown): FoundryCtx => ({ ...ctx, toolUseId: toolUseId(extra) })
   const all = [
-    sdkTool('ticketList',    DESC.ticketList,    ticketListArgs.shape,    async a => asText(await handleTicketList(ctx, a))),
-    sdkTool('ticketGet',     DESC.ticketGet,     ticketGetArgs.shape,     async a => asText(await handleTicketGet(ctx, a))),
-    sdkTool('ticketCreate',  DESC.ticketCreate,  ticketCreateArgs.shape,  async a => asText(await handleTicketCreate(ctx, a))),
-    sdkTool('ticketComment', DESC.ticketComment, ticketCommentArgs.shape, async a => asText(await handleTicketComment(ctx, a))),
-    sdkTool('ticketTagAdd',    DESC.ticketTagAdd,    ticketTagAddArgs.shape,    async a => asText(await handleTicketTagAdd(ctx, a))),
-    sdkTool('ticketTagRemove', DESC.ticketTagRemove, ticketTagRemoveArgs.shape, async a => asText(await handleTicketTagRemove(ctx, a))),
-    sdkTool('agentsList',    DESC.agentsList,    agentsListArgs.shape,    async a => asText(await handleAgentsList(ctx, a))),
-    sdkTool('sessionList',   DESC.sessionList,   sessionListArgs.shape,   async a => asText(await handleSessionList(ctx, a))),
-    sdkTool('connectionList', DESC.connectionList, connectionListArgs.shape, async a => asText(await handleConnectionList(ctx, a))),
-    sdkTool('think',         DESC.think,         thinkArgs.shape,         async a => asText(await handleThink(ctx, a))),
+    sdkTool('ticketList',    DESC.ticketList,    ticketListArgs.shape,    async (a, x) => asText(await handleTicketList(tu(x), a))),
+    sdkTool('ticketGet',     DESC.ticketGet,     ticketGetArgs.shape,     async (a, x) => asText(await handleTicketGet(tu(x), a))),
+    sdkTool('ticketCreate',  DESC.ticketCreate,  ticketCreateArgs.shape,  async (a, x) => asText(await handleTicketCreate(tu(x), a))),
+    sdkTool('ticketComment', DESC.ticketComment, ticketCommentArgs.shape, async (a, x) => asText(await handleTicketComment(tu(x), a))),
+    sdkTool('ticketTagAdd',    DESC.ticketTagAdd,    ticketTagAddArgs.shape,    async (a, x) => asText(await handleTicketTagAdd(tu(x), a))),
+    sdkTool('ticketTagRemove', DESC.ticketTagRemove, ticketTagRemoveArgs.shape, async (a, x) => asText(await handleTicketTagRemove(tu(x), a))),
+    sdkTool('agentsList',    DESC.agentsList,    agentsListArgs.shape,    async (a, x) => asText(await handleAgentsList(tu(x), a))),
+    sdkTool('sessionList',   DESC.sessionList,   sessionListArgs.shape,   async (a, x) => asText(await handleSessionList(tu(x), a))),
+    sdkTool('connectionList', DESC.connectionList, connectionListArgs.shape, async (a, x) => asText(await handleConnectionList(tu(x), a))),
+    sdkTool('think',         DESC.think,         thinkArgs.shape,         async (a, x) => asText(await handleThink(tu(x), a))),
   ]
   return createSdkMcpServer({ name: 'foundry', tools: filterTools(all, allowed) })
 }

@@ -170,6 +170,11 @@ export const execution = sqliteTable('execution', {
   session_id:      text('session_id'),
   tool_name:       text('tool_name'),
   tool_input:      text('tool_input'),
+  // Correlation key to the agent-domain assistant message's `tool_use`
+  // block that caused this execution. Sourced from the SDK handler's
+  // `extra._meta["claudecode/toolUseId"]`. Nullable for rows written
+  // before this column existed.
+  tool_use_id:     text('tool_use_id'),
   command:         text('command').notNull(),
   status:          text('status').notNull().default('running'),
   exit_code:       integer('exit_code'),

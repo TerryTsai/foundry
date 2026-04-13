@@ -15,7 +15,7 @@ import type { Db } from '../database.js'
 import type { Config } from '../config.js'
 import * as validate from '../validate.js'
 import { toInt } from '../functional.js'
-import { asText, bounded, boundedOutput, esc, runCommand } from './_shared.js'
+import { asText, bounded, boundedOutput, esc, runCommand, toolUseId } from './_shared.js'
 
 import { filterTools, type McpServerInfo } from './registry.js'
 
@@ -34,6 +34,7 @@ export interface BrowserCtx {
   config:    Config
   sessionId: string
   workspace: string
+  toolUseId?: string
 }
 
 // ── Handlers ──
@@ -47,7 +48,7 @@ async function handleFetch(ctx: BrowserCtx, args: z.infer<typeof validate.toolFe
   curlArgs.push(args.url)
   const command = `curl ${curlArgs.map(a => esc(a)).join(' ')}`
   try {
-    const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace, command, 'fetch', args, { network: true })
+    const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace, command, 'fetch', args, { network: true, toolUseId: ctx.toolUseId })
     const lines = r.stdout.trimEnd().split('\n')
     const statusCode = toInt(lines.pop() ?? '0')
     return { ...bounded(ctx.workspace, lines.join('\n')), status: statusCode }
@@ -60,7 +61,7 @@ async function handleScrape(ctx: BrowserCtx, args: z.infer<typeof validate.toolS
   const url = esc(args.url)
   const command = `lynx -dump -nolist -width=120 ${url} 2>/dev/null || curl -sL ${url} | sed 's/<[^>]*>//g' | sed '/^$/d'`
   try {
-    const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace, command, 'scrape', args, { network: true })
+    const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace, command, 'scrape', args, { network: true, toolUseId: ctx.toolUseId })
     return bounded(ctx.workspace, r.stdout.trim())
   } catch (err) {
     return { content: '', error: err instanceof Error ? err.message : String(err) }
@@ -75,9 +76,10 @@ const DESC = {
 // ── Anthropic Claude Agent SDK adapter ──
 
 export function buildSdk(ctx: BrowserCtx, allowed?: string[] | '*' | null) {
+  const tu = (x: unknown): BrowserCtx => ({ ...ctx, toolUseId: toolUseId(x) })
   const all = [
-    sdkTool('fetch',  DESC.fetch,  validate.toolFetch.shape,  async a => asText(await handleFetch(ctx, a))),
-    sdkTool('scrape', DESC.scrape, validate.toolScrape.shape, async a => asText(await handleScrape(ctx, a))),
+    sdkTool('fetch',  DESC.fetch,  validate.toolFetch.shape,  async (a, x) => asText(await handleFetch(tu(x), a))),
+    sdkTool('scrape', DESC.scrape, validate.toolScrape.shape, async (a, x) => asText(await handleScrape(tu(x), a))),
   ]
   return createSdkMcpServer({ name: 'browser', tools: filterTools(all, allowed) })
 }

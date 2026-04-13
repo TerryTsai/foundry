@@ -3,7 +3,6 @@ import { Link, useLoaderData, useParams, useRevalidator } from 'react-router-dom
 import { MessageSquare, Brain, FileText, Scale, Wrench } from 'lucide-react'
 import type { Session, Execution, Message, UsageRollup, Ticket } from '../../types.js'
 import { fmtDuration, fmtBytes } from '../../lib/format.js'
-import { toolIcon, toolLabel } from '../../lib/tool-display.js'
 import { SectionLabel } from '../../components/detail/SectionLabel.js'
 import { ActivityRow } from '../../components/detail/ActivityRow.js'
 import { DetailShell } from '../../components/layout/DetailShell.js'
@@ -33,7 +32,7 @@ function dateShort(s: string): string {
   })
 }
 
-interface Block { type: string; text?: string; thinking?: string; name?: string }
+interface Block { type: string; text?: string; thinking?: string; name?: string; id?: string }
 
 function parseContent(raw: string): { blocks: Block[] | null; plainText: string | null; parsedObj: Record<string, unknown> | null } {
   const t = raw.trimStart()
@@ -76,7 +75,11 @@ function messageIcon(m: Message): React.ReactNode {
   return <MessageSquare size={14} />
 }
 
-function MessageRow({ m }: { m: Message }) {
+function MessageRow({ m, execByToolUseId, execHref }: {
+  m: Message
+  execByToolUseId: Map<string, Execution>
+  execHref: (id: string) => string
+}) {
   const [asMarkdown, setAsMarkdown] = useState(false)
   const { blocks, plainText, parsedObj } = parseContent(m.content)
 
@@ -98,14 +101,45 @@ function MessageRow({ m }: { m: Message }) {
   const mdText = blocks ? extractText(blocks) : (plainText ?? '')
   const canRenderMarkdown = mdText.length > 0
 
+  // Tool_use blocks on this turn → correlated executions (if we have them).
+  // Multi-tool turns get one link per block; the sub-link slot holds a
+  // short summary when there are many, footer lists them explicitly.
+  const toolUses = (blocks ?? []).filter((b): b is Block & { id: string } => b.type === 'tool_use' && typeof b.id === 'string')
+  const toolExecs = toolUses
+    .map(b => ({ block: b, exec: execByToolUseId.get(b.id) }))
+    .filter((x): x is { block: Block & { id: string }; exec: Execution } => !!x.exec)
+
+  const sub = toolExecs.length === 1
+    ? { to: execHref(toolExecs[0].exec.id), label: 'execution' }
+    : toolExecs.length > 1
+      ? { to: execHref(toolExecs[0].exec.id), label: `${toolExecs.length} executions` }
+      : undefined
+
+  const execList = toolExecs.length > 1 ? (
+    <div className="flex flex-col gap-1 mt-2">
+      {toolExecs.map(({ block, exec }) => (
+        <Link
+          key={exec.id}
+          to={execHref(exec.id)}
+          onClick={e => e.stopPropagation()}
+          className="font-mono text-[10px] text-amber-500 dark:text-amber-400 hover:underline"
+        >
+          {block.name ?? exec.tool_name ?? 'exec'} → execution
+        </Link>
+      ))}
+    </div>
+  ) : null
+
   const toggle = canRenderMarkdown ? (
     <button
       onClick={(e) => { e.stopPropagation(); setAsMarkdown(v => !v) }}
       className="inline-block font-mono text-[10px] text-amber-500 dark:text-amber-400 mb-2 hover:underline"
     >
-      {asMarkdown ? '← raw json' : 'render markdown →'}
+      {asMarkdown ? 'raw json' : 'render markdown'}
     </button>
   ) : null
+
+  const footer = (toggle || execList) ? <>{toggle}{execList}</> : null
 
   return (
     <ActivityRow
@@ -114,35 +148,10 @@ function MessageRow({ m }: { m: Message }) {
       label={label}
       status="done"
       meta={dateShort(m.created_at)}
+      sub={sub}
       body={asMarkdown && canRenderMarkdown ? mdText : rawBody}
       mono={!(asMarkdown && canRenderMarkdown)}
-      footer={toggle}
-    />
-  )
-}
-
-// Execution row renders the same-shape JSON body as a message row:
-// { type: "tool_use", name, input } — exactly the payload the model sent
-// to the tool. stdout/stderr/cpu/mem/network still live on the execution
-// detail page, reachable via the "view execution →" sub-link.
-function ExecutionRow({ e, sub }: { e: Execution; sub: string }) {
-  const name = e.tool_name ?? 'exec'
-  const input = (() => {
-    if (!e.tool_input) return {}
-    try { return JSON.parse(e.tool_input) } catch { return e.tool_input }
-  })()
-  const body = JSON.stringify({ type: 'tool_use', name, input }, null, 2)
-
-  return (
-    <ActivityRow
-      key={`e-${e.id}`}
-      icon={toolIcon(e.tool_name)}
-      label={toolLabel(e.tool_name, e.tool_input)}
-      status={e.status}
-      meta={dateShort(e.started_at)}
-      sub={{ to: sub, label: 'execution' }}
-      body={body}
-      mono
+      footer={footer}
     />
   )
 }
@@ -199,26 +208,27 @@ export function TicketSessionDetailPage() {
         </div>
       )}
 
-      {/* One merged timeline: prompt → model turns / tool calls / executions
-          → reconciliation. Sort everything by timestamp so the founder
-          reads the session top-to-bottom in the order it happened. */}
+      {/* Session page is agent-domain only: one timeline of messages
+          (prompt → model turns → reconciliation). Tool executions are a
+          sandbox-domain concern — they're correlated from each message's
+          tool_use blocks via tool_use_id, and linked out to the execution
+          detail page, not inlined here. */}
       {(() => {
-        type Item =
-          | { kind: 'exec'; at: string; e: Execution }
-          | { kind: 'msg';  at: string; m: Message }
-        const items: Item[] = [
-          ...executions.map(e => ({ kind: 'exec' as const, at: e.started_at,  e })),
-          ...messages.map(m   => ({ kind: 'msg'  as const, at: m.created_at, m })),
-        ].sort((a, b) => a.at.localeCompare(b.at))
-
+        const execByToolUseId = new Map<string, Execution>()
+        for (const e of executions) if (e.tool_use_id) execByToolUseId.set(e.tool_use_id, e)
         return (
           <div>
-            <SectionLabel label={`activity (${items.length})`} onRefresh={refreshActivity} />
-            {items.length === 0
-              ? <EmptyState message="no activity" />
-              : items.map(it => it.kind === 'exec'
-                  ? <ExecutionRow key={`e-${it.e.id}`} e={it.e} sub={execPath(it.e.id)} />
-                  : <MessageRow   key={`m-${it.m.id}`} m={it.m} />)
+            <SectionLabel label={`messages (${messages.length})`} onRefresh={refreshActivity} />
+            {messages.length === 0
+              ? <EmptyState message="no messages" />
+              : messages.map(m => (
+                  <MessageRow
+                    key={m.id}
+                    m={m}
+                    execByToolUseId={execByToolUseId}
+                    execHref={execPath}
+                  />
+                ))
             }
           </div>
         )

@@ -38,7 +38,7 @@ import type { Config } from '../config.js'
 import type { Ticket } from '../schema.js'
 import { require, toInt } from '../functional.js'
 import { installationForRepo, installationToken } from '../github.js'
-import { asText, runCommand } from './_shared.js'
+import { asText, runCommand, toolUseId } from './_shared.js'
 
 import { filterTools, type McpServerInfo } from './registry.js'
 
@@ -125,6 +125,7 @@ export interface GithubCtx {
   workspace: string   // same tmpdir the sandbox server bind-mounts at /work
   ticket:    Ticket
   agentName: string
+  toolUseId?: string
 }
 
 // ── Schemas ──
@@ -219,6 +220,7 @@ async function handleGitClone(ctx: GithubCtx, args: z.infer<typeof gitCloneArgs>
           REPO:          name,
           SESSION_ID:    ctx.sessionId,
         },
+        toolUseId: ctx.toolUseId,
       })
 
     if (r.exitCode !== 0) {
@@ -234,7 +236,7 @@ async function handleGitClone(ctx: GithubCtx, args: z.infer<typeof gitCloneArgs>
 
 async function handleGitStatus(ctx: GithubCtx, _args: z.infer<typeof gitStatusArgs>) {
   const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace,
-    'git status --porcelain=v1', 'gitStatus', {})
+    'git status --porcelain=v1', 'gitStatus', {}, { toolUseId: ctx.toolUseId })
   if (r.exitCode !== 0) return { error: r.stderr || r.stdout }
   return { status: r.stdout }
 }
@@ -247,7 +249,7 @@ async function handleGitDiff(ctx: GithubCtx, args: z.infer<typeof gitDiffArgs>) 
     for (const p of args.paths) parts.push(esc(p))
   }
   const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace,
-    parts.join(' '), 'gitDiff', args)
+    parts.join(' '), 'gitDiff', args, { toolUseId: ctx.toolUseId })
   if (r.exitCode !== 0) return { error: r.stderr || r.stdout }
   return { diff: r.stdout }
 }
@@ -258,7 +260,7 @@ async function handleGitAdd(ctx: GithubCtx, args: z.infer<typeof gitAddArgs>) {
   }
   const command = `git add -- ${args.paths.map(esc).join(' ')}`
   const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace,
-    command, 'gitAdd', args)
+    command, 'gitAdd', args, { toolUseId: ctx.toolUseId })
   if (r.exitCode !== 0) return { ok: false, error: r.stderr || r.stdout }
   return { ok: true, staged: args.paths }
 }
@@ -269,7 +271,7 @@ async function handleGitRemove(ctx: GithubCtx, args: z.infer<typeof gitRemoveArg
   }
   const command = `git rm -r -- ${args.paths.map(esc).join(' ')}`
   const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace,
-    command, 'gitRemove', args)
+    command, 'gitRemove', args, { toolUseId: ctx.toolUseId })
   if (r.exitCode !== 0) return { ok: false, error: r.stderr || r.stdout }
   return { ok: true, removed: args.paths }
 }
@@ -291,7 +293,7 @@ async function handleGitCommit(ctx: GithubCtx, args: z.infer<typeof gitCommitArg
     'git rev-parse HEAD',
   ].join('\n')
   const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace,
-    command, 'gitCommit', args, { env: { FULL_MSG: fullMessage } })
+    command, 'gitCommit', args, { env: { FULL_MSG: fullMessage }, toolUseId: ctx.toolUseId })
   if (r.exitCode === 64 || r.stdout.trim() === 'NOTHING_STAGED') {
     return { ok: false, error: 'nothing staged — call gitAdd first' }
   }
@@ -378,6 +380,7 @@ async function handleGitPullRequest(ctx: GithubCtx, args: z.infer<typeof gitPull
           BRANCH:        branch,
           PR_BODY_JSON:  prBodyTemplate,
         },
+        toolUseId: ctx.toolUseId,
       })
 
     // Marker exit code: nothing staged beyond the base branch.
@@ -450,6 +453,7 @@ async function handleGitRebase(ctx: GithubCtx, _args: z.infer<typeof gitRebaseAr
           OWNER:         owner,
           REPO:          name,
         },
+        toolUseId: ctx.toolUseId,
       })
 
     if (r.exitCode !== 0) {
@@ -513,6 +517,7 @@ async function handleGitMerge(ctx: GithubCtx, args: z.infer<typeof gitMergeArgs>
           BRANCH:        branch,
           PR_BODY_JSON:  prBodyTemplate,
         },
+        toolUseId: ctx.toolUseId,
       })
 
     if (r.exitCode === 64 || r.stdout.trim() === 'NOTHING_TO_PUBLISH') {
@@ -621,16 +626,17 @@ const DESC = {
 // ── Anthropic Claude Agent SDK adapter ──
 
 export function buildSdk(ctx: GithubCtx, allowed?: string[] | '*' | null) {
+  const tu = (x: unknown): GithubCtx => ({ ...ctx, toolUseId: toolUseId(x) })
   const all = [
-    sdkTool('gitClone',       DESC.gitClone,       gitCloneArgs.shape,       async a => asText(await handleGitClone(ctx, a))),
-    sdkTool('gitStatus',      DESC.gitStatus,      gitStatusArgs.shape,      async a => asText(await handleGitStatus(ctx, a))),
-    sdkTool('gitDiff',        DESC.gitDiff,        gitDiffArgs.shape,        async a => asText(await handleGitDiff(ctx, a))),
-    sdkTool('gitAdd',         DESC.gitAdd,         gitAddArgs.shape,         async a => asText(await handleGitAdd(ctx, a))),
-    sdkTool('gitRemove',      DESC.gitRemove,      gitRemoveArgs.shape,      async a => asText(await handleGitRemove(ctx, a))),
-    sdkTool('gitCommit',      DESC.gitCommit,      gitCommitArgs.shape,      async a => asText(await handleGitCommit(ctx, a))),
-    sdkTool('gitPullRequest', DESC.gitPullRequest, gitPullRequestArgs.shape, async a => asText(await handleGitPullRequest(ctx, a))),
-    sdkTool('gitMerge',       DESC.gitMerge,       gitMergeArgs.shape,       async a => asText(await handleGitMerge(ctx, a))),
-    sdkTool('gitRebase',      DESC.gitRebase,      gitRebaseArgs.shape,      async a => asText(await handleGitRebase(ctx, a))),
+    sdkTool('gitClone',       DESC.gitClone,       gitCloneArgs.shape,       async (a, x) => asText(await handleGitClone(tu(x), a))),
+    sdkTool('gitStatus',      DESC.gitStatus,      gitStatusArgs.shape,      async (a, x) => asText(await handleGitStatus(tu(x), a))),
+    sdkTool('gitDiff',        DESC.gitDiff,        gitDiffArgs.shape,        async (a, x) => asText(await handleGitDiff(tu(x), a))),
+    sdkTool('gitAdd',         DESC.gitAdd,         gitAddArgs.shape,         async (a, x) => asText(await handleGitAdd(tu(x), a))),
+    sdkTool('gitRemove',      DESC.gitRemove,      gitRemoveArgs.shape,      async (a, x) => asText(await handleGitRemove(tu(x), a))),
+    sdkTool('gitCommit',      DESC.gitCommit,      gitCommitArgs.shape,      async (a, x) => asText(await handleGitCommit(tu(x), a))),
+    sdkTool('gitPullRequest', DESC.gitPullRequest, gitPullRequestArgs.shape, async (a, x) => asText(await handleGitPullRequest(tu(x), a))),
+    sdkTool('gitMerge',       DESC.gitMerge,       gitMergeArgs.shape,       async (a, x) => asText(await handleGitMerge(tu(x), a))),
+    sdkTool('gitRebase',      DESC.gitRebase,      gitRebaseArgs.shape,      async (a, x) => asText(await handleGitRebase(tu(x), a))),
   ]
   return createSdkMcpServer({ name: 'github', tools: filterTools(all, allowed) })
 }

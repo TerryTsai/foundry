@@ -104,6 +104,19 @@ export interface RunCommandOptions {
   network?: boolean
   env?:     Record<string, string>   // passed to podman; NOT logged to DB
   mount?:   'rw' | 'ro' | 'none'     // workspace bind mode, default 'rw'
+  /** tool_use block id from the SDK handler's `extra._meta`. Persisted
+   *  on the execution row so the UI can correlate the sandbox-domain
+   *  execution back to the agent-domain tool_use block that caused it. */
+  toolUseId?: string
+}
+
+// Extract the BetaMessage tool_use block id that caused this MCP tool
+// call. The SDK stashes it under `_meta["claudecode/toolUseId"]`. Helper
+// so every handler can pull it uniformly from the opaque `extra` arg.
+export function toolUseId(extra: unknown): string | undefined {
+  const meta = (extra as { _meta?: Record<string, unknown> } | undefined)?._meta
+  const id = meta?.['claudecode/toolUseId']
+  return typeof id === 'string' ? id : undefined
 }
 
 export function runCommand(
@@ -112,6 +125,7 @@ export function runCommand(
 ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
   const { emitter } = domain.executionCreate(db, config, {
     command, session_id: sessionId, tool_name: toolName, tool_input: toolInput,
+    tool_use_id: options.toolUseId,
     network: options.network ?? false,
     env:     options.env ?? {},
     mount:   options.mount ?? 'rw',
