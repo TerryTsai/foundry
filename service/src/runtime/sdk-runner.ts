@@ -143,6 +143,13 @@ export async function runAgentSessionViaSdk(
     let outputTokens = 0
     let stopReason: string | null = null
     let numTurns = 0
+    // When a turn has both a thinking block and a tool_use block the SDK
+    // emits the same BetaMessage twice — once when thinking is complete,
+    // again when tool_use is appended — with identical `usage`. Track the
+    // DB row id we created per BetaMessage so we can overwrite content on
+    // the second emission (getting the full block list + correct
+    // tool_call_count) without double-billing tokens.
+    const seenMessages = new Map<string, string>()   // BetaMessage.id → message row id
 
     // Persist tokens incrementally, one row per assistant turn. Previously we
     // read `modelUsage` off the final `result` message and wrote a single
@@ -165,16 +172,8 @@ export async function runAgentSessionViaSdk(
       },
     })) {
       if (message.type === 'assistant') {
+        const msgId = message.message.id
         const u = message.message.usage
-        // Total input = prompt + cache reads + cache creation. Each turn
-        // re-bills the full history, so summing per-turn input across the
-        // session matches what `result.modelUsage` reports cumulatively.
-        const turnIn  = (u.input_tokens ?? 0)
-                      + (u.cache_read_input_tokens ?? 0)
-                      + (u.cache_creation_input_tokens ?? 0)
-        const turnOut = u.output_tokens ?? 0
-        inputTokens  += turnIn
-        outputTokens += turnOut
         const blocks  = Array.isArray(message.message.content) ? message.message.content : []
         const toolCalls = blocks.filter((b: { type: string }) => b.type === 'tool_use').length
         // Store a human-readable text body when there's a text block, else a
@@ -189,7 +188,25 @@ export async function runAgentSessionViaSdk(
           }
         }
         const body = textParts.length > 0 ? textParts.join('\n\n') : JSON.stringify(blocks)
-        domain.sessionMessage(db, sessionId, 'assistant', body, turnOut, turnIn, toolCalls)
+
+        const existingRowId = msgId ? seenMessages.get(msgId) : undefined
+        if (existingRowId) {
+          // Same BetaMessage, fuller content (e.g. thinking → thinking+tool_use).
+          // Overwrite content + tool_call_count; do NOT re-add tokens.
+          database.messageUpdate(db, existingRowId, { content: body, tool_call_count: toolCalls })
+        } else {
+          // Total input = prompt + cache reads + cache creation. Each turn
+          // re-bills the full history, so summing per-turn input across the
+          // session matches what `result.modelUsage` reports cumulatively.
+          const turnIn  = (u.input_tokens ?? 0)
+                        + (u.cache_read_input_tokens ?? 0)
+                        + (u.cache_creation_input_tokens ?? 0)
+          const turnOut = u.output_tokens ?? 0
+          inputTokens  += turnIn
+          outputTokens += turnOut
+          const row = domain.sessionMessage(db, sessionId, 'assistant', body, turnOut, turnIn, toolCalls)
+          if (msgId) seenMessages.set(msgId, row.id)
+        }
         // Last non-empty text block is what the founder sees in the final
         // ticketComment when the session closes cleanly.
         if (textParts.length > 0) finalText = textParts.join('\n\n')

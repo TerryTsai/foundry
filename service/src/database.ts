@@ -417,6 +417,11 @@ export function messageInsert(d: Db, data: Record<string, unknown>): Message {
   return d.select().from(schema.message).where(eq(schema.message.id, id)).get() as Message
 }
 
+export function messageUpdate(d: Db, id: string, data: Record<string, unknown>): Message {
+  if (Object.keys(data).length > 0) d.update(schema.message).set(data as any).where(eq(schema.message.id, id)).run()
+  return d.select().from(schema.message).where(eq(schema.message.id, id)).get() as Message
+}
+
 export function messageBySession(d: Db, sessionId: string): Message[] {
   return d.select().from(schema.message).where(eq(schema.message.session_id, sessionId)).all() as Message[]
 }
