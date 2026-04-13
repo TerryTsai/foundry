@@ -15,7 +15,7 @@ export function AgentNewPage() {
   const [name, setName] = useState('')
   const [connectionId, setConnectionId] = useState(connections[0]?.id ?? '')
   const [model, setModel] = useState('claude-sonnet-4-20250514')
-  const [prompt, setPrompt] = useState('')
+  const [description, setDescription] = useState('')
   const [maxTokens, setMaxTokens] = useState('8192')
   const [maxSteps, setMaxSteps] = useState('20')
   const [temperature, setTemperature] = useState('')
@@ -33,7 +33,7 @@ export function AgentNewPage() {
     try {
       const tools = toolSelection && Object.keys(toolSelection).length > 0 ? toolSelection : undefined
       await agentApi.create({
-        connection_id: connectionId, name, model, prompt,
+        connection_id: connectionId, name, model, description,
         max_tokens: +maxTokens, max_steps: +maxSteps,
         temperature: temperature ? +temperature : undefined,
         reasoning_budget: reasoningBudget ? +reasoningBudget : null,
@@ -77,8 +77,8 @@ export function AgentNewPage() {
           <TextInput type="number" value={reasoningBudget} onChange={e => setReasoningBudget(e.target.value)} min="1024" placeholder="off" />
         </Field>
         <ToolPicker servers={servers} selection={toolSelection} onChange={setToolSelection} />
-        <Field label="prompt">
-          <TextArea label="prompt" value={prompt} onChange={e => setPrompt(e.target.value)} required rows={8} />
+        <Field label="description">
+          <TextArea label="description" value={description} onChange={e => setDescription(e.target.value)} required rows={8} />
         </Field>
         <div className="flex gap-2 pt-2">
           <ActionButton label="cancel" variant="secondary" onClick={() => navigate(-1)} className="flex-1" />

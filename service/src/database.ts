@@ -3,7 +3,7 @@ import { drizzle } from 'drizzle-orm/better-sqlite3'
 import { eq, and, inArray, sql, type SQL } from 'drizzle-orm'
 import { ulid } from 'ulid'
 import * as schema from './schema.js'
-import type { Account, Agent, AuthSession, Comment, Connection, Execution, Message, Project, Session, Ticket, TicketTag } from './schema.js'
+import type { Account, Activity, Agent, AuthSession, Comment, Connection, Execution, Project, Session, Tag, Ticket } from './schema.js'
 
 export type Db = ReturnType<typeof drizzle<typeof schema>>
 
@@ -17,49 +17,37 @@ export function createDatabase(path: string): Db {
   sqlite.pragma('mmap_size = 268435456')  // 256 MB mmap for faster reads
   sqlite.pragma('busy_timeout = 5000')    // wait 5s on lock instead of failing
 
-  // Indexes — append-mostly workload reads by parent ID. CREATE INDEX IF NOT
-  // EXISTS is idempotent so it's safe to run on every startup.
+  // Indexes — idempotent, safe on every startup. Big one-shot migrations
+  // live outside this file (see migrate-activity.js in repo root).
   sqlite.exec(`
-    CREATE INDEX IF NOT EXISTS idx_message_session_id    ON message(session_id);
-    CREATE INDEX IF NOT EXISTS idx_execution_session_id  ON execution(session_id);
-    CREATE INDEX IF NOT EXISTS idx_comment_ticket_id     ON comment(ticket_id);
-    CREATE INDEX IF NOT EXISTS idx_session_ticket_id     ON session(ticket_id);
-    CREATE INDEX IF NOT EXISTS idx_session_agent_id      ON session(agent_id);
-    CREATE INDEX IF NOT EXISTS idx_session_started_at    ON session(started_at);
-    CREATE INDEX IF NOT EXISTS idx_ticket_project_id     ON ticket(project_id);
-    CREATE INDEX IF NOT EXISTS idx_ticket_status         ON ticket(status);
-    CREATE INDEX IF NOT EXISTS idx_ticket_project_status ON ticket(project_id, status);
-    CREATE INDEX IF NOT EXISTS idx_agent_account_id      ON agent(account_id);
-    CREATE INDEX IF NOT EXISTS idx_ticket_tag_ticket_id  ON ticket_tag(ticket_id);
-    CREATE INDEX IF NOT EXISTS idx_ticket_tag_tag        ON ticket_tag(tag);
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_ticket_tag_unique ON ticket_tag(ticket_id, tag);
+    CREATE INDEX IF NOT EXISTS idx_activity_session_id    ON activity(session_id);
+    CREATE INDEX IF NOT EXISTS idx_activity_turn_id       ON activity(turn_id);
+    CREATE INDEX IF NOT EXISTS idx_activity_execution_id  ON activity(execution_id);
+    CREATE INDEX IF NOT EXISTS idx_activity_tool_use_id   ON activity(tool_use_id);
+    CREATE INDEX IF NOT EXISTS idx_activity_kind          ON activity(kind);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_activity_turn_order
+      ON activity(session_id, turn_id, order_index) WHERE turn_id IS NOT NULL;
+
+    CREATE INDEX IF NOT EXISTS idx_execution_session_id   ON execution(session_id);
+    CREATE INDEX IF NOT EXISTS idx_execution_tool_use_id  ON execution(tool_use_id);
+
+    CREATE INDEX IF NOT EXISTS idx_comment_ticket_id      ON comment(ticket_id);
+    CREATE INDEX IF NOT EXISTS idx_session_ticket_id      ON session(ticket_id);
+    CREATE INDEX IF NOT EXISTS idx_session_agent_id       ON session(agent_id);
+    CREATE INDEX IF NOT EXISTS idx_session_started_at     ON session(started_at);
+
+    CREATE INDEX IF NOT EXISTS idx_ticket_project_id      ON ticket(project_id);
+    CREATE INDEX IF NOT EXISTS idx_ticket_status          ON ticket(status);
+    CREATE INDEX IF NOT EXISTS idx_ticket_project_status  ON ticket(project_id, status);
+
+    CREATE INDEX IF NOT EXISTS idx_agent_account_id       ON agent(account_id);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_current_name
+      ON agent(account_id, name) WHERE superseded_at IS NULL;
+
+    CREATE INDEX IF NOT EXISTS idx_tag_ticket_id          ON tag(ticket_id);
+    CREATE INDEX IF NOT EXISTS idx_tag_name               ON tag(tag);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_tag_unique      ON tag(ticket_id, tag);
   `)
-
-  // One-shot backfill: pre-existing assistant messages stored their tool calls
-  // as a JSON array in `content` but didn't track tool_call_count. Derive it
-  // from json_array_length so historical data still rolls up correctly. Idempotent.
-  sqlite.exec(`
-    UPDATE message
-    SET tool_call_count = json_array_length(content)
-    WHERE role = 'assistant' AND tool_call_count IS NULL AND content LIKE '[%'
-  `)
-
-  // Migrate concurrency_limit → max_agents, drop schedule_interval.
-  const cols = sqlite.pragma('table_info(project)') as { name: string }[]
-  const hasMaxAgents = cols.some(c => c.name === 'max_agents')
-  if (!hasMaxAgents) {
-    sqlite.exec(`ALTER TABLE project ADD COLUMN max_agents INTEGER NOT NULL DEFAULT 3`)
-    sqlite.exec(`UPDATE project SET max_agents = concurrency_limit WHERE concurrency_limit != 3`)
-  }
-
-  // Correlate executions back to the assistant message tool_use block
-  // that caused them. Nullable; populated by runCommand from the SDK's
-  // handler `_meta["claudecode/toolUseId"]`.
-  const execCols = sqlite.pragma('table_info(execution)') as { name: string }[]
-  if (!execCols.some(c => c.name === 'tool_use_id')) {
-    sqlite.exec(`ALTER TABLE execution ADD COLUMN tool_use_id TEXT`)
-    sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_execution_tool_use_id ON execution(tool_use_id)`)
-  }
 
   return drizzle(sqlite, { schema })
 }
@@ -227,50 +215,51 @@ export function ticketRemove(d: Db, id: string): void {
 // TICKET TAG
 // ────────────────────────────────────────────────────────────────────────────
 
-export function ticketTagList(d: Db, ticketId: string): TicketTag[] {
-  return d.select().from(schema.ticketTag).where(eq(schema.ticketTag.ticket_id, ticketId)).all() as TicketTag[]
+export function ticketTagList(d: Db, ticketId: string): Tag[] {
+  return d.select().from(schema.tag).where(eq(schema.tag.ticket_id, ticketId)).all() as Tag[]
 }
 
-export function ticketTagInsert(d: Db, ticketId: string, tag: string): TicketTag {
+export function ticketTagInsert(d: Db, ticketId: string, tag: string): Tag {
   const id = ulid()
   const normalizedTag = tag.toLowerCase().trim()
   const created_at = new Date().toISOString()
-  d.insert(schema.ticketTag).values({ id, ticket_id: ticketId, tag: normalizedTag, created_at }).run()
-  return d.select().from(schema.ticketTag).where(eq(schema.ticketTag.id, id)).get() as TicketTag
+  d.insert(schema.tag).values({ id, ticket_id: ticketId, tag: normalizedTag, created_at }).run()
+  return d.select().from(schema.tag).where(eq(schema.tag.id, id)).get() as Tag
 }
 
 export function ticketTagRemove(d: Db, ticketId: string, tag: string): void {
-  d.delete(schema.ticketTag).where(and(eq(schema.ticketTag.ticket_id, ticketId), eq(schema.ticketTag.tag, tag))).run()
+  d.delete(schema.tag).where(and(eq(schema.tag.ticket_id, ticketId), eq(schema.tag.tag, tag))).run()
 }
 
 export function projectTagList(d: Db, projectId: string): string[] {
   return d
-    .selectDistinct({ tag: schema.ticketTag.tag })
-    .from(schema.ticketTag)
-    .innerJoin(schema.ticket, eq(schema.ticketTag.ticket_id, schema.ticket.id))
+    .selectDistinct({ tag: schema.tag.tag })
+    .from(schema.tag)
+    .innerJoin(schema.ticket, eq(schema.tag.ticket_id, schema.ticket.id))
     .where(eq(schema.ticket.project_id, projectId))
-    .orderBy(schema.ticketTag.tag)
+    .orderBy(schema.tag.tag)
     .all()
     .map((r: { tag: string }) => r.tag)
 }
 
 export function ticketsByTag(d: Db, tag: string, conditions?: SQL[]): Ticket[] {
-  const where = [eq(schema.ticketTag.tag, tag), ...(conditions ?? [])]
+  const where = [eq(schema.tag.tag, tag), ...(conditions ?? [])]
   return d.select({
-    id:         schema.ticket.id,
-    project_id: schema.ticket.project_id,
-    agent_id:   schema.ticket.agent_id,
-    title:      schema.ticket.title,
-    body:       schema.ticket.body,
-    status:     schema.ticket.status,
-    priority:   schema.ticket.priority,
-    parent_id:  schema.ticket.parent_id,
-    created_by: schema.ticket.created_by,
-    created_at: schema.ticket.created_at,
-    updated_at: schema.ticket.updated_at,
-    claimed_at: schema.ticket.claimed_at,
-  }).from(schema.ticketTag)
-    .innerJoin(schema.ticket, eq(schema.ticketTag.ticket_id, schema.ticket.id))
+    id:          schema.ticket.id,
+    project_id:  schema.ticket.project_id,
+    agent_id:    schema.ticket.agent_id,
+    title:       schema.ticket.title,
+    description: schema.ticket.description,
+    status:      schema.ticket.status,
+    priority:    schema.ticket.priority,
+    parent_id:   schema.ticket.parent_id,
+    blocked_by:  schema.ticket.blocked_by,
+    created_by:  schema.ticket.created_by,
+    created_at:  schema.ticket.created_at,
+    updated_at:  schema.ticket.updated_at,
+    claimed_at:  schema.ticket.claimed_at,
+  }).from(schema.tag)
+    .innerJoin(schema.ticket, eq(schema.tag.ticket_id, schema.ticket.id))
     .where(and(...where))
     .all() as Ticket[]
 }
@@ -331,28 +320,27 @@ export function agentRemove(d: Db, id: string): void {
 // ────────────────────────────────────────────────────────────────────────────
 
 // All session selects that need rolled-up usage go through this column map.
-// tokens_in / tokens_out / step_count are aggregated from message rows (the
-// LEFT JOIN below). tool_calls is sourced from the execution table via
-// subquery — every tool invocation goes through executionCreate, which is
-// the same code path for the managed loop and the SDK runner. That makes
-// the count backend-agnostic and independent of how the loop chose to
-// persist messages.
+// tokens_in / tokens_out / step_count are aggregated from activity rows
+// (LEFT JOIN below). Only the first activity of each turn carries tokens,
+// so SUM over activities == modelUsage exactly. tool_calls is sourced from
+// the execution table via subquery — every tool invocation goes through
+// executionCreate.
 const sessionWithAgentColumns = {
   id:            schema.session.id,
   ticket_id:     schema.session.ticket_id,
   agent_id:      schema.session.agent_id,
   agent_name:    schema.agent.name,
+  model:         schema.agent.model,       // agent is immutable, so reading from agent is stable
   status:        schema.session.status,
-  model:         schema.session.model,
   error:         schema.session.error,
   cost_usd:      schema.session.cost_usd,
   duration_ms:   schema.session.duration_ms,
   finish_reason: schema.session.finish_reason,
   started_at:    schema.session.started_at,
   ended_at:      schema.session.ended_at,
-  tokens_in:  sql<number | null>`SUM(${schema.message.tokens_in})`.as('tokens_in'),
-  tokens_out: sql<number | null>`SUM(${schema.message.tokens})`.as('tokens_out'),
-  step_count: sql<number | null>`NULLIF(COUNT(CASE WHEN ${schema.message.role} = 'assistant' THEN 1 END), 0)`.as('step_count'),
+  tokens_in:  sql<number | null>`SUM(${schema.activity.tokens_in})`.as('tokens_in'),
+  tokens_out: sql<number | null>`SUM(${schema.activity.tokens})`.as('tokens_out'),
+  step_count: sql<number | null>`NULLIF(COUNT(DISTINCT ${schema.activity.turn_id}), 0)`.as('step_count'),
   tool_calls: sql<number | null>`NULLIF((SELECT COUNT(*) FROM execution WHERE execution.session_id = session.id), 0)`.as('tool_calls'),
 }
 
@@ -384,7 +372,7 @@ export function sessionGetAggregated(d: Db, id: string) {
   return d.select(sessionWithAgentColumns)
     .from(schema.session)
     .leftJoin(schema.agent,   eq(schema.session.agent_id, schema.agent.id))
-    .leftJoin(schema.message, eq(schema.message.session_id, schema.session.id))
+    .leftJoin(schema.activity, eq(schema.activity.session_id, schema.session.id))
     .where(eq(schema.session.id, id))
     .groupBy(schema.session.id)
     .get()
@@ -394,7 +382,7 @@ export function sessionAggregateAll(d: Db, conditions?: SQL[]) {
   const base = d.select(sessionWithAgentColumns)
     .from(schema.session)
     .leftJoin(schema.agent,   eq(schema.session.agent_id, schema.agent.id))
-    .leftJoin(schema.message, eq(schema.message.session_id, schema.session.id))
+    .leftJoin(schema.activity, eq(schema.activity.session_id, schema.session.id))
   const filtered = conditions?.length ? base.where(and(...conditions)) : base
   return filtered.groupBy(schema.session.id).orderBy(schema.session.started_at).all()
 }
@@ -408,31 +396,46 @@ export function sessionListWithAgent(d: Db) {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// MESSAGE
+// ACTIVITY
 // ────────────────────────────────────────────────────────────────────────────
 
-export function messageGet(d: Db, id: string): Message | undefined {
-  return d.select().from(schema.message).where(eq(schema.message.id, id)).get() as Message | undefined
+export function activityGet(d: Db, id: string): Activity | undefined {
+  return d.select().from(schema.activity).where(eq(schema.activity.id, id)).get() as Activity | undefined
 }
 
-export function messageAll(d: Db, conditions?: SQL[]): Message[] {
-  const q = conditions?.length ? d.select().from(schema.message).where(and(...conditions)) : d.select().from(schema.message)
-  return q.all() as Message[]
+export function activityAll(d: Db, conditions?: SQL[]): Activity[] {
+  const q = conditions?.length ? d.select().from(schema.activity).where(and(...conditions)) : d.select().from(schema.activity)
+  return q.all() as Activity[]
 }
 
-export function messageInsert(d: Db, data: Record<string, unknown>): Message {
+export function activityInsert(d: Db, data: Record<string, unknown>): Activity {
   const id = ulid()
-  d.insert(schema.message).values({ ...data, id } as any).run()
-  return d.select().from(schema.message).where(eq(schema.message.id, id)).get() as Message
+  d.insert(schema.activity).values({ ...data, id } as any).run()
+  return d.select().from(schema.activity).where(eq(schema.activity.id, id)).get() as Activity
 }
 
-export function messageUpdate(d: Db, id: string, data: Record<string, unknown>): Message {
-  if (Object.keys(data).length > 0) d.update(schema.message).set(data as any).where(eq(schema.message.id, id)).run()
-  return d.select().from(schema.message).where(eq(schema.message.id, id)).get() as Message
+export function activityUpdate(d: Db, id: string, data: Record<string, unknown>): Activity {
+  if (Object.keys(data).length > 0) d.update(schema.activity).set(data as any).where(eq(schema.activity.id, id)).run()
+  return d.select().from(schema.activity).where(eq(schema.activity.id, id)).get() as Activity
 }
 
-export function messageBySession(d: Db, sessionId: string): Message[] {
-  return d.select().from(schema.message).where(eq(schema.message.session_id, sessionId)).all() as Message[]
+export function activityBySession(d: Db, sessionId: string): Activity[] {
+  return d.select().from(schema.activity)
+    .where(eq(schema.activity.session_id, sessionId))
+    .orderBy(schema.activity.created_at, schema.activity.order_index)
+    .all() as Activity[]
+}
+
+// Find an existing activity for a given turn + order_index. Used by the
+// runtime to upsert streaming-emission blocks in place.
+export function activityByTurnOrder(d: Db, sessionId: string, turnId: string, orderIndex: number): Activity | undefined {
+  return d.select().from(schema.activity)
+    .where(and(
+      eq(schema.activity.session_id, sessionId),
+      eq(schema.activity.turn_id, turnId),
+      eq(schema.activity.order_index, orderIndex),
+    ))
+    .get() as Activity | undefined
 }
 
 // ════════════════════════════════════════════════════════════════════════════

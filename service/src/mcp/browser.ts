@@ -83,7 +83,6 @@ export function buildSdk(ctx: BrowserCtx, allowed?: string[] | '*' | null) {
   ]
   return createSdkMcpServer({ name: 'browser', tools: filterTools(all, allowed) })
 }
-
 // ── Vercel ai SDK adapter ──
 
 export function buildAi(ctx: BrowserCtx) {

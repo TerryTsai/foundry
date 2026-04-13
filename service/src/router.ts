@@ -160,8 +160,7 @@ export function agent(db: Db, config: Config) {
   r.get   ('/:id/session/:sid',                                                 run(req => domain.sessionGet(db, req.params.sid)),                                      send())
   r.get   ('/:id/session/:sid/status',                                          run(req => domain.sessionStatus(db, req.params.sid)),                                   send())
   r.delete('/:id/session/:sid',                                                 run(req => domain.sessionKill(db, req.params.sid)),                                     send())
-  r.post  ('/:id/session/:sid/message', parse(validate.sessionMessage),         run(req => domain.sessionMessage(db, req.params.sid, 'founder', req.data.content)),     send(201))
-  r.get   ('/:id/session/:sid/message',                                         run(req => domain.sessionMessages(db, req.params.sid)),                                 send())
+  r.get   ('/:id/session/:sid/activity',                                        run(req => domain.sessionActivities(db, req.params.sid)),                               send())
   return r
 }
 
@@ -169,7 +168,7 @@ export function session(db: Db) {
   const r = Router()
   r.get('/',               run(()  => domain.sessionListAll(db)),                       send())
   r.get('/:id',            run(req => domain.sessionGet(db, req.params.id)),            send())
-  r.get('/:id/message',    run(req => domain.sessionMessages(db, req.params.id)),       send())
+  r.get('/:id/activity',   run(req => domain.sessionActivities(db, req.params.id)),     send())
   r.get('/:id/execution',  run(req => domain.executionBySession(db, req.params.id)),    send())
   r.get('/:id/usage',      run(req => domain.sessionUsage(db, req.params.id)),          send())
   return r

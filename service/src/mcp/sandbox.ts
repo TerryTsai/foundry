@@ -255,7 +255,6 @@ export function buildSdk(ctx: SandboxCtx, allowed?: string[] | '*' | null) {
   ]
   return createSdkMcpServer({ name: 'sandbox', tools: filterTools(all, allowed) })
 }
-
 // ── Vercel ai SDK adapter ──
 
 export function buildAi(ctx: SandboxCtx) {

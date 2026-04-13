@@ -596,7 +596,7 @@ async function handleGitMerge(ctx: GithubCtx, args: z.infer<typeof gitMergeArgs>
 }
 
 function defaultPrBody(sessionId: string, ticket: Ticket): string {
-  const body = ticket.body.trim()
+  const body = ticket.description.trim()
   const excerpt = body.length > 800 ? `${body.slice(0, 800)}…` : body
   return `Opened automatically by Foundry session \`${sessionId}\` for ticket \`${ticket.id}\`.
 
@@ -640,7 +640,6 @@ export function buildSdk(ctx: GithubCtx, allowed?: string[] | '*' | null) {
   ]
   return createSdkMcpServer({ name: 'github', tools: filterTools(all, allowed) })
 }
-
 // ── Vercel ai SDK adapter ──
 
 export function buildAi(ctx: GithubCtx) {

@@ -6,10 +6,13 @@ import { eq, and, isNull, sql } from 'drizzle-orm'
 import { type Db } from './database.js'
 import * as database from './database.js'
 import * as schema from './schema.js'
-import type { Account, Ticket, TicketTag, Comment, Connection, Agent, Session, Message, Execution } from './schema.js'
+import type { Account, Ticket, Tag, Comment, Connection, Agent, Session, Activity, Execution } from './schema.js'
 import type { Config } from './config.js'
 import { require, assertStatus, pick, now, AppError, conflict, badRequest, notFound } from './functional.js'
-import { supported } from './runtime/model.js'
+// Connection kinds we currently accept. Historically lived in a runtime
+// model registry alongside provider adapters; the Agent SDK runner
+// handles all live dispatch now, so the list is declared here.
+const SUPPORTED_CONNECTION_KINDS = ['anthropic', 'anthropic-subscription'] as const
 import { spawnRun, type RunHandle } from './runtime/sandbox.js'
 import { scrubSecrets } from './mcp/_shared.js'
 import type { z } from 'zod'
@@ -476,7 +479,7 @@ export function connectionGet(db: Db, accountId: string, id: string): MaskedConn
 }
 
 export function connectionCreate(db: Db, accountId: string, input: z.infer<typeof validate.connectionCreate>): MaskedConnection {
-  if (!supported.includes(input.kind)) throw badRequest(`unsupported connection kind '${input.kind}' — supported: ${supported.join(', ')}`)
+  if (!(SUPPORTED_CONNECTION_KINDS as readonly string[]).includes(input.kind)) throw badRequest(`unsupported connection kind '${input.kind}' — supported: ${SUPPORTED_CONNECTION_KINDS.join(', ')}`)
   if (database.connectionGetByName(db, input.name)) throw conflict(`connection '${input.name}' already exists`)
   const row = database.connectionInsert(db, {
     account_id: accountId,
@@ -540,7 +543,7 @@ export async function schedulerDispatch(db: Db, projectId: string): Promise<void
 
     const row = database.sessionInsert(db, {
       ticket_id: t.id, agent_id: def.id,
-      status: 'running', model: def.model, started_at: now(),
+      status: 'running', started_at: now(),
     })
 
     const { runAgentSession } = await import('./runtime/runner.js')
@@ -636,13 +639,13 @@ export function ticketGet(db: Db, id: string): Ticket {
 }
 
 export function ticketCreate(db: Db, input: z.infer<typeof validate.ticketCreate>): Ticket {
-  const { project_id, agent_id, title, body, priority, parent_id, blocked_by, created_by, block } = input
+  const { project_id, agent_id, title, description, priority, parent_id, blocked_by, created_by, block } = input
   if (parent_id)  require(database.ticketGet(db, parent_id), 'parent_id not found')
   if (blocked_by) require(database.ticketGet(db, blocked_by), 'blocked_by ticket not found')
 
   return db.transaction(tx => {
     const row = database.ticketInsert(tx as any, {
-      project_id, agent_id: agent_id ?? null, title, body, priority,
+      project_id, agent_id: agent_id ?? null, title, description, priority,
       status: blocked_by ? 'blocked' : 'open',
       parent_id: parent_id ?? null,
       blocked_by: blocked_by ?? null,
@@ -718,7 +721,7 @@ export function ticketChain(db: Db, id: string): TicketChainEntry[] {
     current = database.ticketGet(db, current.parent_id)
   }
   return chain.map(t => ({
-    id: t.id, title: t.title, body: t.body,
+    id: t.id, title: t.title, description: t.description,
     agent_id: t.agent_id, status: t.status,
   }))
 }
@@ -746,11 +749,11 @@ export function projectTagList(db: Db, accountId: string, projectId: string): st
   return database.projectTagList(db, projectId)
 }
 
-export function tagList(db: Db, ticketId: string): TicketTag[] {
+export function tagList(db: Db, ticketId: string): Tag[] {
   return database.ticketTagList(db, ticketId)
 }
 
-export function tagAdd(db: Db, ticketId: string, tag: string): TicketTag {
+export function tagAdd(db: Db, ticketId: string, tag: string): Tag {
   require(database.ticketGet(db, ticketId))
   try {
     return database.ticketTagInsert(db, ticketId, tag)
@@ -808,28 +811,59 @@ export function agentGet(db: Db, id: string): Agent {
 }
 
 export function agentCreate(db: Db, accountId: string, input: z.infer<typeof validate.agentCreate>): Agent {
-  const { connection_id, name, model, prompt, max_tokens, max_steps, temperature, reasoning_budget, tools } = input
+  const { connection_id, name, model, description, max_tokens, max_steps, temperature, reasoning_budget, tools } = input
   require(database.connectionGet(db, connection_id), `connection '${connection_id}' not found`)
-  if (database.agentAll(db, [eq(schema.agent.account_id, accountId), eq(schema.agent.name, name)]).length > 0) {
-    throw conflict(`agent '${name}' already exists for this account`)
-  }
+  // Partial unique index enforces at most one CURRENT row per (account, name),
+  // but we check here too for a clean error message.
+  const current = database.agentAll(db, [
+    eq(schema.agent.account_id, accountId),
+    eq(schema.agent.name, name),
+    isNull(schema.agent.superseded_at),
+  ])
+  if (current.length > 0) throw conflict(`agent '${name}' already exists for this account`)
   return database.agentInsert(db, {
-    account_id: accountId, connection_id, name, model, prompt,
+    account_id: accountId, connection_id, name, model, description,
     max_tokens: max_tokens ?? 8192, max_steps: max_steps ?? 20,
     temperature: temperature ?? null,
     reasoning_budget: reasoning_budget ?? null,
     tools: tools ? JSON.stringify(tools) : null,
-    ...ts(),
+    superseded_at: null,
+    created_at:   now(),
   })
 }
 
+// Agents are immutable. "Update" creates a new version (new id), copying
+// unchanged fields from the prior row and setting superseded_at on the old.
+// Historical sessions keep pointing at the exact version they ran against,
+// which is the point — metrics stay comparable.
 export function agentUpdate(db: Db, accountId: string, id: string, input: z.infer<typeof validate.agentUpdate>): Agent {
-  const row = require(database.agentGet(db, id))
-  if (row.account_id !== accountId) throw notFound()
+  const prior = require(database.agentGet(db, id))
+  if (prior.account_id !== accountId) throw notFound()
+  if (prior.superseded_at !== null) throw badRequest('cannot update a superseded agent version; start from the current one')
   if (input.connection_id) require(database.connectionGet(db, input.connection_id), `connection '${input.connection_id}' not found`)
-  const data: Record<string, unknown> = { ...pick(input, 'connection_id', 'model', 'prompt', 'max_tokens', 'max_steps', 'temperature', 'reasoning_budget'), updated_at: now() }
-  if (input.tools !== undefined) data.tools = JSON.stringify(input.tools)
-  return database.agentUpdate(db, id, data)
+
+  const newRow = db.transaction(tx => {
+    const d = tx as any
+    const ts = now()
+    database.agentUpdate(d, prior.id, { superseded_at: ts })
+    return database.agentInsert(d, {
+      account_id:       prior.account_id,
+      connection_id:    input.connection_id    ?? prior.connection_id,
+      name:             prior.name,
+      description:      input.description      ?? prior.description,
+      model:            input.model            ?? prior.model,
+      max_tokens:       input.max_tokens       ?? prior.max_tokens,
+      max_steps:        input.max_steps        ?? prior.max_steps,
+      temperature:      input.temperature      ?? prior.temperature,
+      reasoning_budget: input.reasoning_budget ?? prior.reasoning_budget,
+      tools:            input.tools !== undefined
+                          ? JSON.stringify(input.tools)
+                          : prior.tools,
+      superseded_at:    null,
+      created_at:       ts,
+    })
+  })
+  return newRow as Agent
 }
 
 export function agentRemove(db: Db, accountId: string, id: string): { ok: true } {
@@ -857,19 +891,41 @@ export function sessionKill(db: Db, id: string): { ok: true } {
   return { ok: true }
 }
 
-export function sessionMessage(db: Db, sessionId: string, role: string, content: string, tokens?: number, tokensIn?: number, toolCallCount?: number): Message {
+// One activity row per discrete event (content block, execution correlation,
+// reconcile delta). The runtime populates these at stream time; domain layer
+// just offers the list view and an enforced-correctness insert helper.
+export function sessionActivities(db: Db, sessionId: string): Activity[] {
   require(database.sessionGet(db, sessionId))
-  return database.messageInsert(db, {
-    session_id: sessionId, role, content,
-    tokens: tokens ?? null, tokens_in: tokensIn ?? null,
-    tool_call_count: toolCallCount ?? null,
-    created_at: now(),
-  })
+  return database.activityBySession(db, sessionId)
 }
 
-export function sessionMessages(db: Db, sessionId: string): Message[] {
-  require(database.sessionGet(db, sessionId))
-  return database.messageBySession(db, sessionId)
+export function activityCreate(db: Db, input: {
+  session_id:   string
+  turn_id?:     string | null
+  kind:         'prompt' | 'thought' | 'said' | 'tool_call' | 'reconcile'
+  order_index?: number
+  payload:      unknown
+  tool_use_id?: string
+  execution_id?: string
+  tokens_in?:   number | null
+  tokens?:      number | null
+}): Activity {
+  require(database.sessionGet(db, input.session_id))
+  if (input.kind === 'tool_call' && !input.execution_id) {
+    throw new Error('activity.kind=tool_call requires execution_id (sandbox-domain correlation is enforced)')
+  }
+  return database.activityInsert(db, {
+    session_id:   input.session_id,
+    turn_id:      input.turn_id ?? null,
+    kind:         input.kind,
+    order_index:  input.order_index ?? 0,
+    payload:      JSON.stringify(input.payload),
+    tool_use_id:  input.tool_use_id ?? null,
+    execution_id: input.execution_id ?? null,
+    tokens_in:    input.tokens_in ?? null,
+    tokens:       input.tokens ?? null,
+    created_at:   now(),
+  })
 }
 
 export function sessionByTicket(db: Db, ticketId: string) {
@@ -896,7 +952,7 @@ export async function sessionStart(db: Db, config: Config, agentDefId: string, t
 
   const row = database.sessionInsert(db, {
     ticket_id: ticketId, agent_id: agentDefId,
-    status: 'running', model: agentDef.model, started_at: now(),
+    status: 'running', started_at: now(),
   })
 
   const { runAgentSession } = await import('./runtime/runner.js')
@@ -1043,7 +1099,7 @@ export function executionStream(db: Db, id: string, res: Response): void {
 // ════════════════════════════════════════════════════════════════════════════
 
 export interface TicketChainEntry {
-  id: string; title: string; body: string
+  id: string; title: string; description: string
   agent_id: string | null; status: string
 }
 

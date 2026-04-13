@@ -5,19 +5,23 @@ import { sqliteTable, text, integer, real } from 'drizzle-orm/sqlite-core'
 // ════════════════════════════════════════════════════════════════════════════
 
 export const account = sqliteTable('account', {
-  id:         text('id').primaryKey(),
-  github_id:  integer('github_id').notNull().unique(),
-  login:      text('login').notNull(),
-  name:       text('name'),
-  email:      text('email'),
-  avatar_url: text('avatar_url'),
-  created_at: text('created_at').notNull(),
-  updated_at: text('updated_at').notNull(),
+  id:          text('id').primaryKey(),
+  github_id:   integer('github_id').notNull().unique(),
+  login:       text('login').notNull(),
+  name:        text('name'),
+  email:       text('email'),
+  avatar_url:  text('avatar_url'),
+  // Founder-level context. Prepended to every session's system prompt so
+  // the crew carries the founder's working style / preferences into
+  // whatever they're doing. Keep short; the per-project + per-agent
+  // descriptions carry the specifics.
+  description: text('description').notNull().default(''),
+  created_at:  text('created_at').notNull(),
+  updated_at:  text('updated_at').notNull(),
 })
 
 export type Account = typeof account.$inferSelect
 
-// Cookie value is the row id; rows are deleted on logout/expiry. No HMAC needed.
 export const authSession = sqliteTable('auth_session', {
   id:         text('id').primaryKey(),
   account_id: text('account_id').notNull().references(() => account.id, { onDelete: 'cascade' }),
@@ -31,30 +35,26 @@ export type AuthSession = typeof authSession.$inferSelect
 // PROJECT
 // ════════════════════════════════════════════════════════════════════════════
 
-// repo is "owner/repo" — the GitHub repo each session clones from. owner_id
-// default '' lets the runtime backfill claim legacy rows on first login.
 export const project = sqliteTable('project', {
-  id:                text('id').primaryKey(),
-  owner_id:          text('owner_id').notNull().default('').references(() => account.id),
-  repo:              text('repo').notNull().default(''),
-  name:              text('name').notNull(),
-  description:       text('description').notNull().default(''),
-  status:            text('status').notNull().default('active'),
-  max_agents:        integer('max_agents').notNull().default(3),
-  created_at:        text('created_at').notNull(),
-  updated_at:        text('updated_at').notNull(),
+  id:          text('id').primaryKey(),
+  owner_id:    text('owner_id').notNull().default('').references(() => account.id),
+  repo:        text('repo').notNull().default(''),
+  name:        text('name').notNull(),
+  description: text('description').notNull().default(''),
+  status:      text('status').notNull().default('active'),
+  max_agents:  integer('max_agents').notNull().default(3),
+  created_at:  text('created_at').notNull(),
+  updated_at:  text('updated_at').notNull(),
 })
 
 export type Project = typeof project.$inferSelect
 export type NewProject = typeof project.$inferInsert
 
-// Unified "connection" concept: anything with credentials the account owns.
-// Covers LLM providers (kind='anthropic', 'anthropic-subscription', future 'openai')
-// and MCP integrations (future 'github', 'slack', 'notion', ...).
-//
-// config  = non-secret settings (owner/repo, workspace id, base url, ...)
-// secrets = credential material (api_key, refresh_token, bot_token, ...)
-//           Never serialized to tool inputs, tool outputs, or execution rows.
+// Unified "connection": anything with credentials the account owns.
+// kind  = 'anthropic' | 'anthropic-subscription' | future 'openai' | 'github' | …
+// config  = non-secret settings
+// secrets = credential material; never serialized to tool inputs or
+//           execution rows.
 export const connection = sqliteTable('connection', {
   id:         text('id').primaryKey(),
   account_id: text('account_id').notNull().references(() => account.id),
@@ -74,46 +74,46 @@ export type NewConnection = typeof connection.$inferInsert
 // ════════════════════════════════════════════════════════════════════════════
 
 export const ticket = sqliteTable('ticket', {
-  id:         text('id').primaryKey(),
-  project_id: text('project_id').notNull(),
-  agent_id:   text('agent_id'),
-  title:      text('title').notNull(),
-  body:       text('body').notNull(),
-  status:     text('status').notNull().default('open'),
-  priority:   integer('priority').notNull().default(0),
-  parent_id:  text('parent_id'),
-  blocked_by: text('blocked_by'),   // FK to another ticket — scheduler skips until that ticket is done
-  created_by: text('created_by').notNull(),
-  created_at: text('created_at').notNull(),
-  updated_at: text('updated_at').notNull(),
-  claimed_at: text('claimed_at'),
+  id:          text('id').primaryKey(),
+  project_id:  text('project_id').notNull(),
+  agent_id:    text('agent_id'),                 // pins a specific agent version
+  title:       text('title').notNull(),
+  description: text('description').notNull(),
+  status:      text('status').notNull().default('open'),
+  priority:    integer('priority').notNull().default(0),
+  parent_id:   text('parent_id'),
+  blocked_by:  text('blocked_by'),
+  claimed_at:  text('claimed_at'),
+  created_by:  text('created_by').notNull(),
+  created_at:  text('created_at').notNull(),
+  updated_at:  text('updated_at').notNull(),
 })
 
 export type Ticket = typeof ticket.$inferSelect
 export type NewTicket = typeof ticket.$inferInsert
 
-export const ticketTag = sqliteTable('ticket_tag', {
+export const tag = sqliteTable('tag', {
   id:         text('id').primaryKey(),
   ticket_id:  text('ticket_id').notNull().references(() => ticket.id, { onDelete: 'cascade' }),
   tag:        text('tag').notNull(),
   created_at: text('created_at').notNull(),
 })
 
-export type TicketTag = typeof ticketTag.$inferSelect
+export type Tag = typeof tag.$inferSelect
 
 export const comment = sqliteTable('comment', {
   id:         text('id').primaryKey(),
   ticket_id:  text('ticket_id').notNull().references(() => ticket.id),
   session_id: text('session_id'),
   author:     text('author').notNull(),
-  body:       text('body').notNull(),
+  body:       text('body').notNull(),            // narrative stream; flows into prompt context
   created_at: text('created_at').notNull(),
 })
 
 export type Comment = typeof comment.$inferSelect
 
 // ════════════════════════════════════════════════════════════════════════════
-// AGENT
+// AGENT (immutable; edit = insert new row, set superseded_at on prior)
 // ════════════════════════════════════════════════════════════════════════════
 
 export const agent = sqliteTable('agent', {
@@ -121,27 +121,38 @@ export const agent = sqliteTable('agent', {
   account_id:       text('account_id').notNull().references(() => account.id),
   connection_id:    text('connection_id').notNull().references(() => connection.id),
   name:             text('name').notNull(),
+  description:      text('description').notNull(),
   model:            text('model').notNull(),
-  prompt:           text('prompt').notNull(),
   max_tokens:       integer('max_tokens').notNull().default(8192),
   max_steps:        integer('max_steps').notNull().default(20),
   temperature:      real('temperature'),
   reasoning_budget: integer('reasoning_budget'),
-  tools:            text('tools'),
+  tools:            text('tools'),                 // JSON: McpToolSelection
+  // Set when a newer version supersedes this row. NULL = current.
+  // Enforces immutability at the application layer: agentUpdate inserts a
+  // new row (new id) and writes superseded_at on the prior row.
+  // A partial unique index — UNIQUE (account_id, name) WHERE superseded_at
+  // IS NULL — keeps "current by name" honest without blocking history.
+  superseded_at:    text('superseded_at'),
   created_at:       text('created_at').notNull(),
-  updated_at:       text('updated_at').notNull(),
 })
 
 export type Agent = typeof agent.$inferSelect
 export type NewAgent = typeof agent.$inferInsert
 
+// ════════════════════════════════════════════════════════════════════════════
+// SESSION + ACTIVITY + EXECUTION
+// ════════════════════════════════════════════════════════════════════════════
+
 export const session = sqliteTable('session', {
   id:            text('id').primaryKey(),
   ticket_id:     text('ticket_id').notNull(),
   agent_id:      text('agent_id').notNull().references(() => agent.id),
-  status:        text('status').notNull().default('running'),
-  model:         text('model').notNull(),
+  // Final assembled system prompt at dispatch (account + project + agent
+  // + ticket + comment stream). Stored so historical sessions are
+  // reproducible even after prompt layers change.
   system_prompt: text('system_prompt'),
+  status:        text('status').notNull().default('running'),
   error:         text('error'),
   cost_usd:      real('cost_usd'),
   duration_ms:   integer('duration_ms'),
@@ -152,29 +163,45 @@ export const session = sqliteTable('session', {
 
 export type Session = typeof session.$inferSelect
 
-export const message = sqliteTable('message', {
-  id:              text('id').primaryKey(),
-  session_id:      text('session_id').notNull().references(() => session.id),
-  role:            text('role').notNull(),
-  content:         text('content').notNull(),
-  tokens:          integer('tokens'),
-  tokens_in:       integer('tokens_in'),
-  tool_call_count: integer('tool_call_count'),
-  created_at:      text('created_at').notNull(),
+// Flat event log. One row per block the model emitted, one row per
+// execution correlation. No container for "the turn" — the turn is
+// recovered by grouping on turn_id (the BetaMessage.id).
+//
+// Kinds:
+//   prompt    — founder's initial ticket input
+//   thought   — assistant 'thinking' block
+//   said      — assistant 'text' block
+//   tool_call — assistant 'tool_use' block; execution_id is REQUIRED
+//               for new rows (enforced by domain layer). Historical
+//               rows from before the correlation column may have NULL.
+//   reconcile — system modelUsage delta at session close
+//
+// Tokens: the full turn's input/output totals sit on the FIRST activity
+// of each turn (lowest order_index for a turn_id). Others carry NULL
+// for tokens_in/tokens. Sum across activities equals modelUsage exactly.
+export const activity = sqliteTable('activity', {
+  id:           text('id').primaryKey(),
+  session_id:   text('session_id').notNull().references(() => session.id),
+  turn_id:      text('turn_id'),                    // BetaMessage.id; groups a turn's blocks
+  kind:         text('kind').notNull(),
+  order_index:  integer('order_index').notNull().default(0),
+  payload:      text('payload').notNull(),          // JSON, shape per kind
+  tool_use_id:  text('tool_use_id'),                // required for kind='tool_call'
+  execution_id: text('execution_id'),               // required for kind='tool_call' (new rows)
+  tokens_in:    integer('tokens_in'),
+  tokens:       integer('tokens'),
+  created_at:   text('created_at').notNull(),
 })
 
-export type Message = typeof message.$inferSelect
+export type Activity = typeof activity.$inferSelect
+export type NewActivity = typeof activity.$inferInsert
 
 export const execution = sqliteTable('execution', {
   id:              text('id').primaryKey(),
   session_id:      text('session_id'),
   tool_name:       text('tool_name'),
   tool_input:      text('tool_input'),
-  // Correlation key to the agent-domain assistant message's `tool_use`
-  // block that caused this execution. Sourced from the SDK handler's
-  // `extra._meta["claudecode/toolUseId"]`. Nullable for rows written
-  // before this column existed.
-  tool_use_id:     text('tool_use_id'),
+  tool_use_id:     text('tool_use_id'),            // 'toolu_…' — correlates to an activity row
   command:         text('command').notNull(),
   status:          text('status').notNull().default('running'),
   exit_code:       integer('exit_code'),
@@ -193,11 +220,3 @@ export const execution = sqliteTable('execution', {
 })
 
 export type Execution = typeof execution.$inferSelect
-
-// ════════════════════════════════════════════════════════════════════════════
-// FILES
-// ════════════════════════════════════════════════════════════════════════════
-
-// (No dedicated tables — files are served from bare git repos on disk)
-
-// ════════════════════════════════════════════════════════════════════════════

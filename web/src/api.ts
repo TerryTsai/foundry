@@ -1,4 +1,4 @@
-import type { Account, Connection, Project, Ticket, Comment, Agent, Session, Execution, UsageRollup, TicketTag, McpServerInfo, McpToolSelection, Analytics } from './types.js'
+import type { Account, Connection, Project, Ticket, Comment, Agent, Session, Execution, UsageRollup, Tag, McpServerInfo, McpToolSelection, Analytics } from './types.js'
 
 const cache = new Map<string, { data: unknown; at: number }>()
 const CACHE_TTL = 30_000 // 30 seconds
@@ -106,14 +106,14 @@ export const ticketApi = {
   },
   get: (id: string) => get<Ticket>(`/ticket/${id}`),
   chain: (id: string) => get<Ticket[]>(`/ticket/${id}/chain`),
-  create: (data: { project_id: string; title: string; body: string; agent_id?: string; priority?: number; parent_id?: string; created_by: string }) =>
+  create: (data: { project_id: string; title: string; description: string; agent_id?: string; priority?: number; parent_id?: string; created_by: string }) =>
     post<Ticket>('/ticket', data),
-  update: (id: string, data: { title?: string; body?: string; agent_id?: string; priority?: number }) =>
+  update: (id: string, data: { title?: string; description?: string; agent_id?: string; priority?: number }) =>
     put<Ticket>(`/ticket/${id}`, data),
   reopen: (id: string) => post<Ticket>(`/ticket/${id}/reopen`),
   usage: (id: string) => get<UsageRollup>(`/ticket/${id}/usage`),
-  tags: (ticketId: string) => get<TicketTag[]>(`/ticket/${ticketId}/tag`),
-  addTag: (ticketId: string, tag: string) => post<TicketTag>(`/ticket/${ticketId}/tag`, { tag }),
+  tags: (ticketId: string) => get<Tag[]>(`/ticket/${ticketId}/tag`),
+  addTag: (ticketId: string, tag: string) => post<Tag>(`/ticket/${ticketId}/tag`, { tag }),
   removeTag: (ticketId: string, tag: string) => del<void>(`/ticket/${ticketId}/tag/${encodeURIComponent(tag)}`),
 }
 
@@ -126,8 +126,8 @@ export const commentApi = {
 
 // Tags
 export const tagApi = {
-  list:   (ticketId: string)               => get<TicketTag[]>(`/ticket/${ticketId}/tag`),
-  add:    (ticketId: string, tag: string)  => post<TicketTag>(`/ticket/${ticketId}/tag`, { tag }),
+  list:   (ticketId: string)               => get<Tag[]>(`/ticket/${ticketId}/tag`),
+  add:    (ticketId: string, tag: string)  => post<Tag>(`/ticket/${ticketId}/tag`, { tag }),
   remove: (ticketId: string, tag: string)  => del<{ ok: boolean }>(`/ticket/${ticketId}/tag/${encodeURIComponent(tag)}`),
 }
 
@@ -135,7 +135,7 @@ export const tagApi = {
 export const sessionApi = {
   get: (id: string) => get<Session>(`/session/${id}`),
   byTicket: (ticketId: string) => get<Session[]>(`/ticket/${ticketId}/session`),
-  messages: (sessionId: string) => get<import('./types.js').Message[]>(`/session/${sessionId}/message`),
+  activities: (sessionId: string) => get<import('./types.js').Activity[]>(`/session/${sessionId}/activity`),
   executions: (sessionId: string) => get<Execution[]>(`/session/${sessionId}/execution`),
   usage: (id: string) => get<UsageRollup>(`/session/${id}/usage`),
 }
@@ -145,9 +145,9 @@ export const agentApi = {
   list: () => get<Agent[]>('/agent'),
   get: (id: string) => get<Agent>(`/agent/${id}`),
   mcp: () => get<McpServerInfo[]>('/agent/mcp'),
-  create: (data: { connection_id: string; name: string; model: string; prompt: string; max_tokens?: number; max_steps?: number; temperature?: number; reasoning_budget?: number | null; tools?: McpToolSelection }) =>
+  create: (data: { connection_id: string; name: string; model: string; description: string; max_tokens?: number; max_steps?: number; temperature?: number; reasoning_budget?: number | null; tools?: McpToolSelection }) =>
     post<Agent>('/agent', data),
-  update: (id: string, data: { connection_id?: string; model?: string; prompt?: string; max_tokens?: number; max_steps?: number; temperature?: number; reasoning_budget?: number | null; tools?: McpToolSelection }) =>
+  update: (id: string, data: { connection_id?: string; model?: string; description?: string; max_tokens?: number; max_steps?: number; temperature?: number; reasoning_budget?: number | null; tools?: McpToolSelection }) =>
     put<Agent>(`/agent/${id}`, data),
   delete: (id: string) => del<{ ok: boolean }>(`/agent/${id}`),
   usage: (id: string) => get<UsageRollup>(`/agent/${id}/usage`),

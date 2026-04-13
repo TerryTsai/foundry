@@ -61,7 +61,7 @@ export function AgentDetailPage() {
   const [editing, setEditing] = useState(false)
   const [connectionId, setConnectionId] = useState(agent.connection_id)
   const [model, setModel] = useState(agent.model)
-  const [prompt, setPrompt] = useState(agent.prompt)
+  const [description, setDescription] = useState(agent.description)
   const [maxTokens, setMaxTokens] = useState(String(agent.max_tokens))
   const [maxSteps, setMaxSteps] = useState(String(agent.max_steps))
   const [temperature, setTemperature] = useState(agent.temperature !== null ? String(agent.temperature) : '')
@@ -88,7 +88,7 @@ export function AgentDetailPage() {
     try {
       const tools = toolSelection && Object.keys(toolSelection).length > 0 ? toolSelection : undefined
       await agentApi.update(agent.id, {
-        connection_id: connectionId, model, prompt,
+        connection_id: connectionId, model, description,
         max_tokens: +maxTokens, max_steps: +maxSteps,
         temperature: temperature ? +temperature : undefined,
         reasoning_budget: reasoningBudget ? +reasoningBudget : null,
@@ -112,7 +112,7 @@ export function AgentDetailPage() {
   return (
     <DetailShell
       type="agent" id={agent.id} title={agent.name}
-      subtitle={!editing ? agent.prompt : undefined}
+      subtitle={!editing ? agent.description : undefined}
       actions={!editing ? (
         <button onClick={() => setEditing(true)}
           className="text-xs text-zinc-400 dark:text-zinc-500 active:text-zinc-900 dark:active:text-zinc-100 shrink-0">
@@ -128,7 +128,7 @@ export function AgentDetailPage() {
         { label: 'max steps',   value: String(agent.max_steps) },
         { label: 'max tokens',  value: String(agent.max_tokens) },
         { label: 'created',     value: ts(agent.created_at) },
-        { label: 'updated',     value: agent.updated_at !== agent.created_at ? ts(agent.updated_at) : null },
+        { label: 'superseded',  value: agent.superseded_at !== null ? ts(agent.superseded_at) : null },
         { label: 'sessions',    value: usage.session_count > 0 ? String(usage.session_count) : null },
         { label: 'tokens in',   value: usage.tokens_in  > 0 ? usage.tokens_in.toLocaleString()  : null },
         { label: 'tokens out',  value: usage.tokens_out > 0 ? usage.tokens_out.toLocaleString() : null },
@@ -150,8 +150,8 @@ export function AgentDetailPage() {
           <Field label="model">
             <TextInput value={model} onChange={e => setModel(e.target.value)} required />
           </Field>
-          <Field label="prompt">
-            <TextArea label="prompt" value={prompt} onChange={e => setPrompt(e.target.value)} required rows={8} />
+          <Field label="description">
+            <TextArea label="description" value={description} onChange={e => setDescription(e.target.value)} required rows={8} />
           </Field>
           <div className="grid grid-cols-3 gap-3">
             <Field label="max tokens">

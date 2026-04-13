@@ -15,14 +15,14 @@ export function TicketNewPage() {
   const agents = useLoaderData() as Agent[]
   const [agentId, setAgentId] = useState(agents[0]?.id ?? '')
   const [title, setTitle] = useState('')
-  const [body, setBody] = useState('')
+  const [description, setDescription] = useState('')
   const [error, setError] = useState('')
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError('')
     try {
-      const ticket = await ticketApi.create({ project_id: projectId, title, body, agent_id: agentId || undefined, created_by: 'founder' })
+      const ticket = await ticketApi.create({ project_id: projectId, title, description, agent_id: agentId || undefined, created_by: 'founder' })
       navigate(`/p/${projectId}/tickets/${ticket.id}`)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'failed')
@@ -43,7 +43,7 @@ export function TicketNewPage() {
           <TextInput value={title} onChange={e => setTitle(e.target.value)} required />
         </Field>
         <Field label="description">
-          <TextArea label="description" value={body} onChange={e => setBody(e.target.value)} required rows={5} />
+          <TextArea label="description" value={description} onChange={e => setDescription(e.target.value)} required rows={5} />
         </Field>
         <div className="flex gap-2 pt-2">
           <ActionButton label="cancel" variant="secondary" onClick={() => navigate(-1)} className="flex-1" />

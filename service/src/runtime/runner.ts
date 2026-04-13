@@ -1,14 +1,12 @@
 import { generateText, stepCountIs, type ModelMessage, type ToolSet } from 'ai'
-import type { LanguageModelV3 } from '@ai-sdk/provider'
-import { readFile } from 'fs/promises'
-import { join } from 'path'
+import { ulid } from 'ulid'
+import { sql } from 'drizzle-orm'
 
 import { type Db } from '../database.js'
 import * as database from '../database.js'
 import type { Config } from '../config.js'
-import { type Ticket, type Agent as AgentDef, type Comment } from '../schema.js'
+import { type Ticket, type Agent as AgentDef } from '../schema.js'
 import * as domain from '../domain.js'
-import type { TicketChainEntry } from '../domain.js'
 import { now } from '../functional.js'
 
 import { workspaceEmpty, workspaceDestroy } from '../mcp/github.js'
@@ -21,133 +19,146 @@ import * as browserServer from '../mcp/browser.js'
 type StepResult = Awaited<ReturnType<typeof generateText<ToolSet>>>
 
 // ════════════════════════════════════════════════════════════════════════════
-// SYSTEM PROMPT
+// DISPATCH
 // ════════════════════════════════════════════════════════════════════════════
+// Two runner paths share one entry point. The connection's `kind` picks:
+//
+//   'anthropic-subscription' → sdk-runner.ts (Claude Agent SDK, OAuth,
+//                              BetaMessage content-block stream)
+//   anything else            → this file (Vercel ai SDK, API-key-based
+//                              providers: anthropic, openai, and future
+//                              additions via model.ts factories)
+//
+// Both paths write the same `activity` rows so the UI renders the session
+// identically regardless of how it was run.
 
-function buildSystemPrompt(projectDescription: string, agentPrompt: string, agentMd: string, chain: TicketChainEntry[], ticketData: Ticket, priorHistory: string): string {
-  const chainText = chain.slice(0, -1)
-    .map(t => `### ${t.title} (${t.status})\n${t.body}`)
-    .join('\n\n')
-  const sections: string[] = []
-  // Project description — shared context every agent in this project sees.
-  if (projectDescription.trim()) {
-    sections.push('## Project', '', projectDescription.trim(), '', '---')
+export async function runAgentSession(
+  db: Db, config: Config, sessionId: string, agentDef: AgentDef, ticketData: Ticket,
+): Promise<void> {
+  const conn = database.connectionGet(db, agentDef.connection_id)
+  if (conn?.kind === 'anthropic-subscription') {
+    const { runAgentSessionViaSdk } = await import('./sdk-runner.js')
+    return runAgentSessionViaSdk(db, config, sessionId, agentDef, ticketData)
   }
-  // Agent role prompt.
-  sections.push('', agentPrompt, '', '---')
-  // AGENT.md from the workspace (available after gitClone).
-  if (agentMd.trim()) {
-    sections.push('', '## Project Context (AGENT.md)', '', agentMd)
+  return runAgentSessionViaAiSdk(db, config, sessionId, agentDef, ticketData)
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// PROMPT ASSEMBLY
+// ════════════════════════════════════════════════════════════════════════════
+// Same shape as sdk-runner's: every descriptive layer concatenated into the
+// system prompt, with a minimal trigger as the user-turn.
+
+function assembleSystemPrompt(db: Db, ticket: Ticket, agent: AgentDef): string | undefined {
+  const project = database.projectGet(db, ticket.project_id)
+  const account = project ? database.accountGet(db, project.owner_id) : undefined
+
+  const parts: string[] = []
+  const push = (heading: string, body: string | null | undefined) => {
+    if (body && body.trim()) parts.push(`## ${heading}\n\n${body.trim()}`)
   }
-  if (chainText) {
-    sections.push('', '## Parent Tickets', '', chainText)
+  push('Founder',   account?.description)
+  push('Project',   project?.description)
+  push('Your role', agent.description)
+  push('Ticket',    ticket.description)
+
+  const comments = database.commentByTicket(db, ticket.id)
+  if (comments.length > 0) {
+    parts.push('## Comments\n\n' + comments.map(c => `[${c.author}] ${c.body}`).join('\n\n'))
   }
-  sections.push('', '---', '', `## Current Ticket: ${ticketData.title}`, '', ticketData.body)
-  if (priorHistory) {
-    sections.push('', '---', '', priorHistory)
-  }
-  return sections.join('\n')
+  return parts.length > 0 ? parts.join('\n\n---\n\n') : undefined
+}
+
+function triggerPrompt(ticket: Ticket): string {
+  const title = ticket.title.trim() || '(untitled)'
+  return `Begin work on the ticket above: **${title}**. Proceed autonomously.`
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// CONTEXT
+// SESSION SUMMARY
 // ════════════════════════════════════════════════════════════════════════════
 
-function readChain(db: Db, ticketId: string): TicketChainEntry[] {
-  try { return domain.ticketChain(db, ticketId) } catch { return [] }
+function fmtTokensShort(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
+  if (n >= 1_000)     return `${(n / 1_000).toFixed(1)}k`
+  return String(n)
 }
 
-// AGENT.md lives at the root of the cloned workspace — it's a real checkout
-// now, so plain fs.read instead of going through git internals.
-async function readAgentMd(workDir: string): Promise<string> {
-  try { return await readFile(join(workDir, 'AGENT.md'), 'utf-8') } catch { return '' }
-}
-
-async function buildContext(
-  db: Db, config: Config, sessionId: string, ticketData: Ticket, agentDef: AgentDef, workDir: string,
-): Promise<{ system: string; tools: ToolSet }> {
-  const proj         = database.projectGet(db, ticketData.project_id)
-  const chain        = readChain(db, ticketData.id)
-  const agentMd      = await readAgentMd(workDir)
-  const priorHistory = domain.ticketPriorHistory(db, ticketData.id, sessionId, agentDef.name)
-  const system       = buildSystemPrompt(proj?.description ?? '', agentDef.prompt, agentMd, chain, ticketData, priorHistory)
-  database.sessionUpdate(db, sessionId, { system_prompt: system })
-
-  // Merge all four MCP server tool surfaces. Tool names are flat (no
-  // mcp__<server>__<name> prefix) because the ai SDK doesn't namespace
-  // them the way the Anthropic SDK does. Names are unique across servers
-  // so collision isn't an issue.
-  const tools: ToolSet = {
-    ...foundryServer.buildAi({ db, config, sessionId, workspace: workDir, projectId: ticketData.project_id, accountId: agentDef.account_id, ticketId: ticketData.id, agentName: agentDef.name }),
-    ...githubServer.buildAi({ db, config, sessionId, workspace: workDir, ticket: ticketData, agentName: agentDef.name }),
-    ...sandboxServer.buildAi({ db, config, sessionId, workspace: workDir }),
-    ...browserServer.buildAi({ db, config, sessionId, workspace: workDir }),
-  }
-  return { system, tools }
+function summarizeSession(toolCalls: number, tokensIn: number, tokensOut: number, costUsd: number, durationMs: number): string {
+  const parts: string[] = []
+  if (toolCalls > 0)            parts.push(`${toolCalls} tool${toolCalls === 1 ? '' : 's'}`)
+  if (tokensIn + tokensOut > 0) parts.push(`${fmtTokensShort(tokensIn)} in · ${fmtTokensShort(tokensOut)} out`)
+  if (costUsd > 0)              parts.push(`$${costUsd.toFixed(4)}`)
+  if (durationMs > 0)           parts.push(`${(durationMs / 1000).toFixed(1)}s`)
+  return parts.join(' · ')
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// COMMENT POLL
+// ACTIVITY PROJECTION
 // ════════════════════════════════════════════════════════════════════════════
+// Walk a StepResult's content array (the AI SDK's ContentPart[] — the
+// structural analog of BetaMessage.content) and emit one activity row per
+// block. Tokens ride on the first activity of the step.
 
-// Seed with everything older than the previous session's end so a reopen
-// doesn't replay history, but feedback posted between sessions still fires.
-function seedSeenComments(db: Db, sessionId: string, ticketId: string): Set<string> {
-  const priorSessions = database.sessionByTicket(db, ticketId)
-    .filter(s => s.id !== sessionId && s.ended_at)
-  const cutoff = priorSessions[priorSessions.length - 1]?.ended_at ?? null
-  const allComments = database.commentByTicket(db, ticketId)
-  const filtered = cutoff ? allComments.filter(c => c.created_at <= cutoff) : allComments
-  return new Set(filtered.map(c => c.id))
+type ContentPart =
+  | { type: 'text'; text: string }
+  | { type: 'reasoning'; text: string; signature?: string }
+  | { type: 'tool-call'; toolCallId: string; toolName: string; args?: unknown; input?: unknown }
+  | { type: 'tool-result'; toolCallId: string; toolName: string; result?: unknown; output?: unknown }
+  | { type: string; [k: string]: unknown }
+
+function contentPartsOf(result: StepResult): ContentPart[] {
+  const c = (result as unknown as { content?: ContentPart[] }).content
+  return Array.isArray(c) ? c : []
 }
 
-function findFreshComments(db: Db, ticketId: string, agentName: string, seen: Set<string>): Comment[] {
-  return database.commentByTicket(db, ticketId)
-    .filter(c => !seen.has(c.id) && c.author !== agentName)
-}
-
-function formatInjectedMessage(comments: Comment[]): string {
-  const text = comments.map(c => `[${c.author}]: ${c.body}`).join('\n\n')
-  return `New feedback from Founder:\n${text}`
-}
-
-// ════════════════════════════════════════════════════════════════════════════
-// PERSISTENCE
-// ════════════════════════════════════════════════════════════════════════════
-
-// Assistant text goes to ticket.comment (durable conversation). Reasoning
-// and tool calls/results go to session.message (internal work log). The
-// assistant message is always written even when there are no tool calls,
-// so per-step tokens always have a home for aggregation at read time.
-function persistStep(db: Db, sessionId: string, ticketId: string, agentName: string, result: StepResult): string | null {
-  const { inputTokens: tIn, outputTokens: tOut } = result.usage ?? {}
-  const toolCallCount = result.toolCalls?.length ?? 0
-  if (result.reasoningText)       domain.sessionMessage(db, sessionId, 'reasoning', result.reasoningText)
-  domain.sessionMessage(db, sessionId, 'assistant', JSON.stringify(result.toolCalls ?? []), tOut, tIn, toolCallCount)
-  if (result.toolResults?.length) domain.sessionMessage(db, sessionId, 'user', JSON.stringify(result.toolResults))
-  if (!result.text) return null
-  return domain.commentCreate(db, ticketId, { author: agentName, body: result.text, session_id: sessionId }).id
-}
-
-function beginSession(db: Db, sessionId: string, ticketId: string, agentName: string, body: string): void {
-  domain.commentCreate(db, ticketId, { author: agentName, body: 'Session started', session_id: sessionId })
-  domain.sessionMessage(db, sessionId, 'user', body)
-}
-
-function completeSession(db: Db, sessionId: string, ticketId: string, agentName: string, finishReason: string | null, startTime: number): void {
-  domain.ticketComplete(db, ticketId, { agentName, sessionId })
-  database.sessionUpdate(db, sessionId, {
-    status: 'done', ended_at: now(), duration_ms: Date.now() - startTime,
-    finish_reason: finishReason,
+function writeStepActivities(db: Db, sessionId: string, turnId: string, result: StepResult): number {
+  const parts = contentPartsOf(result)
+  const { inputTokens, outputTokens } = result.usage ?? {}
+  let toolCalls = 0
+  parts.forEach((b, idx) => {
+    let kind: 'said' | 'thought' | 'tool_call' | 'reconcile' = 'said'
+    let payload: unknown = b
+    let tool_use_id: string | null = null
+    if (b.type === 'text' && typeof b.text === 'string') {
+      kind = 'said'
+      payload = { text: b.text }
+    } else if (b.type === 'reasoning' && typeof b.text === 'string') {
+      kind = 'thought'
+      payload = { text: b.text, char_count: b.text.length, signature: b.signature ?? null }
+    } else if (b.type === 'tool-call' && typeof b.toolCallId === 'string') {
+      kind = 'tool_call'
+      payload = { name: b.toolName, input: b.args ?? b.input ?? {} }
+      tool_use_id = b.toolCallId
+      toolCalls++
+    } else if (b.type === 'tool-result') {
+      // tool-result is the sandbox response. We already have the execution
+      // row via runCommand; no need for its own activity — the correlated
+      // tool_call activity surfaces the outcome. Skip.
+      return
+    }
+    database.activityInsert(db, {
+      session_id:   sessionId,
+      turn_id:      turnId,
+      kind,
+      order_index:  idx,
+      payload:      JSON.stringify(payload),
+      tool_use_id,
+      execution_id: null,            // backfilled at session close
+      tokens_in:    idx === 0 ? (inputTokens  ?? null) : null,
+      tokens:       idx === 0 ? (outputTokens ?? null) : null,
+      created_at:   now(),
+    })
   })
+  return toolCalls
 }
 
-function failSession(db: Db, sessionId: string, ticketId: string, agentName: string, err: unknown, startTime: number): void {
-  const msg = err instanceof Error ? err.message : String(err)
-  try { domain.ticketFail(db, ticketId, { notes: msg, agentName, sessionId }) } catch {}
-  database.sessionUpdate(db, sessionId, {
-    status: 'failed', error: msg, ended_at: now(), duration_ms: Date.now() - startTime,
-  })
+function backfillExecutionIds(db: Db, sessionId: string) {
+  db.run(sql`
+    UPDATE activity
+       SET execution_id = (SELECT id FROM execution WHERE execution.tool_use_id = activity.tool_use_id)
+     WHERE session_id = ${sessionId} AND kind = 'tool_call' AND execution_id IS NULL AND tool_use_id IS NOT NULL
+  `)
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -155,66 +166,84 @@ function failSession(db: Db, sessionId: string, ticketId: string, agentName: str
 // ════════════════════════════════════════════════════════════════════════════
 
 async function runLoop(db: Db, args: {
-  model: LanguageModelV3, system: string, tools: ToolSet, agentDef: AgentDef,
-  sessionId: string, ticketId: string, agentName: string, initialMessage: string,
-}): Promise<string | null> {
-  const { model, system, tools, agentDef, sessionId, ticketId, agentName, initialMessage } = args
-  const seen: Set<string>        = seedSeenComments(db, sessionId, ticketId)
+  model: ReturnType<typeof resolveModelWithDefaults>, system: string, tools: ToolSet, agentDef: AgentDef,
+  sessionId: string, initialMessage: string,
+}): Promise<{ finishReason: string | null; tokensIn: number; tokensOut: number; toolCalls: number }> {
+  const { model, system, tools, agentDef, sessionId, initialMessage } = args
   const messages: ModelMessage[] = [{ role: 'user', content: initialMessage }]
   let finishReason: string | null = null
+  let tokensIn  = 0
+  let tokensOut = 0
+  let toolCalls = 0
 
   for (let step = 0; step < agentDef.max_steps; step++) {
-    const fresh = findFreshComments(db, ticketId, agentName, seen)
-    if (fresh.length > 0) {
-      const injected = formatInjectedMessage(fresh)
-      messages.push({ role: 'user', content: injected })
-      domain.sessionMessage(db, sessionId, 'user', injected)
-      fresh.forEach(c => seen.add(c.id))
-    }
     const result = await generateText({ model, system, messages, tools, stopWhen: stepCountIs(1) })
-    const commentId = persistStep(db, sessionId, ticketId, agentName, result)
-    if (commentId) seen.add(commentId)
+    // One "turn" per step. ULID gives us a stable key to group that step's
+    // activity rows, same role BetaMessage.id plays for the SDK runner.
+    const turnId = ulid()
+    toolCalls += writeStepActivities(db, sessionId, turnId, result)
+    tokensIn  += result.usage?.inputTokens  ?? 0
+    tokensOut += result.usage?.outputTokens ?? 0
     messages.push(...result.response.messages)
     finishReason = result.finishReason ?? null
     if (finishReason === 'stop') break
   }
-  return finishReason
+  return { finishReason, tokensIn, tokensOut, toolCalls }
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// RUNNER
+// AI SDK PATH
 // ════════════════════════════════════════════════════════════════════════════
 
-export async function runAgentSession(
+async function runAgentSessionViaAiSdk(
   db: Db, config: Config, sessionId: string, agentDef: AgentDef, ticketData: Ticket,
 ): Promise<void> {
-  // Backend dispatch: 'anthropic-subscription' connections route to the Claude
-  // Agent SDK runner. Everything else uses the managed ai-SDK loop below.
-  const conn = database.connectionGet(db, agentDef.connection_id)
-  if (conn?.kind === 'anthropic-subscription') {
-    const { runAgentSessionViaSdk } = await import('./sdk-runner.js')
-    return runAgentSessionViaSdk(db, config, sessionId, agentDef, ticketData)
-  }
-
   const startTime = Date.now()
-  // Empty workspace, agent-driven population. The runner just allocates
-  // the tmpdir — the agent calls gitClone (or whatever other setup it
-  // needs) as an explicit first step via the attached integrations.
   const workDir = await workspaceEmpty()
+
   try {
-    const { system, tools } = await buildContext(db, config, sessionId, ticketData, agentDef, workDir)
-    beginSession(db, sessionId, ticketData.id, agentDef.name, ticketData.body)
-    const model = resolveModelWithDefaults(db, agentDef)
-    const finishReason = await runLoop(db, {
-      model, system, tools, agentDef, sessionId,
-      ticketId: ticketData.id, agentName: agentDef.name, initialMessage: ticketData.body,
+    const systemPrompt = assembleSystemPrompt(db, ticketData, agentDef)
+    if (systemPrompt) database.sessionUpdate(db, sessionId, { system_prompt: systemPrompt })
+
+    // Record the founder's trigger as a 'prompt' activity.
+    const userPrompt = triggerPrompt(ticketData)
+    database.activityInsert(db, {
+      session_id:  sessionId,
+      turn_id:     null,
+      kind:        'prompt',
+      order_index: 0,
+      payload:     JSON.stringify({ text: userPrompt }),
+      tool_use_id: null, execution_id: null, tokens_in: null, tokens: null,
+      created_at:  now(),
     })
-    // No framework-level publish — the agent owns gitAdd → gitCommit →
-    // pullRequestCreate via the github MCP tools. Sessions that finish
-    // without publishing discard their workspace.
-    completeSession(db, sessionId, ticketData.id, agentDef.name, finishReason, startTime)
+
+    // Tool surface — all four MCP servers as flat ai-SDK tool records.
+    const tools: ToolSet = {
+      ...foundryServer.buildAi({ db, config, sessionId, workspace: workDir, projectId: ticketData.project_id, accountId: agentDef.account_id, ticketId: ticketData.id, agentName: agentDef.name }),
+      ...githubServer.buildAi({ db, config, sessionId, workspace: workDir, ticket: ticketData, agentName: agentDef.name }),
+      ...sandboxServer.buildAi({ db, config, sessionId, workspace: workDir }),
+      ...browserServer.buildAi({ db, config, sessionId, workspace: workDir }),
+    }
+    const model = resolveModelWithDefaults(db, agentDef)
+    const { finishReason, tokensIn, tokensOut, toolCalls } = await runLoop(db, {
+      model, system: systemPrompt ?? '', tools, agentDef, sessionId, initialMessage: userPrompt,
+    })
+
+    backfillExecutionIds(db, sessionId)
+
+    const durationMs = Date.now() - startTime
+    const summary = summarizeSession(toolCalls, tokensIn, tokensOut, 0, durationMs)
+    domain.ticketComplete(db, ticketData.id, { agentName: agentDef.name, sessionId, notes: summary })
+    database.sessionUpdate(db, sessionId, {
+      status: 'done', ended_at: now(), duration_ms: durationMs, finish_reason: finishReason,
+    })
   } catch (err) {
-    failSession(db, sessionId, ticketData.id, agentDef.name, err, startTime)
+    const msg = err instanceof Error ? err.message : String(err)
+    try { backfillExecutionIds(db, sessionId) } catch {}
+    try { domain.ticketFail(db, ticketData.id, { notes: msg, agentName: agentDef.name, sessionId }) } catch {}
+    database.sessionUpdate(db, sessionId, {
+      status: 'failed', error: msg, ended_at: now(), duration_ms: Date.now() - startTime,
+    })
   } finally {
     await workspaceDestroy(workDir)
   }

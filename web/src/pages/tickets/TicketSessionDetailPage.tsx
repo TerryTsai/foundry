@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link, useLoaderData, useParams, useRevalidator } from 'react-router-dom'
 import { marked } from 'marked'
 import { MessageSquare, Brain, FileText, Scale, Wrench, ChevronRight } from 'lucide-react'
-import type { Session, Execution, Message, UsageRollup, Ticket } from '../../types.js'
+import type { Session, Execution, Activity, UsageRollup, Ticket } from '../../types.js'
 import { fmtDuration, fmtBytes } from '../../lib/format.js'
 import { SectionLabel } from '../../components/detail/SectionLabel.js'
 import { ActivityRow } from '../../components/detail/ActivityRow.js'
@@ -16,16 +16,11 @@ interface SessionLoaderData {
   ticket: Ticket
   session: Session
   executions: Execution[]
-  messages: Message[]
+  activities: Activity[]
   usage: UsageRollup
 }
 
-// ── Row helpers ──
-// Executions and messages render into a single merged activity timeline.
-// Body is always the raw message JSON prettified — stdout / stderr / cpu
-// stats live on the dedicated execution detail page (reachable via the
-// "view execution →" sub-link on the row header). That keeps the list
-// uniform: every row is one event + its JSON payload.
+// ── Helpers ──
 
 function dateShort(s: string): string {
   return new Date(s).toLocaleString(undefined, {
@@ -33,57 +28,41 @@ function dateShort(s: string): string {
   })
 }
 
-interface Block { type: string; text?: string; thinking?: string; name?: string; id?: string }
-
-function parseContent(raw: string): { blocks: Block[] | null; plainText: string | null; parsedObj: Record<string, unknown> | null } {
-  const t = raw.trimStart()
-  if (!t.startsWith('{') && !t.startsWith('[')) return { blocks: null, plainText: raw, parsedObj: null }
+function parsePayload(raw: string): Record<string, unknown> {
   try {
-    const parsed = JSON.parse(raw)
-    if (Array.isArray(parsed)) return { blocks: parsed as Block[], plainText: null, parsedObj: null }
-    if (parsed && typeof parsed === 'object') return { blocks: null, plainText: null, parsedObj: parsed }
-  } catch { /* fall through */ }
-  return { blocks: null, plainText: raw, parsedObj: null }
+    const p = JSON.parse(raw)
+    return p && typeof p === 'object' ? p as Record<string, unknown> : {}
+  } catch { return {} }
 }
 
-function blockTypesLabel(blocks: Block[]): string {
-  // Preserve order, dedupe, count repeats. "tool_use ×5, text"
-  const seen: string[] = []
-  const counts = new Map<string, number>()
-  for (const b of blocks) {
-    if (!counts.has(b.type)) seen.push(b.type)
-    counts.set(b.type, (counts.get(b.type) ?? 0) + 1)
+// Activity icon + label are deterministic per kind. No content parsing.
+function iconFor(kind: Activity['kind']): React.ReactNode {
+  switch (kind) {
+    case 'prompt':    return <FileText size={14} />
+    case 'thought':   return <Brain size={14} />
+    case 'said':      return <MessageSquare size={14} />
+    case 'tool_call': return <Wrench size={14} />
+    case 'reconcile': return <Scale size={14} />
   }
-  return seen.map(t => { const n = counts.get(t)!; return n > 1 ? `${t} ×${n}` : t }).join(', ')
 }
 
-// Pick an icon that actually reflects what this message is, not just "it's
-// a message". Keeps the merged timeline scannable.
-function messageIcon(m: Message): React.ReactNode {
-  const { blocks, parsedObj } = parseContent(m.content)
-  if (m.role === 'user')      return <FileText size={14} />
-  if (m.role === 'reasoning') return <Brain size={14} />
-  if (parsedObj && typeof parsedObj.reconcile === 'string') return <Scale size={14} />
-  if (blocks) {
-    const types = new Set(blocks.map(b => b.type))
-    if (types.has('thinking')) return <Brain size={14} />
-    if (types.has('tool_use')) return <Wrench size={14} />
+function labelFor(kind: Activity['kind'], payload: Record<string, unknown>): string {
+  switch (kind) {
+    case 'prompt':    return 'prompt'
+    case 'thought':   return 'thought'
+    case 'said':      return 'said'
+    case 'reconcile': return 'reconciliation'
+    case 'tool_call': return `called ${typeof payload.name === 'string' ? payload.name : 'tool'}`
   }
-  return <MessageSquare size={14} />
 }
 
-// ── Block renderers ──
-// Each block type in an assistant BetaMessage gets its own visual
-// treatment. Tool_use blocks fold in a short summary of their
-// correlated execution so the common case ("did it work? what did it
-// print?") doesn't require drilling out.
+// ── Row renderers ──
 
-function TextBlockView({ text }: { text: string }) {
+function TextBody({ text }: { text: string }) {
   const [asMarkdown, setAsMarkdown] = useState(true)
   return (
-    <div className="mb-3">
+    <>
       <div className="flex items-center gap-2 mb-1">
-        <span className="font-mono text-[10px] uppercase tracking-wide text-zinc-500 dark:text-zinc-500">text</span>
         <button
           onClick={() => setAsMarkdown(v => !v)}
           className="font-mono text-[10px] text-amber-500 dark:text-amber-400 hover:underline"
@@ -93,14 +72,14 @@ function TextBlockView({ text }: { text: string }) {
         ? <div className="prose-zinc text-sm max-w-full overflow-x-auto" dangerouslySetInnerHTML={{ __html: marked.parse(text) as string }} />
         : <pre className="font-mono text-xs text-zinc-500 dark:text-zinc-400 whitespace-pre leading-relaxed select-text overflow-x-auto">{text}</pre>
       }
-    </div>
+    </>
   )
 }
 
-function ThinkingBlockView({ text }: { text: string }) {
+function ThoughtBody({ text }: { text: string }) {
   const [open, setOpen] = useState(false)
   return (
-    <div className="mb-3">
+    <>
       <button
         onClick={() => setOpen(v => !v)}
         className="flex items-center gap-1 font-mono text-[10px] uppercase tracking-wide text-zinc-500 dark:text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
@@ -111,17 +90,12 @@ function ThinkingBlockView({ text }: { text: string }) {
       {open && (
         <pre className="mt-2 pl-4 border-l-2 border-zinc-200 dark:border-zinc-800 font-mono text-xs text-zinc-400 dark:text-zinc-500 whitespace-pre-wrap leading-relaxed select-text">{text}</pre>
       )}
-    </div>
+    </>
   )
 }
 
-function ToolUseBlockView({ block, exec, execHref }: {
-  block: Block & { id: string; name?: string; input?: unknown }
-  exec?: Execution
-  execHref: (id: string) => string
-}) {
-  const name = block.name ?? exec?.tool_name ?? 'exec'
-  const inputJson = JSON.stringify(block.input ?? {}, null, 2)
+function ToolCallBody({ input, exec, execHref }: { input: unknown; exec?: Execution; execHref: (id: string) => string }) {
+  const inputJson = JSON.stringify(input ?? {}, null, 2)
   const execStats = exec ? [
     exec.status,
     exec.exit_code !== null ? `exit ${exec.exit_code}` : null,
@@ -131,24 +105,14 @@ function ToolUseBlockView({ block, exec, execHref }: {
   const errSnippet = exec?.stderr?.split('\n').slice(0, 4).join('\n').slice(0, 400) ?? null
 
   return (
-    <div className="mb-3 border border-zinc-200 dark:border-zinc-800 rounded overflow-hidden">
-      <div className="flex items-center justify-between px-3 py-1.5 bg-zinc-50 dark:bg-zinc-900/50 border-b border-zinc-200 dark:border-zinc-800">
-        <div className="flex items-center gap-2 min-w-0">
-          <span className="font-mono text-[10px] uppercase tracking-wide text-zinc-500 dark:text-zinc-500">tool_use</span>
-          <span className="font-mono text-xs text-zinc-900 dark:text-zinc-100 truncate">{name}</span>
-        </div>
-        {exec && (
-          <Link
-            to={execHref(exec.id)}
-            onClick={e => e.stopPropagation()}
-            className="shrink-0 font-mono text-[10px] text-amber-500 dark:text-amber-400 hover:underline"
-          >execution</Link>
-        )}
-      </div>
+    <div className="border border-zinc-200 dark:border-zinc-800 rounded overflow-hidden">
       <pre className="font-mono text-xs text-zinc-500 dark:text-zinc-400 whitespace-pre leading-relaxed select-text overflow-x-auto px-3 py-2">{inputJson}</pre>
       {exec && (
         <div className="border-t border-zinc-200 dark:border-zinc-800 px-3 py-2 bg-zinc-50/50 dark:bg-zinc-900/30">
-          {execStats && <div className="font-mono text-[10px] text-zinc-500 dark:text-zinc-500 mb-1">{execStats}</div>}
+          <div className="flex items-center justify-between mb-1">
+            {execStats && <span className="font-mono text-[10px] text-zinc-500 dark:text-zinc-500">{execStats}</span>}
+            <Link to={execHref(exec.id)} onClick={e => e.stopPropagation()} className="font-mono text-[10px] text-amber-500 dark:text-amber-400 hover:underline">execution</Link>
+          </div>
           {outSnippet && (
             <pre className="font-mono text-xs text-zinc-500 dark:text-zinc-400 whitespace-pre-wrap break-all leading-relaxed select-text overflow-auto max-h-24">{outSnippet}</pre>
           )}
@@ -161,86 +125,52 @@ function ToolUseBlockView({ block, exec, execHref }: {
   )
 }
 
-function UnknownBlockView({ block }: { block: Block }) {
-  return (
-    <div className="mb-3">
-      <div className="font-mono text-[10px] uppercase tracking-wide text-zinc-500 dark:text-zinc-500 mb-1">{block.type}</div>
-      <pre className="font-mono text-xs text-zinc-500 dark:text-zinc-400 whitespace-pre leading-relaxed select-text overflow-x-auto">{JSON.stringify(block, null, 2)}</pre>
-    </div>
-  )
-}
-
-function ReconcileView({ payload }: { payload: Record<string, unknown> }) {
+function ReconcileBody({ payload }: { payload: Record<string, unknown> }) {
   const d = payload as { deltaIn?: number; deltaOut?: number; modelIn?: number; modelOut?: number }
   const sign = (n?: number) => n === undefined ? '' : (n >= 0 ? `+${n}` : String(n))
   return (
-    <div className="mb-3 font-mono text-xs text-zinc-500 dark:text-zinc-400 space-y-1">
+    <div className="font-mono text-xs text-zinc-500 dark:text-zinc-400 space-y-1">
       <div>Δ {sign(d.deltaIn)} in · Δ {sign(d.deltaOut)} out</div>
       {d.modelIn !== undefined && d.modelOut !== undefined && (
-        <div className="text-zinc-400 dark:text-zinc-500">Reconciled against SDK modelUsage: {d.modelIn.toLocaleString()} in / {d.modelOut.toLocaleString()} out billed. Per-turn sum adjusted so session total matches exactly.</div>
+        <div className="text-zinc-400 dark:text-zinc-500">Reconciled against SDK modelUsage: {d.modelIn.toLocaleString()} in / {d.modelOut.toLocaleString()} out billed.</div>
       )}
     </div>
   )
 }
 
-function MessageRow({ m, execByToolUseId, execHref }: {
-  m: Message
-  execByToolUseId: Map<string, Execution>
+function ActivityEntry({ a, execById, execHref }: {
+  a: Activity
+  execById: Map<string, Execution>
   execHref: (id: string) => string
 }) {
-  const { blocks, plainText, parsedObj } = parseContent(m.content)
+  const payload = parsePayload(a.payload)
 
-  // Label: role + content shape. Rename the two bookend rows.
-  let label: string
-  if (m.role === 'user') label = 'prompt'
-  else if (parsedObj && typeof parsedObj.reconcile === 'string') label = 'reconciliation'
-  else if (blocks)       label = `${m.role} · ${blockTypesLabel(blocks)}`
-  else                   label = m.role
+  let body: React.ReactNode = null
+  let sub: { to: string; label: string } | undefined
 
-  // Sub-link in the row header — one link if a single tool_use on the
-  // turn, count if multiple, none otherwise. Per-block links appear
-  // inside each tool_use card body anyway.
-  const toolUses = (blocks ?? []).filter((b): b is Block & { id: string } => b.type === 'tool_use' && typeof b.id === 'string')
-  const toolExecs = toolUses
-    .map(b => ({ block: b, exec: execByToolUseId.get(b.id) }))
-    .filter((x): x is { block: Block & { id: string }; exec: Execution } => !!x.exec)
-  const sub = toolExecs.length === 1
-    ? { to: execHref(toolExecs[0].exec.id), label: 'execution' }
-    : toolExecs.length > 1
-      ? { to: execHref(toolExecs[0].exec.id), label: `${toolExecs.length} executions` }
-      : undefined
-
-  // Render the expanded body block-by-block. Plain-text user prompts
-  // and system reconciliation rows get direct treatment.
-  let content: React.ReactNode
-  if (parsedObj && typeof parsedObj.reconcile === 'string') {
-    content = <ReconcileView payload={parsedObj} />
-  } else if (blocks) {
-    content = blocks.map((b, i) => {
-      if (b.type === 'text'     && typeof b.text === 'string')     return <TextBlockView     key={i} text={b.text} />
-      if (b.type === 'thinking' && typeof b.thinking === 'string') return <ThinkingBlockView key={i} text={b.thinking} />
-      if (b.type === 'tool_use' && typeof (b as { id?: string }).id === 'string') {
-        const tu = b as Block & { id: string; name?: string; input?: unknown }
-        return <ToolUseBlockView key={i} block={tu} exec={execByToolUseId.get(tu.id)} execHref={execHref} />
-      }
-      return <UnknownBlockView key={i} block={b} />
-    })
-  } else if (plainText) {
-    content = <TextBlockView text={plainText} />
-  } else {
-    content = <pre className="font-mono text-xs text-zinc-500 dark:text-zinc-400 whitespace-pre overflow-x-auto">{m.content}</pre>
+  if (a.kind === 'prompt' || a.kind === 'said') {
+    const t = typeof payload.text === 'string' ? payload.text : ''
+    body = t ? <TextBody text={t} /> : null
+  } else if (a.kind === 'thought') {
+    const t = typeof payload.text === 'string' ? payload.text : ''
+    body = t ? <ThoughtBody text={t} /> : null
+  } else if (a.kind === 'tool_call') {
+    const exec = a.execution_id ? execById.get(a.execution_id) : undefined
+    body = <ToolCallBody input={payload.input} exec={exec} execHref={execHref} />
+    if (exec) sub = { to: execHref(exec.id), label: 'execution' }
+  } else if (a.kind === 'reconcile') {
+    body = <ReconcileBody payload={payload} />
   }
 
   return (
     <ActivityRow
-      key={`m-${m.id}`}
-      icon={messageIcon(m)}
-      label={label}
+      icon={iconFor(a.kind)}
+      label={labelFor(a.kind, payload)}
       status="done"
-      meta={dateShort(m.created_at)}
+      meta={dateShort(a.created_at)}
       sub={sub}
     >
-      {content}
+      {body}
     </ActivityRow>
   )
 }
@@ -248,7 +178,7 @@ function MessageRow({ m, execByToolUseId, execHref }: {
 // ── Page ──
 
 export function TicketSessionDetailPage() {
-  const { ticket, session, executions, messages, usage } = useLoaderData() as SessionLoaderData
+  const { ticket, session, executions, activities, usage } = useLoaderData() as SessionLoaderData
   const { projectId } = useShell()
   const { ticketId, sessionId } = useParams()
   const { revalidate } = useRevalidator()
@@ -263,6 +193,9 @@ export function TicketSessionDetailPage() {
   const duration = session.duration_ms !== null ? `${(session.duration_ms / 1000).toFixed(1)}s` : null
   const execPath = (eId: string) => `/p/${projectId}/tickets/${ticketId}/sessions/${sessionId}/executions/${eId}`
   const ticketPath = `/p/${projectId}/tickets/${ticketId}`
+
+  const execById = new Map<string, Execution>()
+  for (const e of executions) execById.set(e.id, e)
 
   return (
     <DetailShell
@@ -297,31 +230,17 @@ export function TicketSessionDetailPage() {
         </div>
       )}
 
-      {/* Session page is agent-domain only: one timeline of messages
-          (prompt → model turns → reconciliation). Tool executions are a
-          sandbox-domain concern — they're correlated from each message's
-          tool_use blocks via tool_use_id, and linked out to the execution
-          detail page, not inlined here. */}
-      {(() => {
-        const execByToolUseId = new Map<string, Execution>()
-        for (const e of executions) if (e.tool_use_id) execByToolUseId.set(e.tool_use_id, e)
-        return (
-          <div>
-            <SectionLabel label={`messages (${messages.length})`} onRefresh={refreshActivity} />
-            {messages.length === 0
-              ? <EmptyState message="no messages" />
-              : messages.map(m => (
-                  <MessageRow
-                    key={m.id}
-                    m={m}
-                    execByToolUseId={execByToolUseId}
-                    execHref={execPath}
-                  />
-                ))
-            }
-          </div>
-        )
-      })()}
+      {/* Flat event log — one row per activity. prompt → thought → said
+          → tool_call → ... → reconcile. Linear scan for audit. */}
+      <div>
+        <SectionLabel label={`activity (${activities.length})`} onRefresh={refreshActivity} />
+        {activities.length === 0
+          ? <EmptyState message="no activity" />
+          : activities.map(a => (
+              <ActivityEntry key={a.id} a={a} execById={execById} execHref={execPath} />
+            ))
+        }
+      </div>
     </DetailShell>
   )
 }

@@ -186,16 +186,16 @@ export const router = createBrowserRouter([
                         index: true,
                         element: <TicketSessionDetailPage />,
                         loader: async ({ params }) => {
-                          const [ticket, session, agents, executions, messages, usage] = await Promise.all([
+                          const [ticket, session, agents, executions, activities, usage] = await Promise.all([
                             ticketApi.get(params.ticketId!),
                             sessionApi.get(params.sessionId!),
                             agentApi.list(),
                             sessionApi.executions(params.sessionId!),
-                            sessionApi.messages(params.sessionId!),
+                            sessionApi.activities(params.sessionId!),
                             sessionApi.usage(params.sessionId!),
                           ])
                           const agentName = agents.find(a => a.id === session.agent_id)?.name ?? null
-                          return { ticket, session: { ...session, agent_name: agentName }, executions, messages, usage }
+                          return { ticket, session: { ...session, agent_name: agentName }, executions, activities, usage }
                         },
                       },
                       {

@@ -5,7 +5,7 @@ import { ticketApi, commentApi, bustCache } from '../../api.js'
 import { ActivityRow } from '../../components/detail/ActivityRow.js'
 import { SectionLabel } from '../../components/detail/SectionLabel.js'
 import { DetailShell } from '../../components/layout/DetailShell.js'
-import type { Ticket, Agent, Comment, UsageRollup, TicketTag } from '../../types.js'
+import type { Ticket, Agent, Comment, UsageRollup, Tag } from '../../types.js'
 import { useShell } from '../../Shell.js'
 import { Field } from '../../components/form/Field.js'
 import { TextArea } from '../../components/form/TextArea.js'
@@ -15,7 +15,7 @@ import { fmtDuration, fmtBytes, fmtActor } from '../../lib/format.js'
 
 // ── Tag Section ──
 
-function TagSection({ ticketId, initialTags }: { ticketId: string; initialTags: TicketTag[] }) {
+function TagSection({ ticketId, initialTags }: { ticketId: string; initialTags: Tag[] }) {
   const [tags, setTags] = useState(initialTags)
   const [adding, setAdding] = useState(false)
   const [value, setValue] = useState('')
@@ -127,7 +127,7 @@ interface TicketLoaderData {
   agents: Agent[]
   comments: Comment[]
   usage: UsageRollup
-  tags: TicketTag[]
+  tags: Tag[]
 }
 
 // ── Ticket Detail Page ──
@@ -138,12 +138,12 @@ export function TicketDetailPage() {
   const { revalidate } = useRevalidator()
   const navigate = useNavigate()
   const [editing, setEditing] = useState(false)
-  const [body, setBody] = useState(ticket.body)
+  const [description, setDescription] = useState(ticket.description)
   const [comments, setComments] = useState(initialComments)
 
   useBreadcrumbLabel(ticket.title)
 
-  useEffect(() => { setBody(ticket.body) }, [ticket.body])
+  useEffect(() => { setDescription(ticket.description) }, [ticket.description])
   useEffect(() => { setComments(initialComments) }, [initialComments])
 
   const handleAddComment = useCallback(async (text: string) => {
@@ -159,7 +159,7 @@ export function TicketDetailPage() {
   const agentName = agents.find(a => a.id === ticket.agent_id)?.name ?? ticket.agent_id ?? 'unassigned'
 
   async function handleSave() {
-    await ticketApi.update(ticket.id, { body })
+    await ticketApi.update(ticket.id, { description })
     setEditing(false)
     revalidate()
   }
@@ -176,7 +176,7 @@ export function TicketDetailPage() {
   return (
     <DetailShell
       type="ticket" id={ticket.id} title={ticket.title} status={ticket.status}
-      subtitle={!editing ? ticket.body : undefined}
+      subtitle={!editing ? ticket.description : undefined}
       actions={!editing && ticket.status === 'open' ? (
         <button onClick={() => setEditing(true)}
           className="text-xs text-zinc-400 dark:text-zinc-500 active:text-zinc-900 dark:active:text-zinc-100 shrink-0">
@@ -203,8 +203,8 @@ export function TicketDetailPage() {
     >
       {editing && (
         <div className="space-y-4">
-          <Field label="body">
-            <TextArea label="body" value={body} onChange={e => setBody(e.target.value)} rows={6} />
+          <Field label="description">
+            <TextArea label="description" value={description} onChange={e => setDescription(e.target.value)} rows={6} />
           </Field>
           <div className="flex gap-2">
             <ActionButton label="cancel" variant="secondary" onClick={() => setEditing(false)} className="flex-1" />

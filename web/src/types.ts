@@ -3,6 +3,7 @@ export interface Account {
   login: string
   name: string | null
   avatar_url: string | null
+  description: string
 }
 
 export interface Connection {
@@ -32,17 +33,18 @@ export interface Ticket {
   project_id: string
   agent_id: string | null
   title: string
-  body: string
-  status: 'open' | 'claimed' | 'done' | 'failed' | 'blocked'
+  description: string
+  status: 'open' | 'claimed' | 'done' | 'failed' | 'blocked' | 'reopened'
   priority: number
   parent_id: string | null
+  blocked_by: string | null
   created_by: string
   created_at: string
   updated_at: string
   claimed_at: string | null
 }
 
-export interface TicketTag {
+export interface Tag {
   id: string
   ticket_id: string
   tag: string
@@ -158,15 +160,15 @@ export interface Agent {
   account_id: string
   connection_id: string
   name: string
+  description: string
   model: string
-  prompt: string
   max_tokens: number
   max_steps: number
   temperature: number | null
   reasoning_budget: number | null
   tools: string | null
+  superseded_at: string | null
   created_at: string
-  updated_at: string
 }
 
 export interface Session {
@@ -175,7 +177,7 @@ export interface Session {
   agent_id: string
   agent_name: string | null
   status: 'running' | 'done' | 'failed'
-  model: string
+  model: string                        // derived from agent.model on read
   error: string | null
   tokens_in: number | null
   tokens_out: number | null
@@ -212,20 +214,25 @@ export interface Execution {
   ended_at: string | null
 }
 
-export interface Message {
+// One row per content block (text / thinking / tool_use / reconcile /
+// prompt). Grouped by turn_id when rendering to reconstruct a model
+// turn. Kinds:
+//   'prompt'    — founder's initial trigger
+//   'thought'   — extended-thinking block
+//   'said'      — assistant text block
+//   'tool_call' — tool-use block; execution_id links to the correlated
+//                 sandbox execution
+//   'reconcile' — token reconciliation against the SDK's modelUsage
+export interface Activity {
   id: string
   session_id: string
-  role: string
-  content: string
-  tokens: number | null
+  turn_id: string | null
+  kind: 'prompt' | 'thought' | 'said' | 'tool_call' | 'reconcile'
+  order_index: number
+  payload: string
+  tool_use_id: string | null
+  execution_id: string | null
   tokens_in: number | null
-  tool_call_count: number | null
-  created_at: string
-}
-
-export interface TicketTag {
-  id: string
-  ticket_id: string
-  tag: string
+  tokens: number | null
   created_at: string
 }

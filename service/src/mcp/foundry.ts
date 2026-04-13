@@ -244,7 +244,6 @@ export function buildSdk(ctx: FoundryCtx, allowed?: string[] | '*' | null) {
   ]
   return createSdkMcpServer({ name: 'foundry', tools: filterTools(all, allowed) })
 }
-
 // ── Vercel ai SDK adapter ──
 
 export function buildAi(ctx: FoundryCtx) {

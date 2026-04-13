@@ -82,22 +82,22 @@ export const tagCreate = z.object({
 })
 
 export const ticketCreate = z.object({
-  project_id: z.string(),
-  agent_id:   z.string().optional(),
-  title:      z.string(),
-  body:       z.string(),
-  priority:   z.number().int().default(0),
-  parent_id:  z.string().optional(),
-  blocked_by: z.string().optional(),   // ticket id — this ticket won't dispatch until the blocker is done
-  created_by: z.string(),
-  block:      z.boolean().optional(),
+  project_id:  z.string(),
+  agent_id:    z.string().optional(),
+  title:       z.string(),
+  description: z.string(),
+  priority:    z.number().int().default(0),
+  parent_id:   z.string().optional(),
+  blocked_by:  z.string().optional(),
+  created_by:  z.string(),
+  block:       z.boolean().optional(),
 })
 
 export const ticketUpdate = z.object({
-  title:    z.string().optional(),
-  body:     z.string().optional(),
-  agent_id: z.string().optional(),
-  priority: z.number().int().optional(),
+  title:       z.string().optional(),
+  description: z.string().optional(),
+  agent_id:    z.string().optional(),
+  priority:    z.number().int().optional(),
 })
 
 export const ticketDone = z.object({ notes: z.string().optional() })
@@ -127,7 +127,7 @@ export const agentCreate = z.object({
   connection_id:    z.string().min(1),
   name:             z.string().min(1),
   model:            modelId,
-  prompt:           z.string().min(1),
+  description:      z.string().min(1),
   max_tokens:       z.number().int().positive().optional(),
   max_steps:        z.number().int().positive().optional(),
   temperature:      z.number().min(0).max(2).optional(),
@@ -135,10 +135,13 @@ export const agentCreate = z.object({
   tools:            toolSelection.optional(),
 })
 
+// agentUpdate is the "create a new version" shape: the domain layer treats
+// every update as an insert with a new id; the prior row's superseded_at
+// is set to the new row's created_at. There's no in-place mutation.
 export const agentUpdate = z.object({
   connection_id:    z.string().min(1).optional(),
   model:            modelId.optional(),
-  prompt:           z.string().min(1).optional(),
+  description:      z.string().min(1).optional(),
   max_tokens:       z.number().int().positive().optional(),
   max_steps:        z.number().int().positive().optional(),
   temperature:      z.number().min(0).max(2).nullable().optional(),
@@ -147,7 +150,6 @@ export const agentUpdate = z.object({
 })
 
 export const sessionStart   = z.object({ ticket_id: z.string() })
-export const sessionMessage = z.object({ content: z.string().min(1) })
 
 export const executionCreate = z.object({
   command:    z.string().min(1),
