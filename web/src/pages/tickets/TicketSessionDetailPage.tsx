@@ -1,5 +1,6 @@
+import { useState } from 'react'
 import { Link, useLoaderData, useParams, useRevalidator } from 'react-router-dom'
-import { MessageSquare, Brain, FileText, Scale } from 'lucide-react'
+import { MessageSquare } from 'lucide-react'
 import type { Session, Execution, Message, UsageRollup, Ticket } from '../../types.js'
 import { fmtDuration, fmtBytes } from '../../lib/format.js'
 import { toolLabel, toolIcon } from '../../lib/tool-display.js'
@@ -40,6 +41,99 @@ function ExecutionBody({ e }: { e: Execution }) {
         <pre className="font-mono text-xs text-red-500 dark:text-red-400 whitespace-pre-wrap break-all leading-relaxed select-text max-h-32 overflow-auto mt-1">{e.stderr}</pre>
       )}
     </>
+  )
+}
+
+// ── Message row ──
+// Messages are an audit trail of what the model produced and consumed.
+// Render the raw stored content (JSON blocks or plain text) by default so
+// there's no ambiguity about what was actually persisted. When the content
+// has renderable text (user prompt, assistant text blocks, markdown the
+// agent typed), expose a toggle to view it as rendered markdown.
+
+function dateShort(s: string): string {
+  return new Date(s).toLocaleString(undefined, {
+    month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+  })
+}
+
+interface Block { type: string; text?: string; thinking?: string; name?: string }
+
+function parseContent(raw: string): { blocks: Block[] | null; plainText: string | null; parsedObj: Record<string, unknown> | null } {
+  const t = raw.trimStart()
+  if (!t.startsWith('{') && !t.startsWith('[')) return { blocks: null, plainText: raw, parsedObj: null }
+  try {
+    const parsed = JSON.parse(raw)
+    if (Array.isArray(parsed)) return { blocks: parsed as Block[], plainText: null, parsedObj: null }
+    if (parsed && typeof parsed === 'object') return { blocks: null, plainText: null, parsedObj: parsed }
+  } catch { /* fall through */ }
+  return { blocks: null, plainText: raw, parsedObj: null }
+}
+
+function blockTypesLabel(blocks: Block[]): string {
+  // Preserve order, dedupe, count repeats. "tool_use ×5, text"
+  const seen: string[] = []
+  const counts = new Map<string, number>()
+  for (const b of blocks) {
+    if (!counts.has(b.type)) seen.push(b.type)
+    counts.set(b.type, (counts.get(b.type) ?? 0) + 1)
+  }
+  return seen.map(t => { const n = counts.get(t)!; return n > 1 ? `${t} ×${n}` : t }).join(', ')
+}
+
+function extractText(blocks: Block[]): string {
+  return blocks.filter(b => b.type === 'text' && typeof b.text === 'string').map(b => b.text as string).join('\n\n')
+}
+
+function MessageRow({ m }: { m: Message }) {
+  const [asMarkdown, setAsMarkdown] = useState(false)
+  const { blocks, plainText, parsedObj } = parseContent(m.content)
+
+  // Label: role + content shape
+  let label = m.role
+  if (blocks)           label = `${m.role} · ${blockTypesLabel(blocks)}`
+  else if (parsedObj && typeof parsedObj.reconcile === 'string') label = `${m.role} · ${parsedObj.reconcile}`
+
+  // Raw view body: prettified JSON for structured content; plain text otherwise.
+  const rawBody = blocks || parsedObj
+    ? JSON.stringify(blocks ?? parsedObj, null, 2)
+    : (plainText ?? '')
+
+  // Markdown-renderable text available?
+  const mdText = blocks ? extractText(blocks) : (plainText ?? '')
+  const canRenderMarkdown = mdText.length > 0
+
+  const toggle = canRenderMarkdown ? (
+    <button
+      onClick={(e) => { e.stopPropagation(); setAsMarkdown(v => !v) }}
+      className="inline-block font-mono text-[10px] text-amber-500 dark:text-amber-400 mb-2 hover:underline"
+    >
+      {asMarkdown ? '← raw json' : 'render markdown →'}
+    </button>
+  ) : null
+
+  if (asMarkdown && canRenderMarkdown) {
+    return (
+      <ActivityRow
+        key={`m-${m.id}`}
+        icon={<MessageSquare size={14} />}
+        label={label}
+        meta={dateShort(m.created_at)}
+        body={mdText}
+        footer={toggle}
+      />
+    )
+  }
+  return (
+    <ActivityRow
+      key={`m-${m.id}`}
+      icon={<MessageSquare size={14} />}
+      label={label}
+      meta={dateShort(m.created_at)}
+      body={rawBody}
+      mono
+      footer={toggle}
+    />
   )
 }
 
@@ -123,48 +217,7 @@ export function TicketSessionDetailPage() {
         <SectionLabel label={`messages (${messages.length})`} />
         {messages.length === 0
           ? <EmptyState message="no messages" />
-          : messages.map(m => {
-              if (m.role === 'system' && m.content.includes('"reconcile"')) {
-                let payload: { deltaIn?: number; deltaOut?: number; modelIn?: number; modelOut?: number } = {}
-                try { payload = JSON.parse(m.content) } catch { /* keep empty */ }
-                const body = payload.modelIn !== undefined && payload.modelOut !== undefined
-                  ? `Reconciled against SDK modelUsage: **${payload.modelIn.toLocaleString()}** in / **${payload.modelOut.toLocaleString()}** out billed. Per-turn sum adjusted so session total matches exactly.`
-                  : ''
-                return (
-                  <ActivityRow
-                    key={`m-${m.id}`}
-                    icon={<Scale size={14} />}
-                    label="reconciliation"
-                    meta={ts(m.created_at)}
-                    body={body}
-                  />
-                )
-              }
-              const icon = m.role === 'reasoning' ? <Brain size={14} /> : m.role === 'user' ? <FileText size={14} /> : <MessageSquare size={14} />
-              const label = m.role === 'reasoning' ? 'thinking' : m.role === 'user' ? 'prompt' : 'message'
-              // Tool-only turns are stored as stringified content blocks for
-              // audit. Prettify + switch to mono so the expanded body is
-              // readable instead of a single-line blob.
-              const trimmed = m.content.trimStart()
-              const looksJson = trimmed.startsWith('{') || trimmed.startsWith('[')
-              let body = m.content
-              let mono = false
-              if (looksJson) {
-                try { body = JSON.stringify(JSON.parse(m.content), null, 2); mono = true }
-                catch { /* keep as-is */ }
-              }
-              return (
-                <ActivityRow
-                  key={`m-${m.id}`}
-                  icon={icon}
-                  label={label}
-                  status="done"
-                  meta={ts(m.created_at)}
-                  body={body}
-                  mono={mono}
-                />
-              )
-            })
+          : messages.map(m => <MessageRow key={m.id} m={m} />)
         }
       </div>
     </DetailShell>
