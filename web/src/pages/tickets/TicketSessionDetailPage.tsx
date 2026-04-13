@@ -142,6 +142,17 @@ export function TicketSessionDetailPage() {
               }
               const icon = m.role === 'reasoning' ? <Brain size={14} /> : m.role === 'user' ? <FileText size={14} /> : <MessageSquare size={14} />
               const label = m.role === 'reasoning' ? 'thinking' : m.role === 'user' ? 'prompt' : 'message'
+              // Tool-only turns are stored as stringified content blocks for
+              // audit. Prettify + switch to mono so the expanded body is
+              // readable instead of a single-line blob.
+              const trimmed = m.content.trimStart()
+              const looksJson = trimmed.startsWith('{') || trimmed.startsWith('[')
+              let body = m.content
+              let mono = false
+              if (looksJson) {
+                try { body = JSON.stringify(JSON.parse(m.content), null, 2); mono = true }
+                catch { /* keep as-is */ }
+              }
               return (
                 <ActivityRow
                   key={`m-${m.id}`}
@@ -149,7 +160,8 @@ export function TicketSessionDetailPage() {
                   label={label}
                   status="done"
                   meta={ts(m.created_at)}
-                  body={m.content}
+                  body={body}
+                  mono={mono}
                 />
               )
             })
