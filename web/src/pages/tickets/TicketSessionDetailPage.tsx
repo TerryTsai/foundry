@@ -112,7 +112,7 @@ function ThoughtBody({ text }: { text: string }) {
   )
 }
 
-function ToolCallBody({ input, exec, execHref }: { input: unknown; exec?: Execution; execHref: (id: string) => string }) {
+function ToolCallBody({ input, exec }: { input: unknown; exec?: Execution }) {
   const inputJson = JSON.stringify(input ?? {}, null, 2)
   const execStats = exec ? [
     exec.status,
@@ -127,10 +127,7 @@ function ToolCallBody({ input, exec, execHref }: { input: unknown; exec?: Execut
       <pre className="font-mono text-xs text-zinc-500 dark:text-zinc-400 whitespace-pre leading-relaxed select-text overflow-x-auto px-3 py-2">{inputJson}</pre>
       {exec && (
         <div className="border-t border-zinc-200 dark:border-zinc-800 px-3 py-2 bg-zinc-50/50 dark:bg-zinc-900/30">
-          <div className="flex items-center justify-between mb-1">
-            {execStats && <span className="font-mono text-[10px] text-zinc-500 dark:text-zinc-500">{execStats}</span>}
-            <Link to={execHref(exec.id)} onClick={e => e.stopPropagation()} className="font-mono text-[10px] text-amber-500 dark:text-amber-400 hover:underline">execution</Link>
-          </div>
+          {execStats && <div className="font-mono text-[10px] text-zinc-500 dark:text-zinc-500 mb-1">{execStats}</div>}
           {outSnippet && (
             <pre className="font-mono text-xs text-zinc-500 dark:text-zinc-400 whitespace-pre-wrap break-all leading-relaxed select-text overflow-auto max-h-24">{outSnippet}</pre>
           )}
@@ -174,7 +171,7 @@ function ActivityEntry({ a, execById, execHref }: {
     body = t ? <ThoughtBody text={t} /> : null
   } else if (a.kind === 'tool_call') {
     const exec = a.execution_id ? execById.get(a.execution_id) : undefined
-    body = <ToolCallBody input={payload.input} exec={exec} execHref={execHref} />
+    body = <ToolCallBody input={payload.input} exec={exec} />
     if (exec) sub = { to: execHref(exec.id), label: 'execution' }
   } else if (a.kind === 'reconcile') {
     body = <ReconcileBody payload={payload} />
