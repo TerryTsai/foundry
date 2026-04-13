@@ -108,8 +108,7 @@ function CommentsSection({ projectId, ticketId, comments, onRefresh }: { project
               key={c.id}
               icon={c.author === 'founder' ? <User size={14} /> : c.author === 'system' ? <Info size={14} /> : <Bot size={14} />}
               label={firstLine}
-              detailHref={c.session_id ? `/p/${projectId}/tickets/${ticketId}/sessions/${c.session_id}` : undefined}
-              detailLabel="view session"
+              sub={c.session_id ? { to: `/p/${projectId}/tickets/${ticketId}/sessions/${c.session_id}`, label: 'view session' } : undefined}
               status={c.author}
               meta={ts(c.created_at)}
               body={c.body}

@@ -1,9 +1,9 @@
 import { useState } from 'react'
 import { Link, useLoaderData, useParams, useRevalidator } from 'react-router-dom'
-import { MessageSquare } from 'lucide-react'
+import { MessageSquare, Brain, FileText, Scale, Wrench } from 'lucide-react'
 import type { Session, Execution, Message, UsageRollup, Ticket } from '../../types.js'
 import { fmtDuration, fmtBytes } from '../../lib/format.js'
-import { toolLabel, toolIcon } from '../../lib/tool-display.js'
+import { toolIcon } from '../../lib/tool-display.js'
 import { SectionLabel } from '../../components/detail/SectionLabel.js'
 import { ActivityRow } from '../../components/detail/ActivityRow.js'
 import { DetailShell } from '../../components/layout/DetailShell.js'
@@ -20,36 +20,12 @@ interface SessionLoaderData {
   usage: UsageRollup
 }
 
-// ── Execution body (shown when expanded) ──
-
-function ExecutionBody({ e }: { e: Execution }) {
-  const stats = [
-    e.exit_code !== null ? `exit ${e.exit_code}` : null,
-    e.duration_ms !== null ? `${(e.duration_ms / 1000).toFixed(1)}s` : null,
-    e.peak_memory_mb !== null ? `${e.peak_memory_mb.toFixed(1)} MB` : null,
-    e.cpu_ms !== null ? `${(e.cpu_ms / 1000).toFixed(2)}s cpu` : null,
-  ].filter(Boolean).join(' · ')
-
-  return (
-    <>
-      <pre className="font-mono text-xs text-zinc-900 dark:text-zinc-100 whitespace-pre-wrap break-all leading-relaxed select-text mb-1">{e.command}</pre>
-      {stats && <div className="text-[10px] font-mono text-zinc-400 dark:text-zinc-500 mb-2">{stats}</div>}
-      {e.stdout && (
-        <pre className="font-mono text-xs text-zinc-500 dark:text-zinc-400 whitespace-pre-wrap break-all leading-relaxed select-text max-h-48 overflow-auto">{e.stdout}</pre>
-      )}
-      {e.stderr && (
-        <pre className="font-mono text-xs text-red-500 dark:text-red-400 whitespace-pre-wrap break-all leading-relaxed select-text max-h-32 overflow-auto mt-1">{e.stderr}</pre>
-      )}
-    </>
-  )
-}
-
-// ── Message row ──
-// Messages are an audit trail of what the model produced and consumed.
-// Render the raw stored content (JSON blocks or plain text) by default so
-// there's no ambiguity about what was actually persisted. When the content
-// has renderable text (user prompt, assistant text blocks, markdown the
-// agent typed), expose a toggle to view it as rendered markdown.
+// ── Row helpers ──
+// Executions and messages render into a single merged activity timeline.
+// Body is always the raw message JSON prettified — stdout / stderr / cpu
+// stats live on the dedicated execution detail page (reachable via the
+// "view execution →" sub-link on the row header). That keeps the list
+// uniform: every row is one event + its JSON payload.
 
 function dateShort(s: string): string {
   return new Date(s).toLocaleString(undefined, {
@@ -85,6 +61,21 @@ function extractText(blocks: Block[]): string {
   return blocks.filter(b => b.type === 'text' && typeof b.text === 'string').map(b => b.text as string).join('\n\n')
 }
 
+// Pick an icon that actually reflects what this message is, not just "it's
+// a message". Keeps the merged timeline scannable.
+function messageIcon(m: Message): React.ReactNode {
+  const { blocks, parsedObj } = parseContent(m.content)
+  if (m.role === 'user')      return <FileText size={14} />
+  if (m.role === 'reasoning') return <Brain size={14} />
+  if (parsedObj && typeof parsedObj.reconcile === 'string') return <Scale size={14} />
+  if (blocks) {
+    const types = new Set(blocks.map(b => b.type))
+    if (types.has('thinking')) return <Brain size={14} />
+    if (types.has('tool_use')) return <Wrench size={14} />
+  }
+  return <MessageSquare size={14} />
+}
+
 function MessageRow({ m }: { m: Message }) {
   const [asMarkdown, setAsMarkdown] = useState(false)
   const { blocks, plainText, parsedObj } = parseContent(m.content)
@@ -94,12 +85,12 @@ function MessageRow({ m }: { m: Message }) {
   if (blocks)           label = `${m.role} · ${blockTypesLabel(blocks)}`
   else if (parsedObj && typeof parsedObj.reconcile === 'string') label = `${m.role} · ${parsedObj.reconcile}`
 
-  // Raw view body: prettified JSON for structured content; plain text otherwise.
+  // Raw view body: prettified JSON for structured content; plain text
+  // otherwise. This is the message-details view — not execution details.
   const rawBody = blocks || parsedObj
     ? JSON.stringify(blocks ?? parsedObj, null, 2)
     : (plainText ?? '')
 
-  // Markdown-renderable text available?
   const mdText = blocks ? extractText(blocks) : (plainText ?? '')
   const canRenderMarkdown = mdText.length > 0
 
@@ -112,27 +103,42 @@ function MessageRow({ m }: { m: Message }) {
     </button>
   ) : null
 
-  if (asMarkdown && canRenderMarkdown) {
-    return (
-      <ActivityRow
-        key={`m-${m.id}`}
-        icon={<MessageSquare size={14} />}
-        label={label}
-        meta={dateShort(m.created_at)}
-        body={mdText}
-        footer={toggle}
-      />
-    )
-  }
   return (
     <ActivityRow
       key={`m-${m.id}`}
-      icon={<MessageSquare size={14} />}
+      icon={messageIcon(m)}
       label={label}
+      status="done"
       meta={dateShort(m.created_at)}
-      body={rawBody}
-      mono
+      body={asMarkdown && canRenderMarkdown ? mdText : rawBody}
+      mono={!(asMarkdown && canRenderMarkdown)}
       footer={toggle}
+    />
+  )
+}
+
+// Execution row renders the same-shape JSON body as a message row:
+// { type: "tool_use", name, input } — exactly the payload the model sent
+// to the tool. stdout/stderr/cpu/mem/network still live on the execution
+// detail page, reachable via the "view execution →" sub-link.
+function ExecutionRow({ e, sub }: { e: Execution; sub: string }) {
+  const name = e.tool_name ?? 'exec'
+  const input = (() => {
+    if (!e.tool_input) return {}
+    try { return JSON.parse(e.tool_input) } catch { return e.tool_input }
+  })()
+  const body = JSON.stringify({ type: 'tool_use', name, input }, null, 2)
+
+  return (
+    <ActivityRow
+      key={`e-${e.id}`}
+      icon={toolIcon(e.tool_name)}
+      label={name}
+      status={e.status}
+      meta={dateShort(e.started_at)}
+      sub={{ to: sub, label: 'view execution' }}
+      body={body}
+      mono
     />
   )
 }
@@ -189,37 +195,30 @@ export function TicketSessionDetailPage() {
         </div>
       )}
 
-      {/* Executions and messages are genuinely different units (resources
-          vs. model I/O); splitting them into two sections keeps each
-          surface honest about what it's measuring. Ticket comments stay
-          on the ticket page — this page is the audit view. */}
-      <div>
-        <SectionLabel label={`activity (${executions.length})`} onRefresh={refreshActivity} />
-        {executions.length === 0
-          ? <EmptyState message="no executions" />
-          : executions.map(e => (
-              <ActivityRow
-                key={`e-${e.id}`}
-                icon={toolIcon(e.tool_name)}
-                label={toolLabel(e.tool_name, e.tool_input)}
-                status={e.status}
-                meta={ts(e.started_at)}
-                body=""
-                footer={<ExecutionBody e={e} />}
-                detailHref={execPath(e.id)}
-                detailLabel="view execution"
-              />
-            ))
-        }
-      </div>
+      {/* One merged timeline: prompt → model turns / tool calls / executions
+          → reconciliation. Sort everything by timestamp so the founder
+          reads the session top-to-bottom in the order it happened. */}
+      {(() => {
+        type Item =
+          | { kind: 'exec'; at: string; e: Execution }
+          | { kind: 'msg';  at: string; m: Message }
+        const items: Item[] = [
+          ...executions.map(e => ({ kind: 'exec' as const, at: e.started_at,  e })),
+          ...messages.map(m   => ({ kind: 'msg'  as const, at: m.created_at, m })),
+        ].sort((a, b) => a.at.localeCompare(b.at))
 
-      <div>
-        <SectionLabel label={`messages (${messages.length})`} />
-        {messages.length === 0
-          ? <EmptyState message="no messages" />
-          : messages.map(m => <MessageRow key={m.id} m={m} />)
-        }
-      </div>
+        return (
+          <div>
+            <SectionLabel label={`activity (${items.length})`} onRefresh={refreshActivity} />
+            {items.length === 0
+              ? <EmptyState message="no activity" />
+              : items.map(it => it.kind === 'exec'
+                  ? <ExecutionRow key={`e-${it.e.id}`} e={it.e} sub={execPath(it.e.id)} />
+                  : <MessageRow   key={`m-${it.m.id}`} m={it.m} />)
+            }
+          </div>
+        )
+      })()}
     </DetailShell>
   )
 }
