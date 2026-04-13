@@ -311,12 +311,11 @@ export function AnalyticsPage() {
   return (
     <div className="flex flex-col h-dvh bg-white dark:bg-zinc-950">
       <AppHeader><span className="text-sm text-zinc-500 dark:text-zinc-400">Analytics</span></AppHeader>
-      <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
-        <PageShell onRefresh={handleRefresh}>
-          <div className={`space-y-8 max-w-3xl mx-auto pb-8 transition-opacity ${loading ? 'opacity-50' : 'opacity-100'}`}>
 
-        {/* Filter bar — same pattern as tickets. Scrolls horizontally on small viewports. */}
-        <div className="flex items-center gap-2 overflow-x-auto no-scrollbar -mx-1 px-1">
+      {/* Filter bar — identical markup + classes to the tickets filter pane so
+          it visually anchors the page the same way. */}
+      <div className="shrink-0 flex items-center h-11 border-b border-zinc-200 dark:border-zinc-800/60">
+        <div className="flex items-center gap-2 flex-1 min-w-0 overflow-x-auto no-scrollbar px-4">
           <MultiSelect label="Range"   options={RANGE_LABELS}    selected={range}   onChange={handleRangeChange} />
           {projectOptions.length > 1 && (
             <MultiSelect label="Project" options={projectOptions} selected={project} onChange={handleProjectChange} />
@@ -325,6 +324,11 @@ export function AnalyticsPage() {
             <MultiSelect label="Agent"   options={agentOptions}   selected={agent}   onChange={handleAgentChange} />
           )}
         </div>
+      </div>
+
+      <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
+        <PageShell onRefresh={handleRefresh}>
+          <div className={`space-y-8 max-w-3xl mx-auto pb-8 transition-opacity ${loading ? 'opacity-50' : 'opacity-100'}`}>
 
         <Section title="summary">
           <SummarySection data={data.summary} />

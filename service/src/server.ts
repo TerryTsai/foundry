@@ -28,11 +28,21 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 const webDist = join(__dirname, '../../web/dist')
 if (existsSync(webDist)) {
   app.use(express.static(webDist))
-  // SPA fallback: non-API GET requests serve index.html for client-side
-  // routing. API paths pass through to requireAuth + route handlers below.
+  // SPA fallback: serve index.html for client-side routing. API paths pass
+  // through to requireAuth + route handlers below.
+  //
+  // Edge case: when the UI route path collides with an API mount point
+  // (e.g. /analytics is BOTH a page and an endpoint), a browser reload
+  // would otherwise hit the JSON API. Disambiguate by Accept header —
+  // top-level navigations request text/html; fetch/XHR calls request
+  // application/json. HTML-preferring requests always get the SPA.
   const apiPrefixes = ['/project', '/connection', '/ticket', '/agent', '/session', '/execution', '/analytics', '/health', '/auth']
   app.use((req, res, next) => {
-    if (req.method !== 'GET' || apiPrefixes.some(p => req.path.startsWith(p))) return next()
+    if (req.method !== 'GET') return next()
+    const accept = req.headers.accept ?? ''
+    const wantsHtml = accept.includes('text/html')
+    if (wantsHtml) return res.sendFile(join(webDist, 'index.html'))
+    if (apiPrefixes.some(p => req.path.startsWith(p))) return next()
     res.sendFile(join(webDist, 'index.html'))
   })
 }
