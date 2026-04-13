@@ -144,6 +144,14 @@ export async function runAgentSessionViaSdk(
     let stopReason: string | null = null
     let numTurns = 0
 
+    // Persist tokens incrementally, one row per assistant turn. Previously we
+    // read `modelUsage` off the final `result` message and wrote a single
+    // aggregate row — but if the SDK throws before emitting `result` (network
+    // error, rate limit mid-run, subscription token expired) the whole
+    // session had zero tokens recorded despite the billing having already
+    // happened. Writing per-turn means failed runs still have an accurate
+    // record up to the point of failure, and analytics gain per-turn
+    // granularity (cost-per-tool-call, slowest turn, etc.).
     for await (const message of query({
       prompt,
       options: {
@@ -156,24 +164,59 @@ export async function runAgentSessionViaSdk(
         model:           agentDef.model,
       },
     })) {
-      if (message.type === 'result') {
-        // result.usage is per-call (final turn only). result.modelUsage is
-        // the cumulative-per-model totals across the whole agent run, which
-        // is what we want for the session header. Sum across all models the
-        // run touched, and include cache_read + cache_creation since those
-        // are tokens the model actually processed (just billed differently).
-        const models = Object.values(message.modelUsage)
-        inputTokens  = models.reduce((s, m) => s + m.inputTokens + m.cacheReadInputTokens + m.cacheCreationInputTokens, 0)
-        outputTokens = models.reduce((s, m) => s + m.outputTokens, 0)
-        numTurns     = message.num_turns
-        stopReason   = message.stop_reason ?? message.subtype
+      if (message.type === 'assistant') {
+        const u = message.message.usage
+        // Total input = prompt + cache reads + cache creation. Each turn
+        // re-bills the full history, so summing per-turn input across the
+        // session matches what `result.modelUsage` reports cumulatively.
+        const turnIn  = (u.input_tokens ?? 0)
+                      + (u.cache_read_input_tokens ?? 0)
+                      + (u.cache_creation_input_tokens ?? 0)
+        const turnOut = u.output_tokens ?? 0
+        inputTokens  += turnIn
+        outputTokens += turnOut
+        const blocks  = Array.isArray(message.message.content) ? message.message.content : []
+        const toolCalls = blocks.filter((b: { type: string }) => b.type === 'tool_use').length
+        // Store a human-readable text body when there's a text block, else a
+        // compact JSON summary of the content shape. Timeline view already
+        // skips JSON-looking content, so tool-only turns stay out of the feed
+        // while still contributing tokens + tool_call_count.
+        const textParts: string[] = []
+        for (const b of blocks) {
+          if (b.type === 'text' && typeof (b as { text?: unknown }).text === 'string') {
+            const t = (b as { text: string }).text
+            if (t.length > 0) textParts.push(t)
+          }
+        }
+        const body = textParts.length > 0 ? textParts.join('\n\n') : JSON.stringify(blocks)
+        domain.sessionMessage(db, sessionId, 'assistant', body, turnOut, turnIn, toolCalls)
+        // Last non-empty text block is what the founder sees in the final
+        // ticketComment when the session closes cleanly.
+        if (textParts.length > 0) finalText = textParts.join('\n\n')
+      } else if (message.type === 'result') {
+        numTurns   = message.num_turns
+        stopReason = message.stop_reason ?? message.subtype
         if (message.subtype === 'success') finalText = message.result
+        // Reconcile against the SDK's authoritative cumulative totals. If
+        // modelUsage is higher than our per-turn sum there was a billable
+        // event we didn't see as an 'assistant' message — record the delta
+        // as a synthetic message so the totals match what was actually
+        // billed. Zero delta in practice; this is a safety net.
+        const models = Object.values(message.modelUsage)
+        const modelIn  = models.reduce((s, m) => s + m.inputTokens + m.cacheReadInputTokens + m.cacheCreationInputTokens, 0)
+        const modelOut = models.reduce((s, m) => s + m.outputTokens, 0)
+        const deltaIn  = modelIn  - inputTokens
+        const deltaOut = modelOut - outputTokens
+        if (deltaIn > 0 || deltaOut > 0) {
+          domain.sessionMessage(db, sessionId, 'system',
+            JSON.stringify({ reconcile: 'modelUsage delta', deltaIn, deltaOut }),
+            Math.max(0, deltaOut), Math.max(0, deltaIn), 0)
+          inputTokens  = modelIn
+          outputTokens = modelOut
+        }
       }
     }
 
-    // Persist a single assistant message with the final result + token totals.
-    // Granular per-step rows aren't available because the SDK loop is opaque.
-    domain.sessionMessage(db, sessionId, 'assistant', finalText || JSON.stringify({}), outputTokens, inputTokens, 0)
     if (finalText) {
       domain.commentCreate(db, ticketData.id, { author: agentDef.name, body: finalText, session_id: sessionId })
     }
