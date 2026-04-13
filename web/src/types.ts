@@ -218,6 +218,7 @@ export interface Message {
   content: string
   tokens: number | null
   tokens_in: number | null
+  tool_call_count: number | null
   created_at: string
 }
 
