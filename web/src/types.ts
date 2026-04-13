@@ -49,6 +49,70 @@ export interface TicketTag {
   created_at: string
 }
 
+export interface AnalyticsSummary {
+  total_cost_usd: number
+  total_sessions: number
+  sessions_done: number
+  sessions_failed: number
+  sessions_running: number
+  total_tokens_in: number
+  total_tokens_out: number
+  total_duration_ms: number
+  total_exec_count: number
+  total_cpu_ms: number
+  total_net_bytes: number
+  peak_memory_mb: number | null
+  total_tickets: number
+  tickets_open: number
+  tickets_done: number
+  tickets_failed: number
+}
+
+export interface AnalyticsDay {
+  date: string
+  sessions: number
+  sessions_done: number
+  sessions_failed: number
+  cost_usd: number
+  tokens_in: number
+  tokens_out: number
+  tickets_created: number
+  tickets_completed: number
+}
+
+export interface AnalyticsAgent {
+  agent_id: string
+  agent_name: string
+  sessions: number
+  sessions_done: number
+  sessions_failed: number
+  cost_usd: number
+  tokens_in: number
+  tokens_out: number
+  duration_ms: number
+  avg_duration_ms: number
+  avg_cost_usd: number
+}
+
+export interface AnalyticsTag {
+  tag: string
+  tickets: number
+  tickets_done: number
+  tickets_failed: number
+  sessions: number
+  cost_usd: number
+  tokens_in: number
+  tokens_out: number
+  duration_ms: number
+}
+
+export interface Analytics {
+  summary: AnalyticsSummary
+  daily: AnalyticsDay[]
+  agents: AnalyticsAgent[]
+  tags: AnalyticsTag[]
+}
+
 export interface McpToolInfo {
   name: string
   description: string
