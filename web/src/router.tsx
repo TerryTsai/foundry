@@ -26,6 +26,7 @@ import { ConnectionDetailPage } from './pages/agents/ConnectionDetailPage.js'
 import { LoginPage } from './pages/auth/LoginPage.js'
 import { HealthPage } from './pages/HealthPage.js'
 import { SettingsLayout, SettingsIndexPlaceholder } from './pages/settings/SettingsLayout.js'
+import { AnalyticsPage } from './pages/analytics/AnalyticsPage.js'
 
 const pid = (p: Params) => p.projectId!
 
@@ -117,6 +118,13 @@ export const router = createBrowserRouter([
     loader: ({ params }) => projectApi.get(pid(params)),
     children: [
       { index: true, element: <Navigate to="tickets" replace /> },
+
+      // Analytics
+      {
+        path: 'analytics',
+        element: <AnalyticsPage />,
+        loader: ({ params }) => projectApi.analytics(pid(params), 30),
+      },
 
       // Tickets
       {

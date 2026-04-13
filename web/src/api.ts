@@ -1,4 +1,4 @@
-import type { Account, Connection, Project, Ticket, Comment, Agent, Session, Execution, UsageRollup, TicketTag, McpServerInfo, McpToolSelection } from './types.js'
+import type { Account, Connection, Project, Ticket, Comment, Agent, Session, Execution, UsageRollup, TicketTag, McpServerInfo, McpToolSelection, Analytics } from './types.js'
 
 const cache = new Map<string, { data: unknown; at: number }>()
 const CACHE_TTL = 30_000 // 30 seconds
@@ -78,6 +78,8 @@ export const projectApi = {
   update: (id: string, data: Partial<Project>) => put<Project>(`/project/${id}`, data),
   run: (id: string) => post<{ ok: boolean }>(`/project/${id}/run`),
   tags: (projectId: string) => get<string[]>(`/project/${projectId}/tags`),
+  analytics: (projectId: string, days?: number) =>
+    get<Analytics>(`/project/${projectId}/analytics${days ? `?days=${days}` : ''}`),
 }
 
 // Tickets
