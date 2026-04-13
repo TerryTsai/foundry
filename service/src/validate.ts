@@ -34,6 +34,10 @@ export const projectUpdate = z.object({
   max_agents:         z.number().int().positive().optional(),
 })
 
+export const projectAnalytics = z.object({
+  days: z.coerce.number().int().min(1).max(365).default(30),
+})
+
 // Connection (generalized provider + integration).
 // `config` and `secrets` are free-form JSON blobs whose shape is interpreted
 // by the kind-specific resolver at session start. The validator only enforces
