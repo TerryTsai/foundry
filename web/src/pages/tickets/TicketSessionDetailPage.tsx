@@ -36,6 +36,15 @@ function parsePayload(raw: string): Record<string, unknown> {
   } catch { return {} }
 }
 
+// MCP tool names arrive from the SDK as `mcp__<server>__<name>`. Our
+// display registry (toolLabel / toolIcon in lib/tool-display) keys off
+// the bare name, so strip the namespace before lookup.
+function bareToolName(name: unknown): string | null {
+  if (typeof name !== 'string') return null
+  const m = name.match(/^mcp__[^_]+__(.+)$/)
+  return m ? m[1] : name
+}
+
 // Activity icon + label are deterministic per kind. Tool calls get their
 // richer per-tool icon and human-readable label via toolIcon/toolLabel
 // ("git clone TerryTsai/foundry" rather than "called gitClone").
@@ -45,7 +54,7 @@ function iconFor(a: Activity, payload: Record<string, unknown>): React.ReactNode
     case 'thought':   return <Brain size={14} />
     case 'said':      return <MessageSquare size={14} />
     case 'reconcile': return <Scale size={14} />
-    case 'tool_call': return toolIcon(typeof payload.name === 'string' ? payload.name : null, 14)
+    case 'tool_call': return toolIcon(bareToolName(payload.name), 14)
   }
 }
 
@@ -56,9 +65,8 @@ function labelFor(a: Activity, payload: Record<string, unknown>): string {
     case 'said':      return 'said'
     case 'reconcile': return 'reconciliation'
     case 'tool_call': {
-      const name = typeof payload.name === 'string' ? payload.name : null
       const input = payload.input !== undefined ? JSON.stringify(payload.input) : null
-      return toolLabel(name, input)
+      return toolLabel(bareToolName(payload.name), input)
     }
   }
 }
