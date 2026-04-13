@@ -23,7 +23,7 @@ export function ActivityRow({ label, icon, detailHref, detailLabel, status, meta
     <div className="flex items-center gap-3">
       {icon && <div className="shrink-0 text-zinc-600 dark:text-zinc-500">{icon}</div>}
       <div className="flex-1 min-w-0">
-        <div className={`truncate leading-snug ${mono ? 'font-mono text-xs text-zinc-900 dark:text-zinc-100' : 'text-sm text-zinc-900 dark:text-zinc-100'}`}>
+        <div className="truncate leading-snug text-sm text-zinc-900 dark:text-zinc-100">
           {label}
         </div>
         {meta && <div className="text-xs text-zinc-600 dark:text-zinc-500 mt-0.5 truncate">{meta}</div>}
