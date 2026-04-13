@@ -140,7 +140,7 @@ function ExecutionRow({ e, sub }: { e: Execution; sub: string }) {
       label={toolLabel(e.tool_name, e.tool_input)}
       status={e.status}
       meta={dateShort(e.started_at)}
-      sub={{ to: sub, label: 'view execution' }}
+      sub={{ to: sub, label: 'execution' }}
       body={body}
       mono
     />
