@@ -21,6 +21,7 @@ export const info: McpServerInfo = {
     { name: 'pagesDeployments', description: 'List recent deployments for a Pages project.' },
     { name: 'pagesRemove',      description: 'Delete a Cloudflare Pages project. Irreversible.' },
     { name: 'pagesDeploy',      description: 'Deploy a local directory to Cloudflare Pages. Creates the project on first use.' },
+    { name: 'wranglerCli',      description: 'Run any wrangler command (R2, D1, Workers, KV, Queues, Vectorize, Hyperdrive, …).' },
   ],
 }
 
@@ -48,6 +49,10 @@ const pagesDeployArgs      = z.object({
   dir:          z.string().describe('Directory to deploy, relative to /work. Must contain the built site (e.g. "site/dist").'),
   branch:       z.string().optional().describe('Deploy branch; default "main".'),
   account_id:   z.string().optional(),
+})
+const wranglerCliArgs = z.object({
+  command: z.string().describe('Args after `wrangler`. Examples: `r2 bucket list`, `r2 object put my-bucket/key.txt --file=path/in/work.txt`, `d1 execute mydb --command "SELECT 1"`, `kv:key list --binding=MY_KV`, `tail my-worker --format=pretty`.'),
+  account_id: z.string().optional(),
 })
 
 // ── Cloudflare request helpers ──
@@ -169,6 +174,27 @@ async function handlePagesDeploy(ctx: CloudflareCtx, args: z.infer<typeof pagesD
   return { ok: true, deployUrl, projectUrl, stdout: r.stdout }
 }
 
+// Generic wrangler pass-through. Mirrors the AWS CLI pattern. /work is
+// mounted rw so wrangler can read files for upload (r2 object put) and
+// write outputs (r2 object get). The CF token + account id ride in env;
+// the logged command contains only `$VAR` references.
+async function handleWranglerCli(ctx: CloudflareCtx, args: z.infer<typeof wranglerCliArgs>) {
+  const acct = resolveAccountId(ctx, args.account_id)
+  const cmd = `wrangler ${args.command}`
+  const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace,
+    cmd, 'wranglerCli', args, {
+      network: true,
+      mount:   'rw',
+      env: {
+        CLOUDFLARE_API_TOKEN:  ctx.secrets.api_token ?? '',
+        CLOUDFLARE_ACCOUNT_ID: acct,
+      },
+      toolUseId: ctx.toolUseId,
+    })
+  if (r.exitCode !== 0) return { ok: false, error: r.stderr || r.stdout }
+  try { return { ok: true, result: JSON.parse(r.stdout) } } catch { return { ok: true, stdout: r.stdout } }
+}
+
 const DESC = {
   whoami:           'Verify the token and show the authorized user / account context.',
   purgeCache:       'Purge cache for a zone. Pass a `files` URL list (preferred) or `purge_everything: true`.',
@@ -176,6 +202,7 @@ const DESC = {
   pagesDeployments: 'List recent deployments for a Pages project.',
   pagesRemove:      'Delete a Cloudflare Pages project. Irreversible — removes all deployments and releases the *.pages.dev subdomain.',
   pagesDeploy:      'Deploy a local directory to Cloudflare Pages. Creates the project on first use. `dir` is relative to /work and must contain the built site (e.g. "site/dist").',
+  wranglerCli:      'Run any wrangler command against this Cloudflare connection\'s account. `command` is the args after `wrangler` — e.g. `r2 bucket list`, `r2 bucket create my-bucket`, `r2 object put my-bucket/key.txt --file=path/in/work.txt`, `d1 list`, `d1 create mydb`, `d1 execute mydb --command "SELECT 1"`, `kv:namespace list`, `tail my-worker --format=pretty`. /work is mounted rw so file paths in arguments resolve normally.',
 }
 
 // ── Anthropic Claude Agent SDK adapter ──
@@ -189,6 +216,7 @@ export function buildSdk(ctx: CloudflareCtx, allowed?: string[] | '*' | null) {
     sdkTool('pagesDeployments', DESC.pagesDeployments, pagesDeploymentsArgs.shape, async (a, x) => asText(await handlePagesDeployments(tu(x), a))),
     sdkTool('pagesRemove',      DESC.pagesRemove,      pagesRemoveArgs.shape,      async (a, x) => asText(await handlePagesRemove(tu(x), a))),
     sdkTool('pagesDeploy',      DESC.pagesDeploy,      pagesDeployArgs.shape,      async (a, x) => asText(await handlePagesDeploy(tu(x), a))),
+    sdkTool('wranglerCli',      DESC.wranglerCli,      wranglerCliArgs.shape,      async (a, x) => asText(await handleWranglerCli(tu(x), a))),
   ]
   return createSdkMcpServer({ name: `cloudflare:${ctx.connectionName}`, tools: filterTools(all, allowed) })
 }
@@ -221,6 +249,10 @@ export function buildAi(ctx: CloudflareCtx) {
     [`${prefix}-pagesDeploy`]: tool({
       description: DESC.pagesDeploy,      inputSchema: pagesDeployArgs,
       execute:     (a: z.infer<typeof pagesDeployArgs>) => handlePagesDeploy(ctx, a),
+    }),
+    [`${prefix}-wranglerCli`]: tool({
+      description: DESC.wranglerCli,      inputSchema: wranglerCliArgs,
+      execute:     (a: z.infer<typeof wranglerCliArgs>) => handleWranglerCli(ctx, a),
     }),
   }
 }
