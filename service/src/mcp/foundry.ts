@@ -29,6 +29,7 @@ export const info: McpServerInfo = {
     { name: 'ticketGet',     description: 'Fetch a ticket by id.' },
     { name: 'ticketCreate',  description: 'Create a new ticket in the current project.' },
     { name: 'ticketComment', description: 'Post a comment on a ticket.' },
+    { name: 'ticketReopen',  description: 'Reopen a done or failed ticket so the scheduler dispatches it again.' },
     { name: 'ticketTagAdd',    description: 'Add a tag to a ticket.' },
     { name: 'ticketTagRemove', description: 'Remove a tag from a ticket.' },
     { name: 'agentsList',    description: 'List agents configured in the account.' },
@@ -73,6 +74,10 @@ const ticketCreateArgs = z.object({
 const ticketCommentArgs = z.object({
   ticket_id: z.string().optional().describe('Ticket to comment on. Defaults to the current session\'s ticket.'),
   body:      z.string().describe('Comment body, markdown allowed.'),
+})
+
+const ticketReopenArgs = z.object({
+  ticket_id: z.string().describe('Ticket id to reopen. Must currently be in done or failed state.'),
 })
 
 const ticketTagAddArgs = z.object({
@@ -177,6 +182,10 @@ async function handleTicketComment(ctx: FoundryCtx, args: z.infer<typeof ticketC
   return apiPost(ctx, 'ticketComment', args, `/ticket/${targetTicket}/comment`, payload)
 }
 
+async function handleTicketReopen(ctx: FoundryCtx, args: z.infer<typeof ticketReopenArgs>) {
+  return apiPost(ctx, 'ticketReopen', args, `/ticket/${args.ticket_id}/reopen`, '')
+}
+
 async function handleTicketTagAdd(ctx: FoundryCtx, args: z.infer<typeof ticketTagAddArgs>) {
   const ticketId = args.ticket_id ?? ctx.ticketId
   const payload = JSON.stringify({ tag: args.tag })
@@ -215,6 +224,7 @@ const DESC = {
   ticketGet:       'Fetch a ticket by id, including its title, body, status, and parent chain.',
   ticketCreate:    'Create a new ticket in the current project. The new ticket is parented to the current session\'s ticket by default, so sub-tasks chain back to the originating work.',
   ticketComment:   'Post a comment on a ticket. Used for status updates, questions, or communicating with the Founder.',
+  ticketReopen:    'Reopen a previously-completed ticket so the scheduler dispatches it again. Use this when verification of a "done" ticket fails — comment first with the failure, then reopen.',
   ticketTagAdd:    'Add a tag to a ticket.',
   ticketTagRemove: 'Remove a tag from a ticket.',
   agentsList:      'List agents configured in the account. Useful for targeting sub-tickets at a specific agent.',
@@ -236,6 +246,7 @@ export function buildSdk(ctx: FoundryCtx, allowed?: string[] | '*' | null) {
     sdkTool('ticketGet',     DESC.ticketGet,     ticketGetArgs.shape,     async (a, x) => asText(await handleTicketGet(tu(x), a))),
     sdkTool('ticketCreate',  DESC.ticketCreate,  ticketCreateArgs.shape,  async (a, x) => asText(await handleTicketCreate(tu(x), a))),
     sdkTool('ticketComment', DESC.ticketComment, ticketCommentArgs.shape, async (a, x) => asText(await handleTicketComment(tu(x), a))),
+    sdkTool('ticketReopen',  DESC.ticketReopen,  ticketReopenArgs.shape,  async (a, x) => asText(await handleTicketReopen(tu(x), a))),
     sdkTool('ticketTagAdd',    DESC.ticketTagAdd,    ticketTagAddArgs.shape,    async (a, x) => asText(await handleTicketTagAdd(tu(x), a))),
     sdkTool('ticketTagRemove', DESC.ticketTagRemove, ticketTagRemoveArgs.shape, async (a, x) => asText(await handleTicketTagRemove(tu(x), a))),
     sdkTool('agentsList',    DESC.agentsList,    agentsListArgs.shape,    async (a, x) => asText(await handleAgentsList(tu(x), a))),
@@ -268,6 +279,11 @@ export function buildAi(ctx: FoundryCtx) {
       description: DESC.ticketComment,
       inputSchema: ticketCommentArgs,
       execute:     (args: z.infer<typeof ticketCommentArgs>) => handleTicketComment(ctx, args),
+    }),
+    ticketReopen: tool({
+      description: DESC.ticketReopen,
+      inputSchema: ticketReopenArgs,
+      execute:     (args: z.infer<typeof ticketReopenArgs>) => handleTicketReopen(ctx, args),
     }),
     ticketTagAdd: tool({
       description: DESC.ticketTagAdd,
