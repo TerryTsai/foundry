@@ -126,7 +126,7 @@ export function analytics(db: Db, accountId: string, opts: { days: number; proje
       COALESCE(SUM(m_agg.tokens_in), 0) AS tokens_in,
       COALESCE(SUM(m_agg.tokens_out), 0) AS tokens_out,
       COALESCE(SUM(s.duration_ms), 0) AS duration_ms
-    FROM ticket_tag tt
+    FROM tag tt
     JOIN ticket t ON tt.ticket_id = t.id
     LEFT JOIN session s ON s.ticket_id = t.id AND date(s.started_at) >= ${cutoff}
     LEFT JOIN (
