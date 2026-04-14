@@ -2,8 +2,7 @@ import { type Db } from '../database.js'
 import * as database from '../database.js'
 import { now } from '../util.js'
 import { scrubSecrets } from '../mcp/shared.js'
-import { collectOutputs, cleanupDirs, type ExecutionDirs } from './workspace.js'
-import type { ArtifactSpec } from '../connections/types.js'
+import { collectOutputs, cleanupDirs, type ExecutionDirs, type ArtifactSpec } from './workspace.js'
 import type { ContainerStats } from './podman.js'
 
 export interface ExitCtx {

@@ -18,7 +18,16 @@ import * as githubServer  from '../mcp/github.js'
 import * as sandboxServer from '../mcp/sandbox.js'
 import * as browserServer from '../mcp/browser.js'
 import * as schema from '../tables.js'
-import { buildConnectionAiTools, connectionTools } from '../mcp/connection.js'
+import { byConnectionKind } from '../mcp/registry.js'
+import type { Connection } from '../tables.js'
+
+function parseConn(conn: Connection): { secrets: Record<string, string>; connConfig: Record<string, unknown> } {
+  let secrets: Record<string, string>  = {}
+  let connConfig: Record<string, unknown> = {}
+  try { secrets    = JSON.parse(conn.secrets) as Record<string, string>  } catch { /* malformed */ }
+  try { connConfig = JSON.parse(conn.config)  as Record<string, unknown> } catch { /* malformed */ }
+  return { secrets, connConfig }
+}
 
 type StepResult = Awaited<ReturnType<typeof generateText<ToolSet>>>
 
@@ -228,14 +237,18 @@ async function runAgentSessionViaAi(
       ...sandboxServer.buildAi({ db, config, sessionId, workspace: workDir }),
       ...browserServer.buildAi({ db, config, sessionId, workspace: workDir }),
     }
-    // Connection-contributed tools. Flat-namespaced as <kind>-<name>-<tool>
-    // in the ai-SDK ToolSet because there's no server concept here.
+    // Connection-backed tools. One entry per connection row whose kind has
+    // a matching MCP module. Flat-namespaced as <kind>-<name>-<tool> in the
+    // ai-SDK ToolSet because there's no server concept here.
     const accountConns = database.connectionAll(db, [eq(schema.connection.account_id, agentDef.account_id)])
     for (const conn of accountConns) {
-      if (!connectionTools(conn.kind).length) continue
-      Object.assign(tools, buildConnectionAiTools(
-        { db, config, sessionId, workspace: workDir }, conn, null,
-      ))
+      const mod = byConnectionKind[conn.kind as keyof typeof byConnectionKind]
+      if (!mod) continue
+      const { secrets, connConfig } = parseConn(conn)
+      Object.assign(tools, mod.buildAi({
+        db, config, sessionId, workspace: workDir,
+        secrets, connConfig, connectionName: conn.name,
+      }))
     }
     const model = resolveModelWithDefaults(db, agentDef)
     const { finishReason, tokensIn, tokensOut, toolCalls } = await runLoop(db, {

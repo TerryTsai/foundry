@@ -1,6 +1,16 @@
 import { mkdirSync, cpSync, rmSync } from 'fs'
 import { join, dirname } from 'path'
-import type { ArtifactSpec } from '../connections/types.js'
+
+// Artifact copy spec — drives the isolated-sandbox model. `artifactsIn`
+// entries are copied host→container before the command runs (destination
+// under /input). `artifactsOut` entries are copied container→host after a
+// successful exit (source under /output, destination relative to the
+// agent's /work). When either is present, /work itself is NOT mounted —
+// the command can only see what's in the input allowlist.
+export interface ArtifactSpec {
+  src:  string   // path relative to workspace (artifactsIn) or /output (artifactsOut)
+  dest: string   // path relative to /input (artifactsIn) or workspace (artifactsOut)
+}
 
 export interface ExecutionDirs {
   workspace: string

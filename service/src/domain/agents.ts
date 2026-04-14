@@ -8,26 +8,25 @@ import type { Agent } from '../tables.js'
 import { mustExist, now } from '../util.js'
 import { conflict, badRequest, notFound } from '../errors.js'
 import * as providers from '../connections/registry.js'
-import { registry as mcpRegistry, type McpServerInfo } from '../mcp/registry.js'
-import { connectionTools } from '../mcp/connection.js'
+import { registry as mcpRegistry, byConnectionKind, type McpServerInfo } from '../mcp/registry.js'
 import * as validate from '../validate.js'
 
-// MCP server catalog surfaced to the agent-edit UI. Returns the 4 built-ins
-// plus one synthesized entry per account connection whose kind contributes
-// tools. The id/key (`<kind>:<name>`) is the same one the runtime uses when
-// mounting the Agent-SDK server.
+// MCP server catalog surfaced to the agent-edit UI. Returns the built-ins
+// plus one synthesized entry per account connection whose kind has a
+// matching MCP module. The id/key (`<kind>:<name>`) is the same one the
+// runtime uses when mounting the Agent-SDK server.
 export function agentMcpList(db: Db, accountId: string): McpServerInfo[] {
   const out: McpServerInfo[] = [...mcpRegistry]
   const conns = database.connectionAll(db, [eq(schema.connection.account_id, accountId)])
   for (const conn of conns) {
+    const mod = byConnectionKind[conn.kind as keyof typeof byConnectionKind]
     const provider = providers.providerGet(conn.kind)
-    const tools = connectionTools(conn.kind)
-    if (!provider || !tools.length) continue
+    if (!mod || !provider) continue
     out.push({
       id:          `${provider.kind}:${conn.name}` as never,
       name:        `${provider.name} · ${conn.name}`,
-      description: `Connection-contributed tools from ${provider.name} (${conn.name}).`,
-      tools:       tools.map(t => ({ name: t.name, description: t.description })),
+      description: `Connection-backed tools from ${provider.name} (${conn.name}).`,
+      tools:       mod.info.tools,
     })
   }
   return out

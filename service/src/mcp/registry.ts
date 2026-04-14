@@ -1,17 +1,24 @@
-// MCP server registry — metadata only. Each agent session spawns zero or
-// more of these servers in-process and passes them to the Claude Agent SDK
-// via `query({ mcpServers: {...} })`. The metadata here drives the agent
-// configuration UI (nested multi-select) and the shape of `agent.tools`.
+// MCP server registry. Two groups:
 //
-// Runtime behavior (actual tool implementations, lifecycle hooks, state)
-// lives in the individual server modules. This file is the flat index.
+//   builtIns      — one instance per agent session (foundry/github/sandbox/browser).
+//   byConnectionKind — one instance per connection row of a matching kind
+//                      (e.g. cloudflare). Mounted as `<kind>:<connection.name>`.
+//
+// Each server module exports `info` (metadata for the agent-tool-selection
+// UI), `buildSdk(ctx, allowed?)` (Claude Agent SDK adapter), and
+// `buildAi(ctx)` (Vercel ai SDK adapter).
 
-import { info as foundry } from './foundry.js'
-import { info as github  } from './github.js'
-import { info as sandbox } from './sandbox.js'
-import { info as browser } from './browser.js'
+import * as foundry    from './foundry.js'
+import * as github     from './github.js'
+import * as sandbox    from './sandbox.js'
+import * as browser    from './browser.js'
+import * as cloudflare from './cloudflare.js'
 
-export const SERVER_IDS = ['foundry', 'github', 'sandbox', 'browser'] as const
+export const builtIns = { foundry, github, sandbox, browser }
+
+export const byConnectionKind = { cloudflare }
+
+export const SERVER_IDS = ['foundry', 'github', 'sandbox', 'browser', 'cloudflare'] as const
 export type  McpServerId = typeof SERVER_IDS[number]
 
 export interface McpToolInfo {
@@ -29,20 +36,22 @@ export interface McpServerInfo {
 // Agent tool selection shape. `null` means "all servers, all tools".
 // Omitting a server key means that server isn't attached. `'*'` under a
 // server means all tools from that server; a string[] limits to named
-// tools. Built-in servers use the McpServerId keys; connection-contributed
-// servers use dynamic `conn:<connection_name>` keys — so the type is
+// tools. Built-in servers use the McpServerId keys; connection-backed
+// servers use dynamic `<kind>:<connection_name>` keys — so the type is
 // intentionally open.
 export type McpToolSelection = Partial<Record<McpServerId, string[] | '*'>> & {
   [key: string]: string[] | '*' | undefined
 } | null
 
-export const registry: McpServerInfo[] = [foundry, github, sandbox, browser]
+// Built-in metadata index. Connection-backed servers are surfaced
+// dynamically per-account via domain/agents::agentMcpList.
+export const registry: McpServerInfo[] = [foundry.info, github.info, sandbox.info, browser.info]
 
 export function registryGet(id: McpServerId): McpServerInfo | undefined {
   return registry.find(s => s.id === id)
 }
 
-// Flat list of tool names across all servers. Used by the legacy
+// Flat list of tool names across built-in servers. Used by the legacy
 // GET /tools endpoint that the current web UI consumes for agent tool
 // selection. Will be replaced by GET /mcp (nested shape) in a later pass.
 export const TOOL_NAMES: readonly string[] = registry.flatMap(s => s.tools.map(t => t.name))

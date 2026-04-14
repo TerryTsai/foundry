@@ -20,7 +20,15 @@ import * as githubServer  from '../mcp/github.js'
 import * as sandboxServer from '../mcp/sandbox.js'
 import * as browserServer from '../mcp/browser.js'
 import { parseToolSelection } from '../mcp/registry.js'
-import { buildConnectionServer, connectionTools } from '../mcp/connection.js'
+import { byConnectionKind } from '../mcp/registry.js'
+
+function parseConn(conn: Connection): { secrets: Record<string, string>; connConfig: Record<string, unknown> } {
+  let secrets: Record<string, string>  = {}
+  let connConfig: Record<string, unknown> = {}
+  try { secrets    = JSON.parse(conn.secrets) as Record<string, string>  } catch { /* malformed */ }
+  try { connConfig = JSON.parse(conn.config)  as Record<string, unknown> } catch { /* malformed */ }
+  return { secrets, connConfig }
+}
 
 // ════════════════════════════════════════════════════════════════════════════
 // PROMPT ASSEMBLY
@@ -286,21 +294,21 @@ export async function runAgentSessionViaClaude(
       )
     }
 
-    // Connection-contributed tool servers. For every connection the
-    // account owns whose provider declares tools, mount an MCP server
-    // at `<kind>:<connection.name>` (e.g. `cloudflare:prod`). Selection
-    // gates access the same way built-in servers are gated.
+    // Connection-backed tool servers. One MCP server per connection row
+    // whose kind has a matching MCP module. Mounted at `<kind>:<conn.name>`
+    // (e.g. `cloudflare:prod`). Selection gates access the same way
+    // built-ins are gated.
     const accountConns = database.connectionAll(db, [eq(schema.connection.account_id, agentDef.account_id)])
     for (const conn of accountConns) {
-      if (!connectionTools(conn.kind).length) continue
+      const mod = byConnectionKind[conn.kind as keyof typeof byConnectionKind]
+      if (!mod) continue
       const key = `${conn.kind}:${conn.name}`
       if (selection !== null && !(key in selection)) continue
-      const server = buildConnectionServer(
-        { db, config, sessionId, workspace: workDir },
-        conn,
-        selection === null ? null : selection[key],
-      )
-      if (server) mcpServers[key] = server
+      const { secrets, connConfig } = parseConn(conn)
+      mcpServers[key] = mod.buildSdk({
+        db, config, sessionId, workspace: workDir,
+        secrets, connConfig, connectionName: conn.name,
+      }, selection === null ? null : selection[key])
     }
 
     let stopReason: string | null = null
