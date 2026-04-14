@@ -1,4 +1,4 @@
-import type { Account, Connection, Project, Ticket, Comment, Agent, Session, Execution, UsageRollup, Tag, McpServerInfo, McpToolSelection, Analytics } from './types.js'
+import type { Account, Connection, Project, Ticket, Comment, Agent, Session, Execution, UsageRollup, Tag, McpServerInfo, McpToolSelection, Analytics, ProviderMetadata } from './types.js'
 
 const cache = new Map<string, { data: unknown; at: number }>()
 const CACHE_TTL = 30_000 // 30 seconds
@@ -60,6 +60,7 @@ async function del<T>(url: string): Promise<T> {
 
 // Connections (generalized provider + integration)
 export const connectionApi = {
+  providers: () => get<ProviderMetadata[]>('/connection/providers'),
   list: () => get<Connection[]>('/connection'),
   get: (id: string) => get<Connection>(`/connection/${id}`),
   create: (data: { kind: string; name: string; config?: Record<string, unknown>; secrets?: Record<string, unknown> }) =>

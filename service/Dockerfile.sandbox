@@ -39,7 +39,8 @@ RUN npm install -g --silent \
     typescript \
     prettier \
     eslint \
-    tsx
+    tsx \
+    wrangler
 
 # HOME=/tmp so package managers and dev tools that write to $HOME (npm,
 # pip, cargo, etc.) succeed inside the --read-only root filesystem. /tmp

@@ -3,6 +3,7 @@ import {
   Globe, Newspaper,
   Download, GitBranch, GitCommit, GitMerge, GitPullRequest, Plus, Minus, ListTree,
   Ticket, Bot, Brain, Activity,
+  CloudUpload, Cloud, History, ShieldCheck, Eraser,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
@@ -66,6 +67,14 @@ const TOOL_META: Record<string, ToolMeta> = {
   sessionList:   { label: _ => 'session list', icon: ListTree },
   connectionList:{ label: _ => 'connection list', icon: Activity },
   think:         { label: _ => 'think', icon: Brain },
+
+  // ── cloudflare ──
+  whoami:           { label: _ => 'cloudflare whoami', icon: ShieldCheck },
+  purgeCache:       { label: i => `cloudflare purge${i.purge_everything ? ' (everything)' : asArray(i.files)?.length ? ` ${asArray(i.files)!.length} url(s)` : ''}`, icon: Eraser },
+  pagesList:        { label: _ => 'cloudflare pages list', icon: Cloud },
+  pagesDeployments: { label: i => `cloudflare pages deployments${asString(i.project_name) ? ` ${asString(i.project_name)}` : ''}`, icon: History },
+  pagesDeploy:      { label: i => `cloudflare pages deploy${asString(i.project_name) ? ` ${asString(i.project_name)}` : ''}${asString(i.dir) ? ` ← ${asString(i.dir)}` : ''}`, icon: CloudUpload },
+  pagesRemove:      { label: i => `cloudflare pages remove${asString(i.project_name) ? ` ${asString(i.project_name)}` : ''}`, icon: Trash2 },
 
   // ── legacy aliases (historical rows from before tool renames) ──
   pullRequestCreate: { label: _ => 'git pull request', icon: GitPullRequest },

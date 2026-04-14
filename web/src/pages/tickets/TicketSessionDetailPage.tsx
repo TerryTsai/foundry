@@ -38,10 +38,13 @@ function parsePayload(raw: string): Record<string, unknown> {
 
 // MCP tool names arrive from the SDK as `mcp__<server>__<name>`. Our
 // display registry (toolLabel / toolIcon in lib/tool-display) keys off
-// the bare name, so strip the namespace before lookup.
+// the bare name, so strip the namespace before lookup. Connection
+// servers use `cloudflare:Cf` style names which the SDK transforms
+// to `cloudflare_Cf` — so the server segment itself can contain `_`.
+// Greedy-match everything up to the LAST `__` separator.
 function bareToolName(name: unknown): string | null {
   if (typeof name !== 'string') return null
-  const m = name.match(/^mcp__[^_]+__(.+)$/)
+  const m = name.match(/^mcp__.+__(.+)$/)
   return m ? m[1] : name
 }
 

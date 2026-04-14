@@ -1,5 +1,6 @@
 import { randomBytes } from 'crypto'
-import { mkdirSync, rmSync } from 'fs'
+import { mkdirSync, rmSync, cpSync } from 'fs'
+import { join, dirname } from 'path'
 import type { Response } from 'express'
 import { eq, and, isNull, sql } from 'drizzle-orm'
 
@@ -9,10 +10,11 @@ import * as schema from './schema.js'
 import type { Account, Ticket, Tag, Comment, Connection, Agent, Session, Activity, Execution } from './schema.js'
 import type { Config } from './config.js'
 import { require, assertStatus, pick, now, AppError, conflict, badRequest, notFound } from './functional.js'
-// Connection kinds we currently accept. Historically lived in a runtime
-// model registry alongside provider adapters; the Agent SDK runner
-// handles all live dispatch now, so the list is declared here.
-const SUPPORTED_CONNECTION_KINDS = ['anthropic', 'anthropic-subscription'] as const
+// Accepted connection kinds come from the provider registry. Each
+// provider file declares its kind + credentials + optional model
+// factory + optional tools. Add a new kind by adding a new file.
+import * as providers from './connections/registry.js'
+import { registry as mcpRegistry, type McpServerInfo } from './mcp/registry.js'
 import { spawnRun, type RunHandle } from './runtime/sandbox.js'
 import { scrubSecrets } from './mcp/_shared.js'
 import type { z } from 'zod'
@@ -457,13 +459,22 @@ function maskKey(key: string): string {
   return key.slice(0, 4) + '...' + key.slice(-4)
 }
 
+// Show a masked preview of the first password-type credential field
+// the provider declares. Falls back to `api_key` if the provider is
+// unknown (e.g. an old connection whose kind was removed).
 function maskConnection(c: Connection): MaskedConnection {
   const { secrets, ...rest } = c
   let preview: string | null = null
   try {
     const parsed = JSON.parse(secrets) as Record<string, unknown>
-    const key = parsed.api_key
-    if (typeof key === 'string' && key.length > 0) preview = maskKey(key)
+    const provider = providers.providerGet(c.kind)
+    const passwordKeys = provider
+      ? provider.credentials.filter(f => f.type === 'password').map(f => f.key)
+      : ['api_key']
+    for (const k of passwordKeys) {
+      const v = parsed[k]
+      if (typeof v === 'string' && v.length > 0) { preview = maskKey(v); break }
+    }
   } catch { /* secrets not JSON — leave preview null */ }
   return { ...rest, api_key_preview: preview }
 }
@@ -479,14 +490,34 @@ export function connectionGet(db: Db, accountId: string, id: string): MaskedConn
 }
 
 export function connectionCreate(db: Db, accountId: string, input: z.infer<typeof validate.connectionCreate>): MaskedConnection {
-  if (!(SUPPORTED_CONNECTION_KINDS as readonly string[]).includes(input.kind)) throw badRequest(`unsupported connection kind '${input.kind}' — supported: ${SUPPORTED_CONNECTION_KINDS.join(', ')}`)
+  const provider = providers.providerGet(input.kind)
+  if (!provider) {
+    throw badRequest(`unsupported connection kind '${input.kind}' — supported: ${providers.supportedKinds().join(', ')}`)
+  }
   if (database.connectionGetByName(db, input.name)) throw conflict(`connection '${input.name}' already exists`)
+
+  // Enforce required credentials declared by the provider. Missing or
+  // blank fields surface as a 400 before we hit the DB.
+  const secrets = (input.secrets ?? {}) as Record<string, unknown>
+  const config  = (input.config  ?? {}) as Record<string, unknown>
+  for (const f of provider.credentials) {
+    if (f.required === false) continue
+    const v = secrets[f.key]
+    if (typeof v !== 'string' || v.trim() === '') {
+      throw badRequest(`connection kind '${input.kind}' requires credential '${f.key}' (${f.label})`)
+    }
+  }
+  if (provider.validate) {
+    const err = provider.validate(secrets, config)
+    if (err) throw badRequest(err)
+  }
+
   const row = database.connectionInsert(db, {
     account_id: accountId,
     kind:       input.kind,
     name:       input.name,
-    config:     JSON.stringify(input.config ?? {}),
-    secrets:    JSON.stringify(input.secrets ?? {}),
+    config:     JSON.stringify(config),
+    secrets:    JSON.stringify(secrets),
     ...ts(),
   })
   return maskConnection(row)
@@ -545,12 +576,26 @@ export async function schedulerDispatch(db: Db, projectId: string): Promise<void
       ticket_id: t.id, agent_id: def.id,
       status: 'running', started_at: now(),
     })
+    sessionStartedComment(db, t.id, def.name, row.id)
 
     const { runAgentSession } = await import('./runtime/runner.js')
     const { config } = await import('./config.js')
     runAgentSession(db, config, row.id, def, t).catch((err: unknown) =>
       console.error('dispatch session error:', err))
   }
+}
+
+// Post a "session started" comment on the ticket so the founder has
+// visibility into in-flight work instead of a silent gap until completion.
+// Paired with the ticketComplete / ticketFail comments that fire at end.
+function sessionStartedComment(db: Db, ticketId: string, agentName: string, sessionId: string): void {
+  database.commentInsert(db, {
+    ticket_id:  ticketId,
+    session_id: sessionId,
+    author:     agentName,
+    body:       'Session started',
+    created_at: now(),
+  })
 }
 
 export async function schedulerRecover(db: Db): Promise<void> {
@@ -801,9 +846,34 @@ export function ticketPriorHistory(db: Db, ticketId: string, sessionId: string, 
 // AGENT
 // ════════════════════════════════════════════════════════════════════════════
 
+// MCP server catalog surfaced to the agent-edit UI. Returns the 4
+// built-ins plus one synthesized entry per account connection whose
+// provider declares tools. The id/key (`<kind>:<name>`) is the same
+// one the runtime uses when mounting the Agent-SDK server — so the
+// UI's tool-selection keys match exactly what gets gated at runtime.
+export function agentMcpList(db: Db, accountId: string): McpServerInfo[] {
+  const out: McpServerInfo[] = [...mcpRegistry]
+  const conns = database.connectionAll(db, [eq(schema.connection.account_id, accountId)])
+  for (const conn of conns) {
+    const provider = providers.providerGet(conn.kind)
+    if (!provider?.tools?.length) continue
+    out.push({
+      id:          `${provider.kind}:${conn.name}` as never,
+      name:        `${provider.name} · ${conn.name}`,
+      description: `Connection-contributed tools from ${provider.name} (${conn.name}).`,
+      tools:       provider.tools.map(t => ({ name: t.name, description: t.description })),
+    })
+  }
+  return out
+}
+
 export function agentList(db: Db, filters: z.infer<typeof validate.agentList>): Agent[] {
-  if (filters.accountId) return database.agentAll(db, [eq(schema.agent.account_id, filters.accountId)])
-  return database.agentAll(db)
+  // Hide superseded versions — the list UI should only ever show the
+  // current agent per (account, name). Historical versions are reachable
+  // by id via agentGet (e.g. from an old session's link).
+  const base = [isNull(schema.agent.superseded_at)]
+  if (filters.accountId) return database.agentAll(db, [eq(schema.agent.account_id, filters.accountId), ...base])
+  return database.agentAll(db, base)
 }
 
 export function agentGet(db: Db, id: string): Agent {
@@ -954,6 +1024,7 @@ export async function sessionStart(db: Db, config: Config, agentDefId: string, t
     ticket_id: ticketId, agent_id: agentDefId,
     status: 'running', started_at: now(),
   })
+  sessionStartedComment(db, ticketId, agentDef.name, row.id)
 
   const { runAgentSession } = await import('./runtime/runner.js')
   runAgentSession(db, config, row.id, agentDef, t).catch((err: unknown) =>
@@ -992,16 +1063,17 @@ export function executionCreate(db: Db, config: Config, input: {
   network?:    boolean
   workspace?:  string
   // env is passed directly to podman and NEVER serialized to the DB —
-  // tier-2 secret-using tools pass credentials here, so leaking them to
-  // the execution row would defeat the whole isolation strategy. The
-  // command string should reference env vars by name ($TOKEN), not
-  // interpolate values.
+  // credential-holding tools pass secrets here. The command string
+  // should reference env vars by name ($TOKEN), not interpolate values.
   env?:        Record<string, string>
-  // Mount mode for the workspace bind mount. Defaults to 'rw' (tier-1).
-  // Tier-2 secret-using tools use 'ro' or 'none'.
+  // Workspace bind mount for the shared-workspace model. Ignored when
+  // artifactsIn/Out are set (which triggers isolated-workspace mode:
+  // no /work mount, per-call /input + /output copies instead).
   mount?:      'rw' | 'ro' | 'none'
+  artifactsIn?:  { src: string; dest: string }[]
+  artifactsOut?: { src: string; dest: string }[]
 }): { id: string; emitter: RunHandle['emitter'] } {
-  const { command, session_id, tool_name, tool_input, tool_use_id, timeout_ms = config.sandboxTimeout, memory_mb, network = false, env = {}, mount = 'rw' } = input
+  const { command, session_id, tool_name, tool_input, tool_use_id, timeout_ms = config.sandboxTimeout, memory_mb, network = false, env = {}, mount = 'rw', artifactsIn, artifactsOut } = input
   const row = database.executionInsert(db, {
     session_id:  session_id ?? null,
     tool_name:   tool_name ?? null,
@@ -1011,14 +1083,45 @@ export function executionCreate(db: Db, config: Config, input: {
     status: 'running', timeout_ms, memory_mb: memory_mb ?? null,
     started_at: now(),
   })
+  // Inline backfill: if an activity row with this tool_use_id is already
+  // present (the runner wrote it when the model emitted the tool_use
+  // block, before this MCP handler fired), link it to this execution
+  // now. Without this, the UI only shows execution↔activity correlation
+  // after session end when the sweep-backfill runs.
+  if (tool_use_id && session_id) {
+    db.run(sql`
+      UPDATE activity SET execution_id = ${row.id}
+       WHERE session_id = ${session_id} AND tool_use_id = ${tool_use_id} AND execution_id IS NULL
+    `)
+  }
   const workspace = input.workspace ?? `/tmp/foundry-exec-${row.id}`
   mkdirSync(workspace, { recursive: true })
   const statsDir = `/tmp/foundry-stats-${row.id}`
   mkdirSync(statsDir, { recursive: true })
+
+  // Isolated mode: prepare per-call /input (copied-in artifacts, ro mount)
+  // and /output (writable scratch, copied-back on success). /work itself
+  // is not mounted — the command can only see the declared artifact set.
+  const isolated = (artifactsIn?.length ?? 0) > 0 || (artifactsOut?.length ?? 0) > 0
+  const inputDir  = isolated && artifactsIn  ? `/tmp/foundry-in-${row.id}`  : null
+  const outputDir = isolated && artifactsOut ? `/tmp/foundry-out-${row.id}` : null
+  if (inputDir) {
+    mkdirSync(inputDir, { recursive: true })
+    for (const a of artifactsIn!) {
+      const src = join(workspace, a.src)
+      const dst = join(inputDir, a.dest)
+      mkdirSync(dirname(dst), { recursive: true })
+      cpSync(src, dst, { recursive: true })
+    }
+  }
+  if (outputDir) mkdirSync(outputDir, { recursive: true })
+
   const handle = spawnRun({
     command, workspace, statsDir,
     image: config.sandboxImage, env,
-    network, mount, timeoutMs: timeout_ms,
+    network, mount,
+    isolated, inputDir, outputDir,
+    timeoutMs: timeout_ms,
     memoryMb:   memory_mb ?? config.sandboxMemoryMb,
     cpus:       config.sandboxCpus,
     pidsLimit:  config.sandboxPidsLimit,
@@ -1033,10 +1136,25 @@ export function executionCreate(db: Db, config: Config, input: {
   handle.emitter.on('stdout', (line: string) => stdoutBuf.push(line))
   handle.emitter.on('stderr', (line: string) => stderrBuf.push(line))
   handle.emitter.on('exit', (code: number, stats: import('./runtime/sandbox.js').ContainerStats | null) => {
+    // On success, copy isolated-mode outputs back into the agent's
+    // workspace. On failure we skip the copy (so a partial/corrupt
+    // result doesn't land in /work).
+    if (code === 0 && outputDir && artifactsOut) {
+      for (const a of artifactsOut) {
+        const src = join(outputDir, a.src)
+        const dst = join(workspace, a.dest)
+        try {
+          mkdirSync(dirname(dst), { recursive: true })
+          cpSync(src, dst, { recursive: true })
+        } catch { /* absent artifact is not fatal — tool output contract */ }
+      }
+    }
+    if (inputDir)  { try { rmSync(inputDir,  { recursive: true, force: true }) } catch {} }
+    if (outputDir) { try { rmSync(outputDir, { recursive: true, force: true }) } catch {} }
     // Scrub any secret patterns from captured output before persistence.
-    // Primary isolation is that tier-2 tools don't share an env with the
-    // agent; this catches the narrow case where a command (e.g. git push
-    // on failure) echoes a credential it received in its own env.
+    // The primary isolation is per-call env (never serialized); this
+    // catches the narrow case where a command echoes a credential it
+    // received in its own env.
     database.executionUpdate(db, row.id, {
       status: code === 0 ? 'done' : 'failed',
       exit_code: code, ended_at: now(),

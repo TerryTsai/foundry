@@ -9,12 +9,17 @@ import { type Ticket, type Agent as AgentDef } from '../schema.js'
 import * as domain from '../domain.js'
 import { now } from '../functional.js'
 
+import { eq } from 'drizzle-orm'
+
 import { workspaceEmpty, workspaceDestroy } from '../mcp/github.js'
 import { resolveModelWithDefaults } from './model.js'
 import * as foundryServer from '../mcp/foundry.js'
 import * as githubServer  from '../mcp/github.js'
 import * as sandboxServer from '../mcp/sandbox.js'
 import * as browserServer from '../mcp/browser.js'
+import * as schema from '../schema.js'
+import * as providerRegistry from '../connections/registry.js'
+import { buildConnectionAiTools } from '../connections/server.js'
 
 type StepResult = Awaited<ReturnType<typeof generateText<ToolSet>>>
 
@@ -223,6 +228,17 @@ async function runAgentSessionViaAiSdk(
       ...githubServer.buildAi({ db, config, sessionId, workspace: workDir, ticket: ticketData, agentName: agentDef.name }),
       ...sandboxServer.buildAi({ db, config, sessionId, workspace: workDir }),
       ...browserServer.buildAi({ db, config, sessionId, workspace: workDir }),
+    }
+    // Connection-contributed tools. Flat-namespaced as <kind>-<name>-<tool>
+    // in the ai-SDK ToolSet because there's no server concept here.
+    const accountConns = database.connectionAll(db, [eq(schema.connection.account_id, agentDef.account_id)])
+    for (const conn of accountConns) {
+      const provider = providerRegistry.providerGet(conn.kind)
+      if (!provider?.tools?.length) continue
+      Object.assign(tools, buildConnectionAiTools(
+        { db, config, sessionId, workspace: workDir },
+        provider, conn, null,
+      ))
     }
     const model = resolveModelWithDefaults(db, agentDef)
     const { finishReason, tokensIn, tokensOut, toolCalls } = await runLoop(db, {

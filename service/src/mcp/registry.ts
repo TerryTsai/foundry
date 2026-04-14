@@ -26,11 +26,15 @@ export interface McpServerInfo {
   tools:       McpToolInfo[]
 }
 
-// Agent tool selection shape. `null` means "all servers, all tools". Omitting
-// a server id means that server is not attached. An empty array under a
-// server means the server is attached but zero tools are enabled (valid but
-// unusual). `"*"` under a server means all tools from that server.
-export type McpToolSelection = { [K in McpServerId]?: string[] | '*' } | null
+// Agent tool selection shape. `null` means "all servers, all tools".
+// Omitting a server key means that server isn't attached. `'*'` under a
+// server means all tools from that server; a string[] limits to named
+// tools. Built-in servers use the McpServerId keys; connection-contributed
+// servers use dynamic `conn:<connection_name>` keys — so the type is
+// intentionally open.
+export type McpToolSelection = Partial<Record<McpServerId, string[] | '*'>> & {
+  [key: string]: string[] | '*' | undefined
+} | null
 
 export const registry: McpServerInfo[] = [foundry, github, sandbox, browser]
 

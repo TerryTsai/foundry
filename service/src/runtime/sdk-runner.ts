@@ -3,12 +3,13 @@ import { readFileSync } from 'fs'
 import { join } from 'path'
 import { homedir } from 'os'
 
-import { sql } from 'drizzle-orm'
+import { sql, eq } from 'drizzle-orm'
 
 import { type Db } from '../database.js'
 import * as database from '../database.js'
 import type { Config } from '../config.js'
 import type { Connection } from '../schema.js'
+import * as schema from '../schema.js'
 import { type Ticket, type Agent as AgentDef } from '../schema.js'
 import * as domain from '../domain.js'
 import { now, require } from '../functional.js'
@@ -19,6 +20,8 @@ import * as githubServer  from '../mcp/github.js'
 import * as sandboxServer from '../mcp/sandbox.js'
 import * as browserServer from '../mcp/browser.js'
 import { parseToolSelection } from '../mcp/registry.js'
+import * as providerRegistry from '../connections/registry.js'
+import { buildConnectionServer } from '../connections/server.js'
 
 // ════════════════════════════════════════════════════════════════════════════
 // PROMPT ASSEMBLY
@@ -282,6 +285,24 @@ export async function runAgentSessionViaSdk(
         { db, config, sessionId, workspace: workDir },
         selection?.browser,
       )
+    }
+
+    // Connection-contributed tool servers. For every connection the
+    // account owns whose provider declares tools, mount an MCP server
+    // at `<kind>:<connection.name>` (e.g. `cloudflare:prod`). Selection
+    // gates access the same way built-in servers are gated.
+    const accountConns = database.connectionAll(db, [eq(schema.connection.account_id, agentDef.account_id)])
+    for (const conn of accountConns) {
+      const provider = providerRegistry.providerGet(conn.kind)
+      if (!provider?.tools?.length) continue
+      const key = `${provider.kind}:${conn.name}`
+      if (selection !== null && !(key in selection)) continue
+      const server = buildConnectionServer(
+        { db, config, sessionId, workspace: workDir },
+        provider, conn,
+        selection === null ? null : selection[key],
+      )
+      if (server) mcpServers[key] = server
     }
 
     let stopReason: string | null = null

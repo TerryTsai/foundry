@@ -103,7 +103,12 @@ export function asText(value: unknown): { content: [{ type: 'text'; text: string
 export interface RunCommandOptions {
   network?: boolean
   env?:     Record<string, string>   // passed to podman; NOT logged to DB
-  mount?:   'rw' | 'ro' | 'none'     // workspace bind mode, default 'rw'
+  mount?:   'rw' | 'ro' | 'none'     // workspace bind mode, default 'rw'; ignored when artifacts are set
+  /** Isolated workspace model. When either is set, /work is not mounted;
+   *  /input (ro) holds the copied-in artifact allowlist, /output (rw)
+   *  is a scratch that gets copied back to /work on success. */
+  artifactsIn?:  { src: string; dest: string }[]
+  artifactsOut?: { src: string; dest: string }[]
   /** tool_use block id from the SDK handler's `extra._meta`. Persisted
    *  on the execution row so the UI can correlate the sandbox-domain
    *  execution back to the agent-domain tool_use block that caused it. */
@@ -129,6 +134,8 @@ export function runCommand(
     network: options.network ?? false,
     env:     options.env ?? {},
     mount:   options.mount ?? 'rw',
+    artifactsIn:  options.artifactsIn,
+    artifactsOut: options.artifactsOut,
     workspace,
   })
   const stdout: string[] = []

@@ -17,6 +17,24 @@ export interface Connection {
   updated_at: string
 }
 
+export interface CredentialField {
+  key: string
+  label: string
+  type: 'text' | 'password' | 'select' | 'textarea'
+  placeholder?: string
+  options?: string[]
+  required?: boolean
+  help?: string
+}
+
+export interface ProviderMetadata {
+  kind: string
+  name: string
+  credentials: CredentialField[]
+  has_model: boolean
+  tool_names: string[]
+}
+
 export interface Project {
   id: string
   owner_id: string

@@ -17,6 +17,12 @@ export interface RunOptions {
   env:        Record<string, string>
   network:    boolean
   mount:      'rw' | 'ro' | 'none'
+  /** Isolated-workspace mode. When true, /work is not mounted; /input
+   *  and /output (if provided) expose the artifact allowlist. Host-side
+   *  copy-in/out is handled by the caller (domain.executionCreate). */
+  isolated:   boolean
+  inputDir:   string | null
+  outputDir:  string | null
   timeoutMs:  number
   memoryMb:   number
   cpus:       number
@@ -71,11 +77,20 @@ function wrapCommand(command: string): string {
 }
 
 function podmanArgs(opts: RunOptions): string[] {
-  const { workspace, statsDir, image, env, network, mount, memoryMb, cpus, pidsLimit, nofileSoft, nofileHard, tmpfsMb, command } = opts
+  const { workspace, statsDir, image, env, network, mount, isolated, inputDir, outputDir, memoryMb, cpus, pidsLimit, nofileSoft, nofileHard, tmpfsMb, command } = opts
   const envArgs = Object.entries(env).flatMap(([k, v]) => ['-e', `${k}=${v}`])
-  const mountArgs = mount === 'none'
-    ? [] as string[]
-    : ['-v', `${workspace}:/work${mount === 'ro' ? ':ro' : ''}`, '-w', '/work']
+  // Isolated mode: /work is NOT mounted. /input (ro) and /output (rw)
+  // expose the artifact allowlist. cwd defaults to /tmp (writable tmpfs)
+  // so tools that scribble in their cwd don't hit EROFS.
+  const workspaceArgs = isolated
+    ? [
+        ...(inputDir  ? ['-v', `${inputDir}:/input:ro`] : []),
+        ...(outputDir ? ['-v', `${outputDir}:/output`]  : []),
+        '-w', '/tmp',
+      ]
+    : mount === 'none'
+      ? [] as string[]
+      : ['-v', `${workspace}:/work${mount === 'ro' ? ':ro' : ''}`, '-w', '/work']
   return [
     'run', '--rm',
     ...(network ? [] : ['--network=none']),
@@ -85,7 +100,7 @@ function podmanArgs(opts: RunOptions): string[] {
     '--cap-drop', 'ALL', '--read-only',
     '--tmpfs', `/tmp:rw,size=${tmpfsMb}m`, '--tmpfs', `/run:rw,size=8m`,
     '-v', `${statsDir}:/foundry-stats`,   // stats file written here, read by host after exit
-    ...mountArgs,
+    ...workspaceArgs,
     ...envArgs,
     image, 'sh', '-c', wrapCommand(command),
   ]
