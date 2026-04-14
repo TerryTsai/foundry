@@ -138,10 +138,13 @@ export interface McpToolInfo {
   description: string
 }
 
+export type McpCategory = 'core' | 'code' | 'infra' | 'data' | 'product' | 'growth'
+
 export interface McpServerInfo {
   id: string
   name: string
   description: string
+  category: McpCategory
   tools: McpToolInfo[]
 }
 

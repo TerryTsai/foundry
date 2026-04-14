@@ -25,6 +25,7 @@ export function agentMcpList(db: Db, accountId: string): McpServerInfo[] {
     out.push({
       id:          `${provider.kind}:${conn.name}` as never,
       name:        `${provider.name} · ${conn.name}`,
+      category:    mod.info.category,
       description: `Connection-backed tools from ${provider.name} (${conn.name}).`,
       tools:       mod.info.tools,
     })

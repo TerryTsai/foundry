@@ -45,6 +45,7 @@ import { filterTools, type McpServerInfo } from './registry.js'
 export const info: McpServerInfo = {
   id:          'github',
   name:        'GitHub',
+  category:    'code',
   description: 'Development flow against a configured GitHub repo: clone, inspect, stage, commit, open draft PRs.',
   tools: [
     { name: 'gitClone',          description: 'Clone the configured GitHub repo into the empty session workspace and create the per-session branch. First step of a code session.' },

@@ -6,6 +6,17 @@ import { anthropic }             from './anthropic.js'
 import { anthropicSubscription } from './anthropic-subscription.js'
 import { openai }                from './openai.js'
 import { cloudflare }            from './cloudflare.js'
+import { aws }                   from './aws.js'
+import { resend }                from './resend.js'
+import { posthog }               from './posthog.js'
+import { sentry }                from './sentry.js'
+import { supabase }              from './supabase.js'
+import { clerk }                 from './clerk.js'
+import { stripe }                from './stripe.js'
+import { linear }                from './linear.js'
+import { uptimerobot }           from './uptimerobot.js'
+import { calcom }                from './calcom.js'
+import { crisp }                 from './crisp.js'
 
 // Static, in-repo list. Adding a new connection kind = create one file
 // in this directory and append it here. No dynamic loading, no plugins.
@@ -14,6 +25,17 @@ const providers: ConnectionProvider[] = [
   anthropicSubscription,
   openai,
   cloudflare,
+  aws,
+  resend,
+  posthog,
+  sentry,
+  supabase,
+  clerk,
+  stripe,
+  linear,
+  uptimerobot,
+  calcom,
+  crisp,
 ]
 
 const byKind = new Map(providers.map(p => [p.kind, p]))

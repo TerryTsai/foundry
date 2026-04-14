@@ -8,17 +8,35 @@
 // UI), `buildSdk(ctx, allowed?)` (Claude Agent SDK adapter), and
 // `buildAi(ctx)` (Vercel ai SDK adapter).
 
-import * as foundry    from './foundry.js'
-import * as github     from './github.js'
-import * as sandbox    from './sandbox.js'
-import * as browser    from './browser.js'
-import * as cloudflare from './cloudflare.js'
+import * as foundry     from './foundry.js'
+import * as github      from './github.js'
+import * as sandbox     from './sandbox.js'
+import * as browser     from './browser.js'
+import * as cloudflare  from './cloudflare.js'
+import * as aws         from './aws.js'
+import * as resend      from './resend.js'
+import * as posthog     from './posthog.js'
+import * as sentry      from './sentry.js'
+import * as supabase    from './supabase.js'
+import * as clerk       from './clerk.js'
+import * as stripe      from './stripe.js'
+import * as linear      from './linear.js'
+import * as uptimerobot from './uptimerobot.js'
+import * as calcom      from './calcom.js'
+import * as crisp       from './crisp.js'
 
 export const builtIns = { foundry, github, sandbox, browser }
 
-export const byConnectionKind = { cloudflare }
+export const byConnectionKind = {
+  cloudflare, aws, resend, posthog, sentry, supabase,
+  clerk, stripe, linear, uptimerobot, calcom, crisp,
+}
 
-export const SERVER_IDS = ['foundry', 'github', 'sandbox', 'browser', 'cloudflare'] as const
+export const SERVER_IDS = [
+  'foundry', 'github', 'sandbox', 'browser',
+  'cloudflare', 'aws', 'resend', 'posthog', 'sentry', 'supabase',
+  'clerk', 'stripe', 'linear', 'uptimerobot', 'calcom', 'crisp',
+] as const
 export type  McpServerId = typeof SERVER_IDS[number]
 
 export interface McpToolInfo {
@@ -26,10 +44,16 @@ export interface McpToolInfo {
   description: string
 }
 
+// Category buckets used by the agent-tool-selection UI to group rows.
+// Keep the set small — it's the skim-level grouping a founder sees when
+// picking tools for a new agent.
+export type McpCategory = 'core' | 'code' | 'infra' | 'data' | 'product' | 'growth'
+
 export interface McpServerInfo {
   id:          McpServerId
   name:        string
   description: string
+  category:    McpCategory
   tools:       McpToolInfo[]
 }
 

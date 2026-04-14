@@ -22,6 +22,7 @@ import { filterTools, type McpServerInfo } from './registry.js'
 export const info: McpServerInfo = {
   id:          'foundry',
   name:        'Foundry',
+  category:    'core',
   description: 'Foundry harness introspection: tickets, agents, sessions, connections.',
   tools: [
     { name: 'ticketList',    description: 'List tickets in the current project.' },

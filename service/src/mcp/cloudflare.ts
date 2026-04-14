@@ -6,15 +6,13 @@ import { createSdkMcpServer, tool as sdkTool } from '@anthropic-ai/claude-agent-
 import { tool } from 'ai'
 import { z } from 'zod'
 
-import type { Db } from '../database.js'
-import type { Config } from '../config.js'
-import { asText, runCommand, toolUseId } from './shared.js'
-
+import { asText, runCommand, toolUseId, type ConnCtx } from './shared.js'
 import { filterTools, type McpServerInfo } from './registry.js'
 
 export const info: McpServerInfo = {
   id:          'cloudflare',
   name:        'Cloudflare',
+  category:    'infra',
   description: 'Cloudflare REST API tools: tokens, zones, Pages, cache purge, and Pages deploy.',
   tools: [
     { name: 'whoami',           description: 'Verify the token and show the authorized user / account context.' },
@@ -26,16 +24,7 @@ export const info: McpServerInfo = {
   ],
 }
 
-export interface CloudflareCtx {
-  db:             Db
-  config:         Config
-  sessionId:      string
-  workspace:      string
-  secrets:        Record<string, string>
-  connConfig:     Record<string, unknown>
-  connectionName: string
-  toolUseId?:     string
-}
+type CloudflareCtx = ConnCtx
 
 // ── Schemas ──
 

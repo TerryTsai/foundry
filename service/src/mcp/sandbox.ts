@@ -30,6 +30,7 @@ import { filterTools, type McpServerInfo } from './registry.js'
 export const info: McpServerInfo = {
   id:          'sandbox',
   name:        'Sandbox',
+  category:    'core',
   description: 'Isolated Linux environment with a persistent session workspace: files, commands, search.',
   tools: [
     { name: 'run',    description: 'Run a single shell command in the sandbox.' },

@@ -3,6 +3,23 @@
 // (Anthropic Agent SDK) and buildAi (Vercel ai SDK) adapters in each
 // server module import from here, so handler logic stays in one copy.
 
+import type { Db as _Db } from '../database.js'
+import type { Config as _Config } from '../config.js'
+
+// Context passed into every connection-backed MCP server (cloudflare,
+// resend, aws, …). Built-in servers (foundry/github/sandbox/browser)
+// use their own richer ctx types.
+export interface ConnCtx {
+  db:             _Db
+  config:         _Config
+  sessionId:      string
+  workspace:      string
+  secrets:        Record<string, string>
+  connConfig:     Record<string, unknown>
+  connectionName: string
+  toolUseId?:     string
+}
+
 import { z } from 'zod'
 import { writeFileSync, mkdirSync } from 'fs'
 import { join } from 'path'
