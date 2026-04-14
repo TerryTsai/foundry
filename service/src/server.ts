@@ -5,9 +5,12 @@ import { existsSync } from 'fs'
 import { execSync } from 'child_process'
 import { config } from './config.js'
 import { createDatabase } from './database.js'
-import * as router from './router.js'
+import {
+  authRoutes, projectRoutes, connectionRoutes, ticketRoutes,
+  agentRoutes, sessionRoutes, executionRoutes, analyticsRoutes,
+} from './router.js'
 import { errors, requireAuth } from './middleware.js'
-import * as domain from './domain.js'
+import { schedulerRecover, schedulerGlobalStart, schedulerStopAll, shutdownDrain } from './domain/scheduler.js'
 
 const db  = createDatabase(config.dbPath)
 const app = express()
@@ -17,7 +20,7 @@ app.use(express.json())
 // ── Public routes (no auth) ──
 app.get('/health', (_req, res) => res.json({ ok: true }))
 app.get('/health/detail', (_req, res) => res.json({ ok: true, uptime: process.uptime(), version: '1.0.0' }))
-app.use('/auth', router.auth(db, config))
+app.use('/auth', authRoutes(db, config))
 
 // ── Static web app (production) ──
 // Serve the built web app from ../web/dist. In dev (tsx watch) this is a
@@ -50,27 +53,27 @@ if (existsSync(webDist)) {
 // ── Authenticated routes ──
 app.use(requireAuth(db, config))
 
-app.use('/project',    router.project(db))
-app.use('/connection', router.connection(db))
-app.use('/ticket',     router.ticket(db))
-app.use('/agent',     router.agent(db, config))
-app.use('/session',   router.session(db))
-app.use('/execution', router.execution(db, config))
-app.use('/analytics', router.analytics(db))
+app.use('/project',    projectRoutes(db))
+app.use('/connection', connectionRoutes(db))
+app.use('/ticket',     ticketRoutes(db))
+app.use('/agent',      agentRoutes(db, config))
+app.use('/session',    sessionRoutes(db))
+app.use('/execution',  executionRoutes(db, config))
+app.use('/analytics',  analyticsRoutes(db))
 
 app.use(errors)
 
 app.listen(config.port, () => {
   console.log(`foundry service listening on port ${config.port}`)
-  domain.schedulerRecover(db).catch(console.error)
-  domain.schedulerGlobalStart(db)
+  schedulerRecover(db).catch(console.error)
+  schedulerGlobalStart(db)
 })
 
 // ── Graceful shutdown on deploy restart ──
 process.on('SIGTERM', () => {
   console.log('SIGTERM received, draining…')
-  domain.schedulerStopAll()
-  domain.shutdownDrain(db)
+  schedulerStopAll()
+  shutdownDrain(db)
   try { execSync('podman kill --all', { timeout: 5000, stdio: 'ignore' }) } catch {}
   console.log('drain complete, exiting')
   process.exit(0)

@@ -1,7 +1,7 @@
 import type { Request, Response, NextFunction, RequestHandler, ErrorRequestHandler } from 'express'
 import type { ZodType } from 'zod'
 import { badRequest, isAppError, unauthorized } from './errors.js'
-import type { Account } from './schema.js'
+import type { Account } from './tables.js'
 import * as database from './database.js'
 import type { Db } from './database.js'
 import type { Config } from './config.js'

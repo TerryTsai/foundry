@@ -8,11 +8,11 @@ import { sql, eq } from 'drizzle-orm'
 import { type Db } from '../database.js'
 import * as database from '../database.js'
 import type { Config } from '../config.js'
-import type { Connection } from '../schema.js'
-import * as schema from '../schema.js'
-import { type Ticket, type Agent as AgentDef } from '../schema.js'
-import * as domain from '../domain.js'
-import { now, require } from '../functional.js'
+import type { Connection } from '../tables.js'
+import * as schema from '../tables.js'
+import { type Ticket, type Agent as AgentDef } from '../tables.js'
+import { ticketComplete, ticketFail } from '../domain/tickets.js'
+import { now, mustExist } from '../util.js'
 
 import { workspaceEmpty, workspaceDestroy } from '../mcp/github.js'
 import * as foundryServer from '../mcp/foundry.js'
@@ -20,7 +20,7 @@ import * as githubServer  from '../mcp/github.js'
 import * as sandboxServer from '../mcp/sandbox.js'
 import * as browserServer from '../mcp/browser.js'
 import { parseToolSelection } from '../mcp/registry.js'
-import { buildConnectionServer, connectionTools } from '../mcp/server.js'
+import { buildConnectionServer, connectionTools } from '../mcp/connection.js'
 
 // ════════════════════════════════════════════════════════════════════════════
 // PROMPT ASSEMBLY
@@ -228,7 +228,7 @@ export async function runAgentSessionViaClaude(
   let outputTokens  = 0
   let toolCallTotal = 0
   let costUsd       = 0
-  const conn       = require(database.connectionGet(db, agentDef.connection_id), 'connection not found')
+  const conn       = mustExist(database.connectionGet(db, agentDef.connection_id), 'connection not found')
   const oauthToken = resolveSubscriptionToken(db, conn)
 
   const workDir = await workspaceEmpty()
@@ -417,7 +417,7 @@ export async function runAgentSessionViaClaude(
 
     const durationMs = Date.now() - startTime
     const summary = summarizeSession(toolCallTotal, inputTokens, outputTokens, costUsd, durationMs)
-    domain.ticketComplete(db, ticketData.id, { agentName: agentDef.name, sessionId, notes: summary })
+    ticketComplete(db, ticketData.id, { agentName: agentDef.name, sessionId, notes: summary })
     database.sessionUpdate(db, sessionId, {
       status:        'done',
       ended_at:      now(),
@@ -438,7 +438,7 @@ export async function runAgentSessionViaClaude(
     } catch {}
     const failSummary = summarizeSession(toolCallTotal, inputTokens, outputTokens, costUsd, Date.now() - startTime)
     const failNotes   = failSummary ? `${msg}\n\n${failSummary}` : msg
-    try { domain.ticketFail(db, ticketData.id, { notes: failNotes, agentName: agentDef.name, sessionId }) } catch {}
+    try { ticketFail(db, ticketData.id, { notes: failNotes, agentName: agentDef.name, sessionId }) } catch {}
     database.sessionUpdate(db, sessionId, {
       status:      'failed',
       error:       msg,

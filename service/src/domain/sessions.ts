@@ -1,20 +1,20 @@
 import { type Db } from '../database.js'
 import * as database from '../database.js'
-import type { Activity, Session } from '../schema.js'
+import type { Activity, Session } from '../tables.js'
 import type { Config } from '../config.js'
-import { require, assertStatus, now } from '../functional.js'
+import { mustExist, assertStatus, now } from '../util.js'
 import { ticketClaim, ticketGet } from './tickets.js'
 
 export function sessionGet(db: Db, id: string) {
-  return require(database.sessionGetAggregated(db, id))
+  return mustExist(database.sessionGetAggregated(db, id))
 }
 
 export function sessionStatus(db: Db, id: string): { status: string } {
-  return { status: require(database.sessionGet(db, id)).status }
+  return { status: mustExist(database.sessionGet(db, id)).status }
 }
 
 export function sessionKill(db: Db, id: string): { ok: true } {
-  assertStatus(require(database.sessionGet(db, id)), 'running', 'session is not running')
+  assertStatus(mustExist(database.sessionGet(db, id)), 'running', 'session is not running')
   database.sessionUpdate(db, id, { status: 'failed', error: 'killed', ended_at: now() })
   return { ok: true }
 }
@@ -23,7 +23,7 @@ export function sessionKill(db: Db, id: string): { ok: true } {
 // time; domain layer offers the list view plus an enforced-correctness
 // insert helper.
 export function sessionActivities(db: Db, sessionId: string): Activity[] {
-  require(database.sessionGet(db, sessionId))
+  mustExist(database.sessionGet(db, sessionId))
   return database.activityBySession(db, sessionId)
 }
 
@@ -38,7 +38,7 @@ export function activityCreate(db: Db, input: {
   tokens_in?:   number | null
   tokens?:      number | null
 }): Activity {
-  require(database.sessionGet(db, input.session_id))
+  mustExist(database.sessionGet(db, input.session_id))
   if (input.kind === 'tool_call' && !input.execution_id) {
     throw new Error('activity.kind=tool_call requires execution_id (sandbox-domain correlation is enforced)')
   }
@@ -57,7 +57,7 @@ export function activityCreate(db: Db, input: {
 }
 
 export function sessionByTicket(db: Db, ticketId: string) {
-  require(database.ticketGet(db, ticketId))
+  mustExist(database.ticketGet(db, ticketId))
   return database.sessionByTicket(db, ticketId)
 }
 
@@ -79,8 +79,8 @@ export function sessionStartedComment(db: Db, ticketId: string, agentName: strin
 }
 
 export async function sessionStart(db: Db, config: Config, agentDefId: string, ticketId: string): Promise<Session> {
-  const agentDef = require(database.agentGet(db, agentDefId), 'agent not found')
-  require(ticketClaim(db, ticketId), 'ticket is not claimable (already claimed, done, or failed)')
+  const agentDef = mustExist(database.agentGet(db, agentDefId), 'agent not found')
+  mustExist(ticketClaim(db, ticketId), 'ticket is not claimable (already claimed, done, or failed)')
   // Backfill ticket.agent_id on the first session so the ticket reflects who's
   // working it. Don't overwrite if the founder pre-assigned it — that's a
   // routing preference the scheduler should preserve.

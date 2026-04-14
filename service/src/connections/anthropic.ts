@@ -1,4 +1,4 @@
-import type { ConnectionProvider } from './provider.js'
+import type { ConnectionProvider } from './types.js'
 
 export const anthropic: ConnectionProvider = {
   kind: 'anthropic',

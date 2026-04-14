@@ -3,13 +3,13 @@ import type { z } from 'zod'
 
 import { type Db } from '../database.js'
 import * as database from '../database.js'
-import * as schema from '../schema.js'
-import type { Agent } from '../schema.js'
-import { require, now } from '../functional.js'
+import * as schema from '../tables.js'
+import type { Agent } from '../tables.js'
+import { mustExist, now } from '../util.js'
 import { conflict, badRequest, notFound } from '../errors.js'
 import * as providers from '../connections/registry.js'
 import { registry as mcpRegistry, type McpServerInfo } from '../mcp/registry.js'
-import { connectionTools } from '../mcp/server.js'
+import { connectionTools } from '../mcp/connection.js'
 import * as validate from '../validate.js'
 
 // MCP server catalog surfaced to the agent-edit UI. Returns the 4 built-ins
@@ -42,12 +42,12 @@ export function agentList(db: Db, filters: z.infer<typeof validate.agentList>): 
 }
 
 export function agentGet(db: Db, id: string): Agent {
-  return require(database.agentGet(db, id))
+  return mustExist(database.agentGet(db, id))
 }
 
 export function agentCreate(db: Db, accountId: string, input: z.infer<typeof validate.agentCreate>): Agent {
   const { connection_id, name, model, description, max_tokens, max_steps, temperature, reasoning_budget, tools } = input
-  require(database.connectionGet(db, connection_id), `connection '${connection_id}' not found`)
+  mustExist(database.connectionGet(db, connection_id), `connection '${connection_id}' not found`)
   const current = database.agentAll(db, [
     eq(schema.agent.account_id, accountId),
     eq(schema.agent.name, name),
@@ -69,10 +69,10 @@ export function agentCreate(db: Db, accountId: string, input: z.infer<typeof val
 // marked superseded. Historical sessions keep pointing at their original
 // version so metrics stay comparable.
 export function agentUpdate(db: Db, accountId: string, id: string, input: z.infer<typeof validate.agentUpdate>): Agent {
-  const prior = require(database.agentGet(db, id))
+  const prior = mustExist(database.agentGet(db, id))
   if (prior.account_id !== accountId) throw notFound()
   if (prior.superseded_at !== null) throw badRequest('cannot update a superseded agent version; start from the current one')
-  if (input.connection_id) require(database.connectionGet(db, input.connection_id), `connection '${input.connection_id}' not found`)
+  if (input.connection_id) mustExist(database.connectionGet(db, input.connection_id), `connection '${input.connection_id}' not found`)
 
   const newRow = db.transaction(tx => {
     const d = tx as any
@@ -99,7 +99,7 @@ export function agentUpdate(db: Db, accountId: string, id: string, input: z.infe
 }
 
 export function agentRemove(db: Db, accountId: string, id: string): { ok: true } {
-  const row = require(database.agentGet(db, id))
+  const row = mustExist(database.agentGet(db, id))
   if (row.account_id !== accountId) throw notFound()
   database.agentRemove(db, id)
   return { ok: true }

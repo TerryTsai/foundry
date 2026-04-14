@@ -2,9 +2,9 @@ import { eq } from 'drizzle-orm'
 
 import { type Db } from '../database.js'
 import * as database from '../database.js'
-import * as schema from '../schema.js'
-import type { Execution } from '../schema.js'
-import { require } from '../functional.js'
+import * as schema from '../tables.js'
+import type { Execution } from '../tables.js'
+import { mustExist } from '../util.js'
 
 export interface UsageRollup {
   session_count: number
@@ -61,16 +61,16 @@ function rollupSessions(db: Db, sessions: SessionUsageRow[]): UsageRollup {
 }
 
 export function ticketUsage(db: Db, id: string): UsageRollup {
-  require(database.ticketGet(db, id))
+  mustExist(database.ticketGet(db, id))
   return rollupSessions(db, database.sessionAggregateAll(db, [eq(schema.session.ticket_id, id)]))
 }
 
 export function agentUsage(db: Db, id: string): UsageRollup {
-  require(database.agentGet(db, id))
+  mustExist(database.agentGet(db, id))
   return rollupSessions(db, database.sessionAggregateAll(db, [eq(schema.session.agent_id, id)]))
 }
 
 export function sessionUsage(db: Db, id: string): UsageRollup {
-  const s = require(database.sessionGetAggregated(db, id))
+  const s = mustExist(database.sessionGetAggregated(db, id))
   return rollupSessions(db, [s])
 }

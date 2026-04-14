@@ -3,9 +3,9 @@ import type { z } from 'zod'
 
 import { type Db } from '../database.js'
 import * as database from '../database.js'
-import * as schema from '../schema.js'
-import type { Connection } from '../schema.js'
-import { require, now, ts } from '../functional.js'
+import * as schema from '../tables.js'
+import type { Connection } from '../tables.js'
+import { mustExist, now, timestamps } from '../util.js'
 import { conflict, badRequest, notFound } from '../errors.js'
 import * as providers from '../connections/registry.js'
 import * as validate from '../validate.js'
@@ -42,7 +42,7 @@ export function connectionList(db: Db, accountId: string): MaskedConnection[] {
 }
 
 export function connectionGet(db: Db, accountId: string, id: string): MaskedConnection {
-  const row = require(database.connectionGet(db, id), `connection '${id}' not found`)
+  const row = mustExist(database.connectionGet(db, id), `connection '${id}' not found`)
   if (row.account_id !== accountId) throw notFound()
   return maskConnection(row)
 }
@@ -74,13 +74,13 @@ export function connectionCreate(db: Db, accountId: string, input: z.infer<typeo
     name:       input.name,
     config:     JSON.stringify(config),
     secrets:    JSON.stringify(secrets),
-    ...ts(),
+    ...timestamps(),
   })
   return maskConnection(row)
 }
 
 export function connectionUpdate(db: Db, accountId: string, id: string, input: z.infer<typeof validate.connectionUpdate>): MaskedConnection {
-  const row = require(database.connectionGet(db, id), `connection '${id}' not found`)
+  const row = mustExist(database.connectionGet(db, id), `connection '${id}' not found`)
   if (row.account_id !== accountId) throw notFound()
   const data: Record<string, unknown> = { updated_at: now() }
   if (input.name    !== undefined) data.name    = input.name
@@ -90,7 +90,7 @@ export function connectionUpdate(db: Db, accountId: string, id: string, input: z
 }
 
 export function connectionRemove(db: Db, accountId: string, id: string): { ok: true } {
-  const row = require(database.connectionGet(db, id), `connection '${id}' not found`)
+  const row = mustExist(database.connectionGet(db, id), `connection '${id}' not found`)
   if (row.account_id !== accountId) throw notFound()
   database.connectionRemove(db, id)
   return { ok: true }

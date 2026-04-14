@@ -3,10 +3,10 @@ import { sql } from 'drizzle-orm'
 
 import { type Db } from '../database.js'
 import * as database from '../database.js'
-import type { Execution } from '../schema.js'
+import type { Execution } from '../tables.js'
 import type { Config } from '../config.js'
-import { require, assertStatus, now } from '../functional.js'
-import { spawnRun, type RunHandle } from '../runtime/sandbox.js'
+import { mustExist, assertStatus, now } from '../util.js'
+import { spawnRun, type RunHandle } from '../runtime/podman.js'
 import { prepareWorkspace } from '../runtime/workspace.js'
 import { onExecutionExit } from '../runtime/exit-handler.js'
 
@@ -17,11 +17,11 @@ export function executionList(db: Db): Execution[] {
 }
 
 export function executionGet(db: Db, id: string): Execution {
-  return require(database.executionGet(db, id))
+  return mustExist(database.executionGet(db, id))
 }
 
 export function executionBySession(db: Db, sessionId: string): Execution[] {
-  require(database.sessionGet(db, sessionId))
+  mustExist(database.sessionGet(db, sessionId))
   return database.executionBySession(db, sessionId)
 }
 
@@ -91,7 +91,7 @@ function backfillActivityExecutionId(db: Db, executionId: string, toolUseId?: st
 }
 
 export function executionKill(db: Db, id: string): { ok: true } {
-  assertStatus(require(database.executionGet(db, id)), 'running', 'execution is not active')
+  assertStatus(mustExist(database.executionGet(db, id)), 'running', 'execution is not active')
   const handle = activeRuns.get(id)
   if (handle) { handle.kill(); activeRuns.delete(id) }
   database.executionUpdate(db, id, { status: 'failed', exit_code: -1, ended_at: now() })
@@ -99,7 +99,7 @@ export function executionKill(db: Db, id: string): { ok: true } {
 }
 
 export function executionStream(db: Db, id: string, res: Response): void {
-  const row = require(database.executionGet(db, id))
+  const row = mustExist(database.executionGet(db, id))
   res.setHeader('Content-Type', 'text/event-stream')
   res.setHeader('Cache-Control', 'no-cache')
   res.setHeader('Connection', 'keep-alive')

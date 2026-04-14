@@ -1,6 +1,6 @@
 import { mkdirSync, cpSync, rmSync } from 'fs'
 import { join, dirname } from 'path'
-import type { ArtifactSpec } from '../connections/provider.js'
+import type { ArtifactSpec } from '../connections/types.js'
 
 export interface ExecutionDirs {
   workspace: string

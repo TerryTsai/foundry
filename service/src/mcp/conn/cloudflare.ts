@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-import type { ConnectionToolCtx, ConnectionToolDef, ToolRunSpec } from '../connections/provider.js'
+import type { ConnectionToolCtx, ConnectionToolDef, ToolRunSpec } from '../../connections/types.js'
 
 // Cloudflare MCP tools. Credentials come from the connection row via ctx.
 // Every tool resolves to a ToolRunSpec that the connection server adapter

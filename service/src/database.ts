@@ -2,8 +2,8 @@ import Database from 'better-sqlite3'
 import { drizzle } from 'drizzle-orm/better-sqlite3'
 import { eq, and, inArray, sql, type SQL } from 'drizzle-orm'
 import { ulid } from 'ulid'
-import * as schema from './schema.js'
-import type { Account, Activity, Agent, AuthSession, Comment, Connection, Execution, Project, Session, Tag, Ticket } from './schema.js'
+import * as schema from './tables.js'
+import type { Account, Activity, Agent, AuthSession, Comment, Connection, Execution, Project, Session, Tag, Ticket } from './tables.js'
 
 export type Db = ReturnType<typeof drizzle<typeof schema>>
 

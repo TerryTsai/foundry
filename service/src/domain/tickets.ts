@@ -3,9 +3,9 @@ import type { z } from 'zod'
 
 import { type Db } from '../database.js'
 import * as database from '../database.js'
-import * as schema from '../schema.js'
-import type { Ticket, Tag, Comment } from '../schema.js'
-import { require, assertStatus, pick, now, ts } from '../functional.js'
+import * as schema from '../tables.js'
+import type { Ticket, Tag, Comment } from '../tables.js'
+import { mustExist, assertStatus, pick, now, timestamps } from '../util.js'
 import * as validate from '../validate.js'
 
 export interface TicketChainEntry {
@@ -26,13 +26,13 @@ export function ticketList(db: Db, filters: z.infer<typeof validate.ticketList>)
 }
 
 export function ticketGet(db: Db, id: string): Ticket {
-  return require(database.ticketGet(db, id))
+  return mustExist(database.ticketGet(db, id))
 }
 
 export function ticketCreate(db: Db, input: z.infer<typeof validate.ticketCreate>): Ticket {
   const { project_id, agent_id, title, description, priority, parent_id, blocked_by, created_by, block } = input
-  if (parent_id)  require(database.ticketGet(db, parent_id), 'parent_id not found')
-  if (blocked_by) require(database.ticketGet(db, blocked_by), 'blocked_by ticket not found')
+  if (parent_id)  mustExist(database.ticketGet(db, parent_id), 'parent_id not found')
+  if (blocked_by) mustExist(database.ticketGet(db, blocked_by), 'blocked_by ticket not found')
 
   return db.transaction(tx => {
     const row = database.ticketInsert(tx as any, {
@@ -40,7 +40,7 @@ export function ticketCreate(db: Db, input: z.infer<typeof validate.ticketCreate
       status: blocked_by ? 'blocked' : 'open',
       parent_id: parent_id ?? null,
       blocked_by: blocked_by ?? null,
-      created_by, ...ts(), claimed_at: null,
+      created_by, ...timestamps(), claimed_at: null,
     })
     if (block && parent_id && database.ticketGet(tx as any, parent_id)?.status === 'claimed') {
       database.ticketUpdate(tx as any, parent_id, { status: 'blocked', updated_at: now() })
@@ -50,7 +50,7 @@ export function ticketCreate(db: Db, input: z.infer<typeof validate.ticketCreate
 }
 
 export function ticketUpdate(db: Db, id: string, input: z.infer<typeof validate.ticketUpdate>): Ticket {
-  assertStatus(require(database.ticketGet(db, id)), 'open', 'ticket can only be edited while open')
+  assertStatus(mustExist(database.ticketGet(db, id)), 'open', 'ticket can only be edited while open')
   return database.ticketUpdate(db, id, { ...pick(input, 'title', 'body', 'agent_id', 'priority'), updated_at: now() })
 }
 
@@ -59,13 +59,13 @@ export function ticketUpdate(db: Db, id: string, input: z.infer<typeof validate.
 export function ticketClaim(db: Db, id: string): Ticket | null {
   const claimed = database.ticketClaimIfOpen(db, id, now())
   if (!claimed) return null
-  return require(database.ticketGet(db, id))
+  return mustExist(database.ticketGet(db, id))
 }
 
 export function ticketComplete(db: Db, id: string, opts?: { notes?: string; agentName?: string; sessionId?: string }): Ticket {
   return db.transaction(tx => {
     const d = tx as any
-    const row = assertStatus(require(database.ticketGet(d, id)), 'claimed')
+    const row = assertStatus(mustExist(database.ticketGet(d, id)), 'claimed')
     database.ticketUpdate(d, id, { status: 'done', updated_at: now() })
     const author = opts?.agentName ?? 'system'
     const body = opts?.notes ? `Session completed\n${opts.notes}` : 'Session completed'
@@ -81,12 +81,12 @@ export function ticketComplete(db: Db, id: string, opts?: { notes?: string; agen
         database.ticketUpdate(d, dep.id, { status: 'open', updated_at: now() })
       }
     }
-    return require(database.ticketGet(d, id))
+    return mustExist(database.ticketGet(d, id))
   }) as Ticket
 }
 
 export function ticketFail(db: Db, id: string, opts?: { notes?: string; agentName?: string; sessionId?: string }): Ticket {
-  assertStatus(require(database.ticketGet(db, id)), 'claimed')
+  assertStatus(mustExist(database.ticketGet(db, id)), 'claimed')
   const row = database.ticketUpdate(db, id, { status: 'failed', updated_at: now() })
   const author = opts?.agentName ?? 'system'
   const body = opts?.notes ? `Session failed\n${opts.notes}` : 'Session failed'
@@ -95,13 +95,13 @@ export function ticketFail(db: Db, id: string, opts?: { notes?: string; agentNam
 }
 
 export function ticketReopen(db: Db, id: string): Ticket {
-  assertStatus(require(database.ticketGet(db, id)), ['done', 'failed'], 'only done or failed tickets can be reopened')
+  assertStatus(mustExist(database.ticketGet(db, id)), ['done', 'failed'], 'only done or failed tickets can be reopened')
   return database.ticketUpdate(db, id, { status: 'reopened', claimed_at: null, updated_at: now() })
 }
 
 export function ticketChain(db: Db, id: string): TicketChainEntry[] {
   const chain: Ticket[] = []
-  let current: Ticket | undefined = require(database.ticketGet(db, id))
+  let current: Ticket | undefined = mustExist(database.ticketGet(db, id))
   const visited = new Set<string>()
   while (current) {
     if (visited.has(current.id)) break
@@ -143,12 +143,12 @@ export function ticketPriorHistory(db: Db, ticketId: string, sessionId: string, 
 // ── Comments ──
 
 export function commentList(db: Db, ticketId: string): Comment[] {
-  require(database.ticketGet(db, ticketId))
+  mustExist(database.ticketGet(db, ticketId))
   return database.commentByTicket(db, ticketId)
 }
 
 export function commentCreate(db: Db, ticketId: string, input: { author: string; body: string; session_id?: string }): Comment {
-  require(database.ticketGet(db, ticketId))
+  mustExist(database.ticketGet(db, ticketId))
   return database.commentInsert(db, { ticket_id: ticketId, session_id: input.session_id ?? null, author: input.author, body: input.body, created_at: now() })
 }
 
@@ -159,7 +159,7 @@ export function tagList(db: Db, ticketId: string): Tag[] {
 }
 
 export function tagAdd(db: Db, ticketId: string, tag: string): Tag {
-  require(database.ticketGet(db, ticketId))
+  mustExist(database.ticketGet(db, ticketId))
   try {
     return database.ticketTagInsert(db, ticketId, tag)
   } catch (err: any) {

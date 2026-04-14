@@ -35,8 +35,8 @@ import { z } from 'zod'
 import type { Db } from '../database.js'
 import * as database from '../database.js'
 import type { Config } from '../config.js'
-import type { Ticket } from '../schema.js'
-import { require, toInt } from '../functional.js'
+import type { Ticket } from '../tables.js'
+import { mustExist, toInt } from '../util.js'
 import { installationForRepo, installationToken } from '../connections/github.js'
 import { asText, runCommand, toolUseId } from './shared.js'
 
@@ -80,7 +80,7 @@ function parseRepo(repo: string): { owner: string; name: string } {
 // Resolve the project's configured repo. Throws if unset — callers catch
 // and return `{ ok: false, error }`.
 function ticketRepo(ctx: GithubCtx): { owner: string; name: string } {
-  const proj = require(database.projectGet(ctx.db, ctx.ticket.project_id), `project ${ctx.ticket.project_id} not found`)
+  const proj = mustExist(database.projectGet(ctx.db, ctx.ticket.project_id), `project ${ctx.ticket.project_id} not found`)
   if (!proj.repo) throw new Error('project has no repo configured')
   return parseRepo(proj.repo)
 }
@@ -406,7 +406,7 @@ async function handleGitPullRequest(ctx: GithubCtx, args: z.infer<typeof gitPull
       return { ok: false, error: `PR create response not parseable: ${errMsg(err)}` }
     }
 
-    const { commentCreate } = await import('../domain.js')
+    const { commentCreate } = await import('../domain/tickets.js')
     commentCreate(ctx.db, ctx.ticket.id, {
       author:     ctx.agentName,
       body:       `PR opened: ${prUrl}`,
@@ -576,7 +576,7 @@ async function handleGitMerge(ctx: GithubCtx, args: z.infer<typeof gitMergeArgs>
       return { ok: false, error: `merge failed (HTTP ${mergeRes.status}): ${mergeErr.slice(0, 300)}. PR is open at ${prUrl} — resolve conflicts and merge manually, or call gitRebase and retry.` }
     }
 
-    const { commentCreate } = await import('../domain.js')
+    const { commentCreate } = await import('../domain/tickets.js')
     commentCreate(ctx.db, ctx.ticket.id, {
       author:     ctx.agentName,
       body:       `Merged: ${prUrl}`,

@@ -41,3 +41,7 @@ npm-debug.log*
 # per-session workDir which is a clone of the bare repo. Without this,
 # workspacePublish's `git add -A` sweeps them into the agent's commit.
 .foundry/
+
+# SQLite backup snapshots
+*.db.bak*
+

@@ -10,7 +10,7 @@ import { ulid } from 'ulid'
 
 import type { Db } from '../database.js'
 import type { Config } from '../config.js'
-import * as domain from '../domain.js'
+import { executionCreate } from '../domain/executions.js'
 
 // ── Output bounding ──
 // Large tool stdout/stderr gets spilled to a file in the workspace so the
@@ -128,7 +128,7 @@ export function runCommand(
   db: Db, config: Config, sessionId: string, workspace: string,
   command: string, toolName: string, toolInput: unknown, options: RunCommandOptions = {},
 ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
-  const { emitter } = domain.executionCreate(db, config, {
+  const { emitter } = executionCreate(db, config, {
     command, session_id: sessionId, tool_name: toolName, tool_input: toolInput,
     tool_use_id: options.toolUseId,
     network: options.network ?? false,

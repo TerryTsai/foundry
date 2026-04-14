@@ -1,10 +1,10 @@
 import { type Db } from '../database.js'
 import * as database from '../database.js'
-import { now } from '../functional.js'
+import { now } from '../util.js'
 import { scrubSecrets } from '../mcp/shared.js'
 import { collectOutputs, cleanupDirs, type ExecutionDirs } from './workspace.js'
-import type { ArtifactSpec } from '../connections/provider.js'
-import type { ContainerStats } from './sandbox.js'
+import type { ArtifactSpec } from '../connections/types.js'
+import type { ContainerStats } from './podman.js'
 
 export interface ExitCtx {
   executionId: string

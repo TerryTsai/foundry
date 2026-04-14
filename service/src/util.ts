@@ -1,6 +1,6 @@
 import { notFound, conflict } from './errors.js'
 
-export const require = <T>(row: T | undefined, msg?: string): T => {
+export const mustExist = <T>(row: T | undefined, msg?: string): T => {
   if (!row) throw notFound(msg)
   return row
 }
@@ -19,7 +19,7 @@ export const pick = (obj: Record<string, unknown>, ...keys: string[]): Record<st
 
 export const now = () => new Date().toISOString()
 
-export const ts = (): { created_at: string; updated_at: string } => {
+export const timestamps = (): { created_at: string; updated_at: string } => {
   const t = now()
   return { created_at: t, updated_at: t }
 }

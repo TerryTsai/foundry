@@ -3,11 +3,11 @@ import { tool as aiTool } from 'ai'
 
 import type { Db } from '../database.js'
 import type { Config } from '../config.js'
-import type { Connection } from '../schema.js'
-import type { ConnectionToolCtx, ConnectionToolDef } from '../connections/provider.js'
+import type { Connection } from '../tables.js'
+import type { ConnectionToolCtx, ConnectionToolDef } from '../connections/types.js'
 import { asText, runCommand, toolUseId } from './shared.js'
 import { filterTools } from './registry.js'
-import { toolsByKind } from './connection-tools.js'
+import { toolsByKind } from './conn/registry.js'
 
 export interface ConnectionServerCtx {
   db:        Db

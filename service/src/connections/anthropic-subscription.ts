@@ -1,4 +1,4 @@
-import type { ConnectionProvider } from './provider.js'
+import type { ConnectionProvider } from './types.js'
 
 // The subscription kind is handled by runtime/sdk-runner.ts directly via
 // the Claude Agent SDK and CLAUDE_CODE_OAUTH_TOKEN. No `modelFactory` —

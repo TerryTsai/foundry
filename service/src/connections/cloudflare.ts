@@ -1,4 +1,4 @@
-import type { ConnectionProvider } from './provider.js'
+import type { ConnectionProvider } from './types.js'
 
 // Cloudflare credentials. Tools live in mcp/cloudflare.ts.
 //

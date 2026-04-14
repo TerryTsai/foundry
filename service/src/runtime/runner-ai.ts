@@ -5,9 +5,9 @@ import { sql } from 'drizzle-orm'
 import { type Db } from '../database.js'
 import * as database from '../database.js'
 import type { Config } from '../config.js'
-import { type Ticket, type Agent as AgentDef } from '../schema.js'
-import * as domain from '../domain.js'
-import { now } from '../functional.js'
+import { type Ticket, type Agent as AgentDef } from '../tables.js'
+import { ticketComplete, ticketFail } from '../domain/tickets.js'
+import { now } from '../util.js'
 
 import { eq } from 'drizzle-orm'
 
@@ -17,8 +17,8 @@ import * as foundryServer from '../mcp/foundry.js'
 import * as githubServer  from '../mcp/github.js'
 import * as sandboxServer from '../mcp/sandbox.js'
 import * as browserServer from '../mcp/browser.js'
-import * as schema from '../schema.js'
-import { buildConnectionAiTools, connectionTools } from '../mcp/server.js'
+import * as schema from '../tables.js'
+import { buildConnectionAiTools, connectionTools } from '../mcp/connection.js'
 
 type StepResult = Awaited<ReturnType<typeof generateText<ToolSet>>>
 
@@ -246,14 +246,14 @@ async function runAgentSessionViaAi(
 
     const durationMs = Date.now() - startTime
     const summary = summarizeSession(toolCalls, tokensIn, tokensOut, 0, durationMs)
-    domain.ticketComplete(db, ticketData.id, { agentName: agentDef.name, sessionId, notes: summary })
+    ticketComplete(db, ticketData.id, { agentName: agentDef.name, sessionId, notes: summary })
     database.sessionUpdate(db, sessionId, {
       status: 'done', ended_at: now(), duration_ms: durationMs, finish_reason: finishReason,
     })
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     try { backfillExecutionIds(db, sessionId) } catch {}
-    try { domain.ticketFail(db, ticketData.id, { notes: msg, agentName: agentDef.name, sessionId }) } catch {}
+    try { ticketFail(db, ticketData.id, { notes: msg, agentName: agentDef.name, sessionId }) } catch {}
     database.sessionUpdate(db, sessionId, {
       status: 'failed', error: msg, ended_at: now(), duration_ms: Date.now() - startTime,
     })

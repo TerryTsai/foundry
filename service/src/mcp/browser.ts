@@ -14,7 +14,7 @@ import { z } from 'zod'
 import type { Db } from '../database.js'
 import type { Config } from '../config.js'
 import * as validate from '../validate.js'
-import { toInt } from '../functional.js'
+import { toInt } from '../util.js'
 import { asText, bounded, boundedOutput, esc, runCommand, toolUseId } from './shared.js'
 
 import { filterTools, type McpServerInfo } from './registry.js'

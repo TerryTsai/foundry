@@ -3,7 +3,7 @@ import type { z } from 'zod'
 
 import { type Db } from '../database.js'
 import * as database from '../database.js'
-import type { Account } from '../schema.js'
+import type { Account } from '../tables.js'
 import type { Config } from '../config.js'
 import { badRequest } from '../errors.js'
 import * as validate from '../validate.js'

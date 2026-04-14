@@ -1,14 +1,29 @@
+import { createAnthropic } from '@ai-sdk/anthropic'
+import { createOpenAI } from '@ai-sdk/openai'
 import { wrapLanguageModel, defaultSettingsMiddleware } from 'ai'
 
 import { type Db } from '../database.js'
 import * as database from '../database.js'
-import type { Agent as AgentDef } from '../schema.js'
-import { require } from '../functional.js'
+import type { Agent as AgentDef } from '../tables.js'
+import { mustExist } from '../util.js'
 import { badRequest } from '../errors.js'
-import { modelFactoryByKind } from './models.js'
 
-// LLM model resolution for API-key-based connections. The Claude Agent SDK
-// path (`anthropic-subscription`) bypasses this — it's not in `modelFactoryByKind`.
+// Model factory table — one entry per provider kind that can serve as an
+// LLM. The Claude Agent SDK path (kind 'anthropic-subscription') bypasses
+// this entirely; its token is consumed by the subscription runner.
+
+type ModelFactory = (apiKey: string) => { languageModel: (id: string) => unknown }
+
+const anthropicModel: ModelFactory = (apiKey) =>
+  createAnthropic({ apiKey }) as unknown as { languageModel: (id: string) => unknown }
+
+const openaiModel: ModelFactory = (apiKey) =>
+  createOpenAI({ apiKey }) as unknown as { languageModel: (id: string) => unknown }
+
+export const modelFactoryByKind: Record<string, ModelFactory | undefined> = {
+  anthropic: anthropicModel,
+  openai:    openaiModel,
+}
 
 function secretFor(conn: { secrets: string }, field: string): string {
   try {
@@ -22,7 +37,7 @@ function secretFor(conn: { secrets: string }, field: string): string {
 }
 
 export function resolveModel(db: Db, connectionId: string, modelId: string) {
-  const row = require(database.connectionGet(db, connectionId), `connection '${connectionId}' not found`)
+  const row = mustExist(database.connectionGet(db, connectionId), `connection '${connectionId}' not found`)
   const factory = modelFactoryByKind[row.kind]
   if (!factory) throw badRequest(`connection kind '${row.kind}' has no model factory — cannot serve as an LLM provider`)
   return factory(secretFor(row, 'api_key')).languageModel(modelId)

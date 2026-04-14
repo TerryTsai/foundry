@@ -1,6 +1,6 @@
-import type { ConnectionProvider } from './provider.js'
-import { modelFactoryByKind } from '../runtime/models.js'
-import { connectionTools } from '../mcp/server.js'
+import type { ConnectionProvider } from './types.js'
+import { modelFactoryByKind } from '../runtime/model.js'
+import { connectionTools } from '../mcp/connection.js'
 
 import { anthropic }             from './anthropic.js'
 import { anthropicSubscription } from './anthropic-subscription.js'
