@@ -38,22 +38,19 @@ export function ToolPicker({ servers, selection, onChange }: ToolPickerProps) {
     else next[id] = val
     onChange(Object.keys(next).length === 0 ? null : next)
   }
-  const toggleServer = (id: string) =>
-    sel[id] !== undefined ? setServer(id, null) : setServer(id, '*')
 
-  function toggleWildcard(id: string, tools: McpServerInfo['tools']) {
-    const v = sel[id]
-    if (v === undefined)      setServer(id, '*')
-    else if (v === '*')       setServer(id, tools.map(t => t.name))
-    else                      setServer(id, '*')
-  }
+  // "all" pill is the only path to wildcard. Toggles between `*` and off.
+  const toggleAll = (id: string) =>
+    sel[id] === '*' ? setServer(id, null) : setServer(id, '*')
+
+  // Individual pills manage the explicit list. Never auto-promotes to `*`.
+  // If the server is currently wildcard, tapping a tool demotes to the
+  // explicit list minus that tool (a natural "remove this one").
   function toggleTool(id: string, tool: string, all: McpServerInfo['tools']) {
     const v = sel[id]
-    if (v === undefined) { setServer(id, [tool]); return }
-    const names = v === '*'
-      ? all.map(t => t.name).filter(n => n !== tool)
-      : (v.includes(tool) ? v.filter(n => n !== tool) : [...v, tool])
-    setServer(id, names.length === all.length ? '*' : names)
+    if (v === undefined)  { setServer(id, [tool]); return }
+    if (v === '*')        { setServer(id, all.map(t => t.name).filter(n => n !== tool)); return }
+    setServer(id, v.includes(tool) ? v.filter(n => n !== tool) : [...v, tool])
   }
   const toggleExpand = (id: string) =>
     setExpanded(prev => {
@@ -186,39 +183,33 @@ export function ToolPicker({ servers, selection, onChange }: ToolPickerProps) {
         key={server.id}
         className={`rounded-lg transition-colors ${on ? 'bg-zinc-100 dark:bg-zinc-900/50' : 'hover:bg-zinc-50 dark:hover:bg-zinc-900/30'}`}
       >
-        <div className="flex items-center gap-3 px-3 py-2.5">
-          <button
-            type="button"
-            onClick={() => toggleServer(server.id)}
-            className="flex items-baseline gap-2 flex-1 min-w-0 text-left"
-          >
+        <button
+          type="button"
+          onClick={() => toggleExpand(server.id)}
+          className="w-full flex items-center gap-3 px-3 py-2.5 text-left"
+          aria-expanded={isExpanded}
+        >
+          <span className="flex items-baseline gap-2 flex-1 min-w-0">
             <span className={`text-sm truncate ${on ? 'text-zinc-900 dark:text-zinc-100 font-medium' : 'text-zinc-700 dark:text-zinc-400'}`}>
               {primary}
             </span>
             {secondary && (
               <span className="text-xs text-zinc-500 dark:text-zinc-500 truncate">{secondary}</span>
             )}
-          </button>
+          </span>
           {status && (
             <span className="text-xs text-sky-600 dark:text-sky-400 tabular-nums shrink-0">{status}</span>
           )}
-          <button
-            type="button"
-            onClick={() => toggleExpand(server.id)}
-            className="p-1 -m-1 text-zinc-400 dark:text-zinc-600 hover:text-zinc-700 dark:hover:text-zinc-300 transition-colors shrink-0"
-            aria-label={isExpanded ? 'collapse' : 'expand'}
-          >
-            <ChevronDown size={14} strokeWidth={2}
-              className={`transition-transform ${isExpanded ? '' : '-rotate-90'}`} />
-          </button>
-        </div>
+          <ChevronDown size={14} strokeWidth={2}
+            className={`text-zinc-400 dark:text-zinc-600 transition-transform shrink-0 ${isExpanded ? '' : '-rotate-90'}`} />
+        </button>
         {isExpanded && (
           <div className="flex flex-wrap gap-1.5 px-3 pb-3">
             <Pill
               label="all"
-              active={on && isWild}
+              active={isWild}
               mono={false}
-              onClick={() => toggleWildcard(server.id, server.tools)}
+              onClick={() => toggleAll(server.id)}
             />
             {server.tools.map(t => {
               const toolOn = isWild || (Array.isArray(v) && v.includes(t.name))
