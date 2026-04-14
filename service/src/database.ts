@@ -18,7 +18,7 @@ export function createDatabase(path: string): Db {
   sqlite.pragma('busy_timeout = 5000')    // wait 5s on lock instead of failing
 
   // Indexes — idempotent, safe on every startup. Big one-shot migrations
-  // live outside this file (see migrate-activity.js in repo root).
+  // live outside this file (see scripts/migrate-activity.js).
   sqlite.exec(`
     CREATE INDEX IF NOT EXISTS idx_activity_session_id    ON activity(session_id);
     CREATE INDEX IF NOT EXISTS idx_activity_turn_id       ON activity(turn_id);
