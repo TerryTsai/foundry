@@ -1,5 +1,4 @@
-// Clerk — auth. Skeleton: ping only. Extend with userList, userGet,
-// userUpdate, userBan in Phase B.
+// Clerk — user auth. Secret key authenticates server-side user CRUD.
 
 import { createSdkMcpServer, tool as sdkTool } from '@anthropic-ai/claude-agent-sdk'
 import { tool } from 'ai'
@@ -14,43 +13,113 @@ export const info: McpServerInfo = {
   category:    'growth',
   description: 'User auth (sessions, profiles, orgs).',
   tools: [
-    { name: 'ping', description: 'Verify the secret key by listing one user.' },
+    { name: 'userList',   description: 'List users with optional filters.' },
+    { name: 'userGet',    description: 'Fetch one user by id.' },
+    { name: 'userUpdate', description: 'Patch one user.' },
+    { name: 'userBan',    description: 'Ban a user. Reverses with userUnban.' },
+    { name: 'userUnban',  description: 'Un-ban a user.' },
+    { name: 'ping',       description: 'Verify the secret key.' },
   ],
 }
 
 type ClerkCtx = ConnCtx
 
-const pingArgs = z.object({})
+const userListArgs = z.object({
+  query:   z.string().optional().describe('Search by name, email, or username.'),
+  limit:   z.number().int().min(1).max(500).optional(),
+  offset:  z.number().int().min(0).optional(),
+})
+const userGetArgs = z.object({
+  id: z.string().describe('User id (user_…).'),
+})
+const userUpdateArgs = z.object({
+  id: z.string().describe('User id.'),
+  first_name:          z.string().optional(),
+  last_name:           z.string().optional(),
+  public_metadata:     z.record(z.string(), z.unknown()).optional(),
+  private_metadata:    z.record(z.string(), z.unknown()).optional(),
+  unsafe_metadata:     z.record(z.string(), z.unknown()).optional(),
+})
+const userBanArgs   = z.object({ id: z.string() })
+const userUnbanArgs = z.object({ id: z.string() })
+const pingArgs      = z.object({})
 
-async function handlePing(ctx: ClerkCtx, args: z.infer<typeof pingArgs>) {
-  const cmd = 'curl -sf -H "Authorization: Bearer $KEY" "https://api.clerk.com/v1/users?limit=1"'
+async function api(ctx: ClerkCtx, toolName: string, args: unknown, method: 'GET' | 'PATCH' | 'POST', path: string, body?: unknown) {
+  const bodyFlag = body !== undefined
+    ? ` -H "Content-Type: application/json" --data ${JSON.stringify(JSON.stringify(body))}`
+    : ''
+  const cmd = `curl -sf -X ${method} -H "Authorization: Bearer $KEY" "https://api.clerk.com/v1${path}"${bodyFlag}`
   const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace,
-    cmd, 'ping', args, {
+    cmd, toolName, args, {
       network: true, mount: 'none',
       env: { KEY: ctx.secrets.secret_key ?? '' },
       toolUseId: ctx.toolUseId,
     })
-  if (r.exitCode !== 0) return { ok: false, error: r.stderr || r.stdout }
-  try { return { ok: true, result: JSON.parse(r.stdout) } } catch { return { ok: true, stdout: r.stdout } }
+  if (r.exitCode !== 0) return { ok: false as const, error: r.stderr || r.stdout || 'request failed' }
+  try { return { ok: true as const, result: JSON.parse(r.stdout) } }
+  catch { return { ok: true as const, stdout: r.stdout } }
+}
+
+async function handleUserList(ctx: ClerkCtx, args: z.infer<typeof userListArgs>) {
+  const qs = new URLSearchParams()
+  if (args.query)               qs.set('query',  args.query)
+  if (args.limit !== undefined) qs.set('limit',  String(args.limit))
+  if (args.offset !== undefined) qs.set('offset', String(args.offset))
+  const q = qs.toString()
+  return api(ctx, 'userList', args, 'GET', `/users${q ? `?${q}` : ''}`)
+}
+
+async function handleUserGet(ctx: ClerkCtx, args: z.infer<typeof userGetArgs>) {
+  return api(ctx, 'userGet', args, 'GET', `/users/${encodeURIComponent(args.id)}`)
+}
+
+async function handleUserUpdate(ctx: ClerkCtx, args: z.infer<typeof userUpdateArgs>) {
+  const { id, ...patch } = args
+  return api(ctx, 'userUpdate', args, 'PATCH', `/users/${encodeURIComponent(id)}`, patch)
+}
+
+async function handleUserBan(ctx: ClerkCtx, args: z.infer<typeof userBanArgs>) {
+  return api(ctx, 'userBan', args, 'POST', `/users/${encodeURIComponent(args.id)}/ban`)
+}
+
+async function handleUserUnban(ctx: ClerkCtx, args: z.infer<typeof userUnbanArgs>) {
+  return api(ctx, 'userUnban', args, 'POST', `/users/${encodeURIComponent(args.id)}/unban`)
+}
+
+async function handlePing(ctx: ClerkCtx, args: z.infer<typeof pingArgs>) {
+  return api(ctx, 'ping', args, 'GET', '/users?limit=1')
 }
 
 const DESC = {
-  ping: 'Verify the secret key by fetching one user.',
+  userList:   'List users. `query` searches name/email/username. Paginate with `offset` + `limit`.',
+  userGet:    'Fetch one user\'s full record (email addresses, external accounts, metadata).',
+  userUpdate: 'Patch user fields. Only include fields you want to change. Use metadata maps for arbitrary app-specific state.',
+  userBan:    'Prevent a user from signing in. Reversible via userUnban.',
+  userUnban:  'Restore sign-in access for a previously-banned user.',
+  ping:       'Verify the secret key by fetching one user.',
 }
 
 export function buildSdk(ctx: ClerkCtx, allowed?: string[] | '*' | null) {
   const tu = (extra: unknown): ClerkCtx => ({ ...ctx, toolUseId: toolUseId(extra) })
   const all = [
-    sdkTool('ping', DESC.ping, pingArgs.shape, async (a, x) => asText(await handlePing(tu(x), a))),
+    sdkTool('userList',   DESC.userList,   userListArgs.shape,   async (a, x) => asText(await handleUserList(tu(x), a))),
+    sdkTool('userGet',    DESC.userGet,    userGetArgs.shape,    async (a, x) => asText(await handleUserGet(tu(x), a))),
+    sdkTool('userUpdate', DESC.userUpdate, userUpdateArgs.shape, async (a, x) => asText(await handleUserUpdate(tu(x), a))),
+    sdkTool('userBan',    DESC.userBan,    userBanArgs.shape,    async (a, x) => asText(await handleUserBan(tu(x), a))),
+    sdkTool('userUnban',  DESC.userUnban,  userUnbanArgs.shape,  async (a, x) => asText(await handleUserUnban(tu(x), a))),
+    sdkTool('ping',       DESC.ping,       pingArgs.shape,       async (a, x) => asText(await handlePing(tu(x), a))),
   ]
   return createSdkMcpServer({ name: `clerk:${ctx.connectionName}`, tools: filterTools(all, allowed) })
 }
 
 export function buildAi(ctx: ClerkCtx) {
+  const p = `clerk-${ctx.connectionName}`
   return {
-    [`clerk-${ctx.connectionName}-ping`]: tool({
-      description: DESC.ping, inputSchema: pingArgs,
-      execute: (a: z.infer<typeof pingArgs>) => handlePing(ctx, a),
-    }),
+    [`${p}-userList`]:   tool({ description: DESC.userList,   inputSchema: userListArgs,   execute: a => handleUserList(ctx, a) }),
+    [`${p}-userGet`]:    tool({ description: DESC.userGet,    inputSchema: userGetArgs,    execute: a => handleUserGet(ctx, a) }),
+    [`${p}-userUpdate`]: tool({ description: DESC.userUpdate, inputSchema: userUpdateArgs, execute: a => handleUserUpdate(ctx, a) }),
+    [`${p}-userBan`]:    tool({ description: DESC.userBan,    inputSchema: userBanArgs,    execute: a => handleUserBan(ctx, a) }),
+    [`${p}-userUnban`]:  tool({ description: DESC.userUnban,  inputSchema: userUnbanArgs,  execute: a => handleUserUnban(ctx, a) }),
+    [`${p}-ping`]:       tool({ description: DESC.ping,       inputSchema: pingArgs,       execute: a => handlePing(ctx, a) }),
   }
 }
