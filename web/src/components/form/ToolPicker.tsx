@@ -27,7 +27,9 @@ function splitLabel(server: McpServerInfo): { primary: string; secondary: string
 export function ToolPicker({ servers, selection, onChange }: ToolPickerProps) {
   const [query, setQuery] = useState('')
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
-  const [collapsedCats, setCollapsedCats] = useState<Set<McpCategory>>(new Set())
+  const [collapsedCats, setCollapsedCats] = useState<Set<McpCategory>>(
+    () => new Set(CATEGORY_ORDER),
+  )
 
   const sel = selection ?? {}
 
