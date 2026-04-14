@@ -37,8 +37,8 @@ import * as database from '../database.js'
 import type { Config } from '../config.js'
 import type { Ticket } from '../schema.js'
 import { require, toInt } from '../functional.js'
-import { installationForRepo, installationToken } from '../github.js'
-import { asText, runCommand, toolUseId } from './_shared.js'
+import { installationForRepo, installationToken } from '../connections/github.js'
+import { asText, runCommand, toolUseId } from './shared.js'
 
 import { filterTools, type McpServerInfo } from './registry.js'
 
@@ -76,6 +76,16 @@ function parseRepo(repo: string): { owner: string; name: string } {
   if (!m) throw new Error(`invalid repo "${repo}" — expected "owner/name"`)
   return { owner: m[1], name: m[2] }
 }
+
+// Resolve the project's configured repo. Throws if unset — callers catch
+// and return `{ ok: false, error }`.
+function ticketRepo(ctx: GithubCtx): { owner: string; name: string } {
+  const proj = require(database.projectGet(ctx.db, ctx.ticket.project_id), `project ${ctx.ticket.project_id} not found`)
+  if (!proj.repo) throw new Error('project has no repo configured')
+  return parseRepo(proj.repo)
+}
+
+const errMsg = (err: unknown) => err instanceof Error ? err.message : String(err)
 
 export async function workspaceEmpty(): Promise<string> {
   return mkdtemp(join(tmpdir(), 'foundry-session-'))
@@ -179,18 +189,10 @@ const gitMergeArgs = z.object({
 // tier-1 call runs.
 
 async function handleGitClone(ctx: GithubCtx, args: z.infer<typeof gitCloneArgs>) {
-  // Resolve owner/repo: explicit args win, otherwise fall back to project.repo.
-  let owner = args.owner
-  let name  = args.repo
-  if (!owner || !name) {
-    const proj = require(database.projectGet(ctx.db, ctx.ticket.project_id), `project ${ctx.ticket.project_id} not found`)
-    if (!proj.repo) return { ok: false, error: 'no owner/repo provided and project has no default repo configured' }
-    const parsed = parseRepo(proj.repo)
-    owner = owner ?? parsed.owner
-    name  = name  ?? parsed.name
-  }
-
   try {
+    const fallback = args.owner && args.repo ? null : ticketRepo(ctx)
+    const owner = args.owner ?? fallback!.owner
+    const name  = args.repo  ?? fallback!.name
     const installationId = await installationForRepo(ctx.config, owner, name)
     const { token: installToken } = await installationToken(ctx.config, installationId)
     const branch = `foundry/${ctx.sessionId}`
@@ -223,12 +225,10 @@ async function handleGitClone(ctx: GithubCtx, args: z.infer<typeof gitCloneArgs>
         toolUseId: ctx.toolUseId,
       })
 
-    if (r.exitCode !== 0) {
-      return { ok: false, error: r.stderr || r.stdout || 'clone failed' }
-    }
+    if (r.exitCode !== 0) return { ok: false, error: r.stderr || r.stdout || 'clone failed' }
     return { ok: true, owner, repo: name, branch }
   } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+    return { ok: false, error: errMsg(err) }
   }
 }
 
@@ -256,7 +256,7 @@ async function handleGitDiff(ctx: GithubCtx, args: z.infer<typeof gitDiffArgs>) 
 
 async function handleGitAdd(ctx: GithubCtx, args: z.infer<typeof gitAddArgs>) {
   try { for (const p of args.paths) assertSafeAddPath(p) } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+    return { ok: false, error: errMsg(err) }
   }
   const command = `git add -- ${args.paths.map(esc).join(' ')}`
   const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace,
@@ -267,7 +267,7 @@ async function handleGitAdd(ctx: GithubCtx, args: z.infer<typeof gitAddArgs>) {
 
 async function handleGitRemove(ctx: GithubCtx, args: z.infer<typeof gitRemoveArgs>) {
   try { for (const p of args.paths) assertSafeAddPath(p) } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+    return { ok: false, error: errMsg(err) }
   }
   const command = `git rm -r -- ${args.paths.map(esc).join(' ')}`
   const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace,
@@ -313,9 +313,7 @@ async function handleGitCommit(ctx: GithubCtx, args: z.infer<typeof gitCommitArg
 
 async function handleGitPullRequest(ctx: GithubCtx, args: z.infer<typeof gitPullRequestArgs>) {
   try {
-    const proj = require(database.projectGet(ctx.db, ctx.ticket.project_id), `project ${ctx.ticket.project_id} not found`)
-    if (!proj.repo) return { ok: false, error: 'project has no repo configured' }
-    const { owner, name } = parseRepo(proj.repo)
+    const { owner, name } = ticketRepo(ctx)
     const branch = `foundry/${ctx.sessionId}`
 
     // Mint a fresh installation token just before the call. Token lives
@@ -332,7 +330,7 @@ async function handleGitPullRequest(ctx: GithubCtx, args: z.infer<typeof gitPull
     // string contains only variable references. The shell inside the
     // container expands them at run time. Any token that leaks into git's
     // stderr is scrubbed before write by the execution-row scrubber in
-    // mcp/_shared.ts.
+    // mcp/shared.ts.
     //
     // Output contract for the handler:
     //   - exit 64 + "NOTHING_TO_PUBLISH" on stdout → empty branch
@@ -405,7 +403,7 @@ async function handleGitPullRequest(ctx: GithubCtx, args: z.infer<typeof gitPull
       if (!parsed.html_url) throw new Error('missing html_url in response')
       prUrl = parsed.html_url
     } catch (err) {
-      return { ok: false, error: `PR create response not parseable: ${err instanceof Error ? err.message : String(err)}` }
+      return { ok: false, error: `PR create response not parseable: ${errMsg(err)}` }
     }
 
     const { commentCreate } = await import('../domain.js')
@@ -418,7 +416,7 @@ async function handleGitPullRequest(ctx: GithubCtx, args: z.infer<typeof gitPull
     const result: PublishResult = { branch, prUrl }
     return { ok: true, ...result }
   } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+    return { ok: false, error: errMsg(err) }
   }
 }
 
@@ -428,9 +426,7 @@ async function handleGitPullRequest(ctx: GithubCtx, args: z.infer<typeof gitPull
 
 async function handleGitRebase(ctx: GithubCtx, _args: z.infer<typeof gitRebaseArgs>) {
   try {
-    const proj = require(database.projectGet(ctx.db, ctx.ticket.project_id), `project ${ctx.ticket.project_id} not found`)
-    if (!proj.repo) return { ok: false, error: 'project has no repo configured' }
-    const { owner, name } = parseRepo(proj.repo)
+    const { owner, name } = ticketRepo(ctx)
 
     const installationId = await installationForRepo(ctx.config, owner, name)
     const { token: installToken } = await installationToken(ctx.config, installationId)
@@ -461,7 +457,7 @@ async function handleGitRebase(ctx: GithubCtx, _args: z.infer<typeof gitRebaseAr
     }
     return { ok: true }
   } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+    return { ok: false, error: errMsg(err) }
   }
 }
 
@@ -472,9 +468,7 @@ async function handleGitRebase(ctx: GithubCtx, _args: z.infer<typeof gitRebaseAr
 
 async function handleGitMerge(ctx: GithubCtx, args: z.infer<typeof gitMergeArgs>) {
   try {
-    const proj = require(database.projectGet(ctx.db, ctx.ticket.project_id), `project ${ctx.ticket.project_id} not found`)
-    if (!proj.repo) return { ok: false, error: 'project has no repo configured' }
-    const { owner, name } = parseRepo(proj.repo)
+    const { owner, name } = ticketRepo(ctx)
     const branch = `foundry/${ctx.sessionId}`
 
     const installationId = await installationForRepo(ctx.config, owner, name)
@@ -546,7 +540,7 @@ async function handleGitMerge(ctx: GithubCtx, args: z.infer<typeof gitMergeArgs>
         prUrl = parsed.html_url
         prNumber = parsed.number
       } catch (err) {
-        return { ok: false, error: `PR response not parseable: ${err instanceof Error ? err.message : String(err)}` }
+        return { ok: false, error: `PR response not parseable: ${errMsg(err)}` }
       }
     } else if (status === 422 && jsonBody.includes('already exists')) {
       // PR already open for this branch (retry). Look it up.
@@ -591,7 +585,7 @@ async function handleGitMerge(ctx: GithubCtx, args: z.infer<typeof gitMergeArgs>
 
     return { ok: true, merged: true, branch, prUrl }
   } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+    return { ok: false, error: errMsg(err) }
   }
 }
 

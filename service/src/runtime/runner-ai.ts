@@ -18,8 +18,7 @@ import * as githubServer  from '../mcp/github.js'
 import * as sandboxServer from '../mcp/sandbox.js'
 import * as browserServer from '../mcp/browser.js'
 import * as schema from '../schema.js'
-import * as providerRegistry from '../connections/registry.js'
-import { buildConnectionAiTools } from '../connections/server.js'
+import { buildConnectionAiTools, connectionTools } from '../mcp/server.js'
 
 type StepResult = Awaited<ReturnType<typeof generateText<ToolSet>>>
 
@@ -42,10 +41,10 @@ export async function runAgentSession(
 ): Promise<void> {
   const conn = database.connectionGet(db, agentDef.connection_id)
   if (conn?.kind === 'anthropic-subscription') {
-    const { runAgentSessionViaSdk } = await import('./sdk-runner.js')
-    return runAgentSessionViaSdk(db, config, sessionId, agentDef, ticketData)
+    const { runAgentSessionViaClaude } = await import('./runner-claude.js')
+    return runAgentSessionViaClaude(db, config, sessionId, agentDef, ticketData)
   }
-  return runAgentSessionViaAiSdk(db, config, sessionId, agentDef, ticketData)
+  return runAgentSessionViaAi(db, config, sessionId, agentDef, ticketData)
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -200,7 +199,7 @@ async function runLoop(db: Db, args: {
 // AI SDK PATH
 // ════════════════════════════════════════════════════════════════════════════
 
-async function runAgentSessionViaAiSdk(
+async function runAgentSessionViaAi(
   db: Db, config: Config, sessionId: string, agentDef: AgentDef, ticketData: Ticket,
 ): Promise<void> {
   const startTime = Date.now()
@@ -233,11 +232,9 @@ async function runAgentSessionViaAiSdk(
     // in the ai-SDK ToolSet because there's no server concept here.
     const accountConns = database.connectionAll(db, [eq(schema.connection.account_id, agentDef.account_id)])
     for (const conn of accountConns) {
-      const provider = providerRegistry.providerGet(conn.kind)
-      if (!provider?.tools?.length) continue
+      if (!connectionTools(conn.kind).length) continue
       Object.assign(tools, buildConnectionAiTools(
-        { db, config, sessionId, workspace: workDir },
-        provider, conn, null,
+        { db, config, sessionId, workspace: workDir }, conn, null,
       ))
     }
     const model = resolveModelWithDefaults(db, agentDef)

@@ -15,7 +15,7 @@ import type { Db } from '../database.js'
 import type { Config } from '../config.js'
 import * as validate from '../validate.js'
 import { toInt } from '../functional.js'
-import { asText, bounded, boundedOutput, esc, runCommand, toolUseId } from './_shared.js'
+import { asText, bounded, boundedOutput, esc, runCommand, toolUseId } from './shared.js'
 
 import { filterTools, type McpServerInfo } from './registry.js'
 

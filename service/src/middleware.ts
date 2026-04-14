@@ -1,6 +1,6 @@
 import type { Request, Response, NextFunction, RequestHandler, ErrorRequestHandler } from 'express'
 import type { ZodType } from 'zod'
-import { AppError, badRequest } from './functional.js'
+import { badRequest, isAppError, unauthorized } from './errors.js'
 import type { Account } from './schema.js'
 import * as database from './database.js'
 import type { Db } from './database.js'
@@ -64,11 +64,11 @@ export const requireAuth = (db: Db, config: Config): RequestHandler =>
     }
     // Session cookie — real user.
     const sid = parseCookie(req.headers.cookie, 'foundry_session')
-    if (!sid) return next(new AppError(401, 'unauthorized'))
+    if (!sid) return next(unauthorized())
     const session = database.authSessionGet(db, sid)
-    if (!session || new Date(session.expires_at) < new Date()) return next(new AppError(401, 'unauthorized'))
+    if (!session || new Date(session.expires_at) < new Date()) return next(unauthorized())
     const account = database.accountGet(db, session.account_id)
-    if (!account) return next(new AppError(401, 'unauthorized'))
+    if (!account) return next(unauthorized())
     req.account = account
     next()
   }
@@ -116,7 +116,7 @@ export const sendText: RequestHandler =
 
 export const errors: ErrorRequestHandler =
   (err: unknown, _req: Request, res: Response, _next: NextFunction) => {
-    if (err instanceof AppError) {
+    if (isAppError(err)) {
       res.status(err.status).json({ error: err.message })
     } else {
       console.error(err)

@@ -1,4 +1,6 @@
 import type { ConnectionProvider } from './provider.js'
+import { modelFactoryByKind } from '../runtime/models.js'
+import { connectionTools } from '../mcp/server.js'
 
 import { anthropic }             from './anthropic.js'
 import { anthropicSubscription } from './anthropic-subscription.js'
@@ -44,7 +46,7 @@ export function providerMetadata(p: ConnectionProvider): ProviderMetadata {
     kind:        p.kind,
     name:        p.name,
     credentials: p.credentials,
-    has_model:   typeof p.modelFactory === 'function',
-    tool_names:  p.tools?.map(t => t.name) ?? [],
+    has_model:   modelFactoryByKind[p.kind] !== undefined,
+    tool_names:  connectionTools(p.kind).map(t => t.name),
   }
 }

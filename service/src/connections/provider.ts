@@ -91,13 +91,6 @@ export interface ConnectionToolDef<Args = Record<string, unknown>, Result = unkn
   parse?(r: ToolRunResult): Result
 }
 
-// A ModelFactory is the Vercel ai SDK's `createAnthropic` / `createOpenAI`
-// result — a provider object with a `languageModel(id)` method. The
-// installed `@ai-sdk/provider` version drifts between `ai@5` and the
-// adapter packages, so we type this as `unknown` and let inference carry
-// through at the call site (see runtime/model.ts).
-export type ModelFactory = (apiKey: string) => unknown
-
 export interface ConnectionProvider {
   kind:         string
   name:         string
@@ -106,11 +99,4 @@ export interface ConnectionProvider {
   // Server-side validation beyond field presence. Receives decoded
   // secrets + config. Return null for OK, a string message for rejection.
   validate?:    (secrets: Record<string, unknown>, config: Record<string, unknown>) => string | null
-
-  // LLM connections: return the model factory for this provider.
-  modelFactory?: ModelFactory
-
-  // Integration connections: MCP tools the model can invoke when an
-  // agent session has access to this connection.
-  tools?:       ConnectionToolDef[]
 }

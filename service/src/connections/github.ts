@@ -5,7 +5,7 @@
 //     private key, then exchange for a short-lived installation token.
 // No library — both flows are small enough to write directly.
 import { createSign } from 'crypto'
-import type { Config } from './config.js'
+import type { Config } from '../config.js'
 
 export interface GitHubUser {
   github_id: number

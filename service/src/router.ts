@@ -3,7 +3,7 @@ import type { Db } from './database.js'
 import type { Config } from './config.js'
 import * as domain from './domain.js'
 import * as validate from './validate.js'
-import { AppError } from './functional.js'
+import { unauthorized } from './errors.js'
 import { parse, run, send, parseCookie, serializeCookie, requireAuth } from './middleware.js'
 import { TOOL_NAMES, registry } from './mcp/registry.js'
 import * as providers from './connections/registry.js'
@@ -11,7 +11,7 @@ import * as providers from './connections/registry.js'
 // Each project handler resolves the caller's account from req (set by
 // requireAuth) and forwards it to the domain layer for ownership checks.
 function accountId(req: Request): string {
-  if (!req.account) throw new AppError(401, 'unauthorized')
+  if (!req.account) throw unauthorized()
   return req.account.id
 }
 
@@ -21,7 +21,7 @@ function accountIdOrQuery(req: Request): string {
   if (req.account) return req.account.id
   const qid = (req.data as any)?.accountId ?? req.query.accountId
   if (typeof qid === 'string' && qid.length > 0) return qid
-  throw new AppError(401, 'unauthorized')
+  throw unauthorized()
 }
 
 // ════════════════════════════════════════════════════════════════════════════

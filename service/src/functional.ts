@@ -1,14 +1,4 @@
-// ── Error Guards ──
-
-export class AppError extends Error {
-  constructor(public status: number, message: string) { super(message) }
-}
-
-export const notFound   = (msg = 'not found')  => new AppError(404, msg)
-export const conflict   = (msg: string)        => new AppError(409, msg)
-export const badRequest = (msg: string)        => new AppError(400, msg)
-
-// ── Assertions ──
+import { notFound, conflict } from './errors.js'
 
 export const require = <T>(row: T | undefined, msg?: string): T => {
   if (!row) throw notFound(msg)
@@ -21,8 +11,6 @@ export const assertStatus = <T extends { status: string }>(row: T, expected: str
   return row
 }
 
-// ── Transforms ──
-
 export const slugify = (name: string): string =>
   name.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
 
@@ -31,12 +19,15 @@ export const pick = (obj: Record<string, unknown>, ...keys: string[]): Record<st
 
 export const now = () => new Date().toISOString()
 
+export const ts = (): { created_at: string; updated_at: string } => {
+  const t = now()
+  return { created_at: t, updated_at: t }
+}
+
 export const toInt = (s: string, fallback = 0): number => {
   const n = parseInt(s, 10)
   return isNaN(n) ? fallback : n
 }
-
-// ── Effects ──
 
 export const succeeds = async (fn: () => Promise<unknown>): Promise<boolean> => {
   try { await fn(); return true } catch { return false }

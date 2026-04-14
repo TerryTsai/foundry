@@ -15,7 +15,7 @@ import { z } from 'zod'
 
 import type { Db } from '../database.js'
 import type { Config } from '../config.js'
-import { asText, esc, runCommand, toolUseId } from './_shared.js'
+import { asText, esc, runCommand, toolUseId } from './shared.js'
 
 import { filterTools, type McpServerInfo } from './registry.js'
 

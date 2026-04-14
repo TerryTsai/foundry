@@ -1,4 +1,3 @@
-import { createAnthropic } from '@ai-sdk/anthropic'
 import type { ConnectionProvider } from './provider.js'
 
 export const anthropic: ConnectionProvider = {
@@ -7,5 +6,4 @@ export const anthropic: ConnectionProvider = {
   credentials: [
     { key: 'api_key', label: 'API Key', type: 'password', placeholder: 'sk-ant-...' },
   ],
-  modelFactory: (apiKey) => createAnthropic({ apiKey }),
 }

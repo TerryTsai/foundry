@@ -20,8 +20,7 @@ import * as githubServer  from '../mcp/github.js'
 import * as sandboxServer from '../mcp/sandbox.js'
 import * as browserServer from '../mcp/browser.js'
 import { parseToolSelection } from '../mcp/registry.js'
-import * as providerRegistry from '../connections/registry.js'
-import { buildConnectionServer } from '../connections/server.js'
+import { buildConnectionServer, connectionTools } from '../mcp/server.js'
 
 // ════════════════════════════════════════════════════════════════════════════
 // PROMPT ASSEMBLY
@@ -219,7 +218,7 @@ function upsertActivity(db: Db, params: {
 // CLAUDE AGENT SDK RUNNER
 // ════════════════════════════════════════════════════════════════════════════
 
-export async function runAgentSessionViaSdk(
+export async function runAgentSessionViaClaude(
   db: Db, config: Config, sessionId: string, agentDef: AgentDef, ticketData: Ticket,
 ): Promise<void> {
   const startTime = Date.now()
@@ -293,13 +292,12 @@ export async function runAgentSessionViaSdk(
     // gates access the same way built-in servers are gated.
     const accountConns = database.connectionAll(db, [eq(schema.connection.account_id, agentDef.account_id)])
     for (const conn of accountConns) {
-      const provider = providerRegistry.providerGet(conn.kind)
-      if (!provider?.tools?.length) continue
-      const key = `${provider.kind}:${conn.name}`
+      if (!connectionTools(conn.kind).length) continue
+      const key = `${conn.kind}:${conn.name}`
       if (selection !== null && !(key in selection)) continue
       const server = buildConnectionServer(
         { db, config, sessionId, workspace: workDir },
-        provider, conn,
+        conn,
         selection === null ? null : selection[key],
       )
       if (server) mcpServers[key] = server
