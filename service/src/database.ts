@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3'
 import { drizzle } from 'drizzle-orm/better-sqlite3'
-import { eq, and, inArray, sql, type SQL } from 'drizzle-orm'
+import { eq, and, sql, type SQL } from 'drizzle-orm'
 import { ulid } from 'ulid'
 import * as schema from './tables.js'
 import type { Account, Activity, Agent, AuthSession, Comment, Connection, Execution, Project, Session, Tag, Ticket } from './tables.js'
@@ -202,7 +202,7 @@ export function ticketUpdate(d: Db, id: string, data: Record<string, unknown>): 
 export function ticketClaimIfOpen(d: Db, id: string, claimedAt: string): boolean {
   const r = d.update(schema.ticket)
     .set({ status: 'claimed', claimed_at: claimedAt, updated_at: claimedAt })
-    .where(and(eq(schema.ticket.id, id), inArray(schema.ticket.status, ['open', 'reopened'])))
+    .where(and(eq(schema.ticket.id, id), eq(schema.ticket.status, 'opened')))
     .run()
   return r.changes > 0
 }
@@ -251,9 +251,9 @@ export function ticketsByTag(d: Db, tag: string, conditions?: SQL[]): Ticket[] {
     title:       schema.ticket.title,
     description: schema.ticket.description,
     status:      schema.ticket.status,
+    outcome:     schema.ticket.outcome,
     priority:    schema.ticket.priority,
-    parent_id:   schema.ticket.parent_id,
-    blocked_by:  schema.ticket.blocked_by,
+    depends_on:  schema.ticket.depends_on,
     created_by:  schema.ticket.created_by,
     created_at:  schema.ticket.created_at,
     updated_at:  schema.ticket.updated_at,

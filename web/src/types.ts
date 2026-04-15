@@ -52,10 +52,10 @@ export interface Ticket {
   agent_id: string | null
   title: string
   description: string
-  status: 'open' | 'claimed' | 'done' | 'failed' | 'blocked' | 'reopened'
+  status: 'opened' | 'claimed' | 'resolved'
+  outcome: 'finished' | 'failed' | 'cancelled' | null
   priority: number
-  parent_id: string | null
-  blocked_by: string | null
+  depends_on: string | null
   created_by: string
   created_at: string
   updated_at: string
@@ -202,6 +202,7 @@ export interface Agent {
   temperature: number | null
   reasoning_budget: number | null
   tools: string | null
+  verifiers: string | null            // JSON: agent_id[]
   superseded_at: string | null
   created_at: string
 }

@@ -6,7 +6,8 @@ import { type Db } from '../database.js'
 import * as database from '../database.js'
 import type { Config } from '../config.js'
 import { type Ticket, type Agent as AgentDef } from '../tables.js'
-import { ticketComplete, ticketFail } from '../domain/tickets.js'
+import { ticketResolve } from '../domain/tickets.js'
+import { runVerifiers } from './verify.js'
 import { now } from '../util.js'
 
 import { eq } from 'drizzle-orm'
@@ -259,14 +260,16 @@ async function runAgentSessionViaAi(
 
     const durationMs = Date.now() - startTime
     const summary = summarizeSession(toolCalls, tokensIn, tokensOut, 0, durationMs)
-    ticketComplete(db, ticketData.id, { agentName: agentDef.name, sessionId, notes: summary })
+    // Producer's session ends here. Mark the session done; the runVerifiers
+    // call below either resolves the ticket finished or reopens it.
     database.sessionUpdate(db, sessionId, {
       status: 'done', ended_at: now(), duration_ms: durationMs, finish_reason: finishReason,
     })
+    await runVerifiers(db, config, ticketData, agentDef, { producerSummary: summary })
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     try { backfillExecutionIds(db, sessionId) } catch {}
-    try { ticketFail(db, ticketData.id, { notes: msg, agentName: agentDef.name, sessionId }) } catch {}
+    try { ticketResolve(db, ticketData.id, 'failed', { notes: msg, agentName: agentDef.name, sessionId }) } catch {}
     database.sessionUpdate(db, sessionId, {
       status: 'failed', error: msg, ended_at: now(), duration_ms: Date.now() - startTime,
     })

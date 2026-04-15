@@ -73,16 +73,22 @@ export type NewConnection = typeof connection.$inferInsert
 // TICKETING
 // ════════════════════════════════════════════════════════════════════════════
 
+// State machine:
+//   opened ──claim──▶ claimed ──resolve(outcome)──▶ resolved[outcome]
+//                                                  └─ reopen ─▶ opened
+// Outcomes: finished | failed | cancelled — stored in `outcome` only when
+// state = resolved. "blocked" is derived: a ticket is dispatchable iff
+// state = opened AND (depends_on IS NULL OR depends_on.outcome = 'finished').
 export const ticket = sqliteTable('ticket', {
   id:          text('id').primaryKey(),
   project_id:  text('project_id').notNull(),
   agent_id:    text('agent_id'),                 // pins a specific agent version
   title:       text('title').notNull(),
   description: text('description').notNull(),
-  status:      text('status').notNull().default('open'),
+  status:      text('status').notNull().default('opened'),
+  outcome:     text('outcome'),                  // finished|failed|cancelled when status=resolved
   priority:    integer('priority').notNull().default(0),
-  parent_id:   text('parent_id'),
-  blocked_by:  text('blocked_by'),
+  depends_on:  text('depends_on'),               // single FK to another ticket (sequencing only)
   claimed_at:  text('claimed_at'),
   created_by:  text('created_by').notNull(),
   created_at:  text('created_at').notNull(),
@@ -128,6 +134,7 @@ export const agent = sqliteTable('agent', {
   temperature:      real('temperature'),
   reasoning_budget: integer('reasoning_budget'),
   tools:            text('tools'),                 // JSON: McpToolSelection
+  verifiers:        text('verifiers'),             // JSON: agent_id[] — agents that review this producer's resolve(finished)
   // Set when a newer version supersedes this row. NULL = current.
   // Enforces immutability at the application layer: agentUpdate inserts a
   // new row (new id) and writes superseded_at on the prior row.

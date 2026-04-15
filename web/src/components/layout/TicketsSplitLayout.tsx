@@ -11,7 +11,9 @@ import { PageShell } from './PageShell.js'
 
 // ── Filter helpers (same logic as old TicketListPage) ──────────────────────
 
-const STATUSES = ['open', 'reopened', 'claimed', 'done', 'failed', 'blocked']
+// State labels — `resolved` is split into outcome chips so the founder can
+// filter "did it ship" vs "did it fail" without expanding two filter rows.
+const STATUSES = ['opened', 'claimed', 'finished', 'failed', 'cancelled']
 const DATE_OPTIONS = ['today', 'yesterday', 'this week', 'this month']
 
 function matchesDateFilter(iso: string, selected: Set<string>): boolean {
@@ -120,7 +122,12 @@ export function TicketsSplitLayout() {
   const uniqueAgentNames = Array.from(new Set(tickets.map(agentName))).sort()
 
   const filtered = sourceTickets.filter(t => {
-    if (statuses.size > 0 && !statuses.has(t.status)) return false
+    // Filter chip → display label. `opened`/`claimed` match the state
+    // directly. `finished`/`failed`/`cancelled` are outcomes of `resolved`.
+    if (statuses.size > 0) {
+      const label = t.status === 'resolved' ? (t.outcome ?? 'resolved') : t.status
+      if (!statuses.has(label)) return false
+    }
     if (agentFilter.size > 0 && !agentFilter.has(agentName(t))) return false
     if (createdFilter.size > 0 && !matchesDateFilter(t.created_at, createdFilter)) return false
     if (claimedFilter.size > 0) {
@@ -167,7 +174,7 @@ export function TicketsSplitLayout() {
               <ListRow
                 title={t.title}
                 subtitle={date}
-                status={t.status}
+                status={t.status === 'resolved' ? (t.outcome ?? 'resolved') : t.status}
                 active={t.id === ticketId}
                 hideChevron={hideChevron}
               />

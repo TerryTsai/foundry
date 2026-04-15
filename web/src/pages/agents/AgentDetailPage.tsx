@@ -12,6 +12,15 @@ import { ToolPicker } from '../../components/form/ToolPicker.js'
 import { useBreadcrumbLabel } from '../../Breadcrumb.js'
 import { fmtDuration, fmtBytes } from '../../lib/format.js'
 
+function formatVerifierCount(raw: string | null): string {
+  if (!raw) return 'none'
+  try {
+    const arr = JSON.parse(raw) as string[]
+    if (!Array.isArray(arr) || arr.length === 0) return 'none'
+    return `${arr.length}`
+  } catch { return 'malformed' }
+}
+
 // Render agent.tools for the infoRows display. Handles both the flat legacy
 // shape (string[]) and the nested McpToolSelection shape. Returns 'all' when
 // no selection is stored.
@@ -123,6 +132,7 @@ export function AgentDetailPage() {
         { label: 'connection',  value: connectionName },
         { label: 'model',       value: agent.model },
         { label: 'tools',       value: formatTools(agent.tools) },
+        { label: 'verifiers',   value: formatVerifierCount(agent.verifiers) },
         { label: 'temperature', value: agent.temperature !== null ? String(agent.temperature) : 'default' },
         { label: 'reasoning',   value: agent.reasoning_budget !== null ? `${agent.reasoning_budget} tokens` : 'off' },
         { label: 'max steps',   value: String(agent.max_steps) },

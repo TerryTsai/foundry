@@ -50,9 +50,9 @@ export function analytics(db: Db, accountId: string, opts: { days: number; proje
   const tickets = db.get<TicketCountsRow>(sql`
     SELECT
       COUNT(*) AS total_tickets,
-      COALESCE(SUM(CASE WHEN status IN ('open','reopened','claimed','blocked') THEN 1 ELSE 0 END), 0) AS tickets_open,
-      COALESCE(SUM(CASE WHEN status = 'done'   THEN 1 ELSE 0 END), 0) AS tickets_done,
-      COALESCE(SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END), 0) AS tickets_failed
+      COALESCE(SUM(CASE WHEN status IN ('opened','claimed') THEN 1 ELSE 0 END), 0) AS tickets_open,
+      COALESCE(SUM(CASE WHEN status = 'resolved' AND outcome = 'finished' THEN 1 ELSE 0 END), 0) AS tickets_done,
+      COALESCE(SUM(CASE WHEN status = 'resolved' AND outcome = 'failed'   THEN 1 ELSE 0 END), 0) AS tickets_failed
     FROM ticket WHERE project_id IN (${projList})
   `)!
 
@@ -82,7 +82,7 @@ export function analytics(db: Db, accountId: string, opts: { days: number; proje
       COALESCE(sm.tokens_in, 0) AS tokens_in,
       COALESCE(sm.tokens_out, 0) AS tokens_out,
       (SELECT COUNT(*) FROM ticket t WHERE t.project_id IN (${projList}) AND date(t.created_at) = dates.d) AS tickets_created,
-      (SELECT COUNT(*) FROM ticket t WHERE t.project_id IN (${projList}) AND t.status = 'done' AND date(t.updated_at) = dates.d) AS tickets_completed
+      (SELECT COUNT(*) FROM ticket t WHERE t.project_id IN (${projList}) AND t.status = 'resolved' AND t.outcome = 'finished' AND date(t.updated_at) = dates.d) AS tickets_completed
     FROM dates
     LEFT JOIN sd ON sd.day = dates.d
     LEFT JOIN sm ON sm.day = dates.d
@@ -121,8 +121,8 @@ export function analytics(db: Db, accountId: string, opts: { days: number; proje
     SELECT
       tt.tag,
       COUNT(DISTINCT t.id) AS tickets,
-      COUNT(DISTINCT CASE WHEN t.status = 'done'   THEN t.id END) AS tickets_done,
-      COUNT(DISTINCT CASE WHEN t.status = 'failed' THEN t.id END) AS tickets_failed,
+      COUNT(DISTINCT CASE WHEN t.status = 'resolved' AND t.outcome = 'finished' THEN t.id END) AS tickets_done,
+      COUNT(DISTINCT CASE WHEN t.status = 'resolved' AND t.outcome = 'failed' THEN t.id END) AS tickets_failed,
       COUNT(DISTINCT s.id) AS sessions,
       COALESCE(SUM(s.cost_usd), 0) AS cost_usd,
       COALESCE(SUM(m_agg.tokens_in), 0) AS tokens_in,

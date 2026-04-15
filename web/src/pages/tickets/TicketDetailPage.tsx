@@ -175,9 +175,10 @@ export function TicketDetailPage() {
 
   return (
     <DetailShell
-      type="ticket" id={ticket.id} title={ticket.title} status={ticket.status}
+      type="ticket" id={ticket.id} title={ticket.title}
+      status={ticket.status === 'resolved' ? (ticket.outcome ?? 'resolved') : ticket.status}
       subtitle={!editing ? ticket.description : undefined}
-      actions={!editing && ticket.status === 'open' ? (
+      actions={!editing && ticket.status === 'opened' ? (
         <button onClick={() => setEditing(true)}
           className="text-xs text-zinc-400 dark:text-zinc-500 active:text-zinc-900 dark:active:text-zinc-100 shrink-0">
           edit
@@ -217,7 +218,7 @@ export function TicketDetailPage() {
 
       <CommentsSection projectId={projectId} ticketId={ticket.id} comments={comments} onRefresh={refreshComments} />
 
-      {!editing && (ticket.status === 'failed' || ticket.status === 'done') && (
+      {!editing && ticket.status === 'resolved' && (
         <div className="pt-2">
           <ActionButton label="reopen" variant="secondary" onClick={handleReopen} className="w-full" />
         </div>

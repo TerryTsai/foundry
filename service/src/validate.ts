@@ -68,8 +68,8 @@ export const connectionUpdate = z.object({
 export const ticketList = z.object({
   projectId: z.string().optional(),
   agentId:   z.string().optional(),
-  status:    z.string().optional(),
-  parentId:  z.string().optional(),
+  status:    z.enum(['opened', 'claimed', 'resolved']).optional(),
+  outcome:   z.enum(['finished', 'failed', 'cancelled']).optional(),
   tag:       z.string().optional(),
 })
 
@@ -83,10 +83,8 @@ export const ticketCreate = z.object({
   title:       z.string(),
   description: z.string(),
   priority:    z.number().int().default(0),
-  parent_id:   z.string().optional(),
-  blocked_by:  z.string().optional(),
+  depends_on:  z.string().optional(),
   created_by:  z.string(),
-  block:       z.boolean().optional(),
 })
 
 export const ticketUpdate = z.object({
@@ -96,8 +94,10 @@ export const ticketUpdate = z.object({
   priority:    z.number().int().optional(),
 })
 
-export const ticketDone = z.object({ notes: z.string().optional() })
-export const ticketFail = z.object({ notes: z.string().optional() })
+export const ticketResolve = z.object({
+  outcome: z.enum(['finished', 'failed', 'cancelled']),
+  notes:   z.string().optional(),
+})
 
 export const commentCreate = z.object({
   author: z.string(),
@@ -129,6 +129,7 @@ export const agentCreate = z.object({
   temperature:      z.number().min(0).max(2).optional(),
   reasoning_budget: z.number().int().positive().nullable().optional(),
   tools:            toolSelection.optional(),
+  verifiers:        z.array(z.string()).optional(),
 })
 
 // agentUpdate is the "create a new version" shape: the domain layer treats
@@ -143,6 +144,7 @@ export const agentUpdate = z.object({
   temperature:      z.number().min(0).max(2).nullable().optional(),
   reasoning_budget: z.number().int().positive().nullable().optional(),
   tools:            toolSelection.optional(),
+  verifiers:        z.array(z.string()).nullable().optional(),
 })
 
 export const sessionStart   = z.object({ ticket_id: z.string() })

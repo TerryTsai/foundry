@@ -1,4 +1,4 @@
-import { eq, isNull } from 'drizzle-orm'
+import { eq, and, ne } from 'drizzle-orm'
 import type { z } from 'zod'
 
 import { type Db } from '../database.js'
@@ -6,20 +6,22 @@ import * as database from '../database.js'
 import * as schema from '../tables.js'
 import type { Ticket, Tag, Comment } from '../tables.js'
 import { mustExist, assertStatus, pick, now, timestamps } from '../util.js'
+import { conflict } from '../errors.js'
 import * as validate from '../validate.js'
 
-export interface TicketChainEntry {
+export type Outcome = 'finished' | 'failed' | 'cancelled'
+
+export interface DependencyChainEntry {
   id: string; title: string; description: string
-  agent_id: string | null; status: string
+  agent_id: string | null; status: string; outcome: string | null
 }
 
 export function ticketList(db: Db, filters: z.infer<typeof validate.ticketList>): Ticket[] {
   const conditions = [
     filters.projectId ? eq(schema.ticket.project_id, filters.projectId) : null,
-    filters.agentId   ? eq(schema.ticket.agent_id, filters.agentId)     : null,
-    filters.status    ? eq(schema.ticket.status, filters.status)         : null,
-    filters.parentId === 'null' ? isNull(schema.ticket.parent_id)
-      : filters.parentId        ? eq(schema.ticket.parent_id, filters.parentId) : null,
+    filters.agentId   ? eq(schema.ticket.agent_id,   filters.agentId)   : null,
+    filters.status    ? eq(schema.ticket.status,     filters.status)    : null,
+    filters.outcome   ? eq(schema.ticket.outcome,    filters.outcome)   : null,
   ].filter(Boolean) as any[]
   if (filters.tag) return database.ticketsByTag(db, filters.tag, conditions)
   return database.ticketAll(db, conditions)
@@ -30,27 +32,21 @@ export function ticketGet(db: Db, id: string): Ticket {
 }
 
 export function ticketCreate(db: Db, input: z.infer<typeof validate.ticketCreate>): Ticket {
-  const { project_id, agent_id, title, description, priority, parent_id, blocked_by, created_by, block } = input
-  if (parent_id)  mustExist(database.ticketGet(db, parent_id), 'parent_id not found')
-  if (blocked_by) mustExist(database.ticketGet(db, blocked_by), 'blocked_by ticket not found')
-
-  return db.transaction(tx => {
-    const row = database.ticketInsert(tx as any, {
-      project_id, agent_id: agent_id ?? null, title, description, priority,
-      status: blocked_by ? 'blocked' : 'open',
-      parent_id: parent_id ?? null,
-      blocked_by: blocked_by ?? null,
-      created_by, ...timestamps(), claimed_at: null,
-    })
-    if (block && parent_id && database.ticketGet(tx as any, parent_id)?.status === 'claimed') {
-      database.ticketUpdate(tx as any, parent_id, { status: 'blocked', updated_at: now() })
-    }
-    return row
-  }) as Ticket
+  const { project_id, agent_id, title, description, priority, depends_on, created_by } = input
+  if (depends_on) mustExist(database.ticketGet(db, depends_on), 'depends_on ticket not found')
+  return database.ticketInsert(db, {
+    project_id,
+    agent_id:    agent_id ?? null,
+    title, description, priority,
+    status:      'opened',
+    outcome:     null,
+    depends_on:  depends_on ?? null,
+    created_by, ...timestamps(), claimed_at: null,
+  })
 }
 
 export function ticketUpdate(db: Db, id: string, input: z.infer<typeof validate.ticketUpdate>): Ticket {
-  assertStatus(mustExist(database.ticketGet(db, id)), 'open', 'ticket can only be edited while open')
+  assertStatus(mustExist(database.ticketGet(db, id)), 'opened', 'ticket can only be edited while opened')
   return database.ticketUpdate(db, id, { ...pick(input, 'title', 'body', 'agent_id', 'priority'), updated_at: now() })
 }
 
@@ -62,44 +58,35 @@ export function ticketClaim(db: Db, id: string): Ticket | null {
   return mustExist(database.ticketGet(db, id))
 }
 
-export function ticketComplete(db: Db, id: string, opts?: { notes?: string; agentName?: string; sessionId?: string }): Ticket {
-  return db.transaction(tx => {
-    const d = tx as any
-    const row = assertStatus(mustExist(database.ticketGet(d, id)), 'claimed')
-    database.ticketUpdate(d, id, { status: 'done', updated_at: now() })
-    const author = opts?.agentName ?? 'system'
-    const body = opts?.notes ? `Session completed\n${opts.notes}` : 'Session completed'
-    database.commentInsert(d, { ticket_id: id, session_id: opts?.sessionId ?? null, author, body, created_at: now() })
-    // Unblock parent ticket if it was blocked by a child (legacy pattern).
-    if (row.parent_id && database.ticketGet(d, row.parent_id)?.status === 'blocked') {
-      database.ticketUpdate(d, row.parent_id, { status: 'open', updated_at: now() })
-    }
-    // Unblock any tickets that were waiting on this one via blocked_by.
-    const dependents = database.ticketAll(d, [eq(schema.ticket.blocked_by, id)])
-    for (const dep of dependents) {
-      if (dep.status === 'blocked') {
-        database.ticketUpdate(d, dep.id, { status: 'open', updated_at: now() })
-      }
-    }
-    return mustExist(database.ticketGet(d, id))
-  }) as Ticket
-}
-
-export function ticketFail(db: Db, id: string, opts?: { notes?: string; agentName?: string; sessionId?: string }): Ticket {
+// Resolve a claimed ticket with one of three outcomes.
+//   finished  — work succeeded; verifier dance (if any) decides terminal vs reopen
+//   failed    — work hit a wall the producer can't get past
+//   cancelled — work deliberately abandoned (founder action, not agent self-call)
+//
+// The runner is responsible for orchestrating the verifier dance after a
+// resolve(finished) when the producer's agent has verifiers. This function
+// just commits the state transition + comment.
+export function ticketResolve(
+  db: Db, id: string, outcome: Outcome,
+  opts?: { notes?: string; agentName?: string; sessionId?: string },
+): Ticket {
   assertStatus(mustExist(database.ticketGet(db, id)), 'claimed')
-  const row = database.ticketUpdate(db, id, { status: 'failed', updated_at: now() })
   const author = opts?.agentName ?? 'system'
-  const body = opts?.notes ? `Session failed\n${opts.notes}` : 'Session failed'
+  const label  = outcome === 'finished' ? 'Session finished' : outcome === 'failed' ? 'Session failed' : 'Session cancelled'
+  const body   = opts?.notes ? `${label}\n${opts.notes}` : label
+  const row = database.ticketUpdate(db, id, { status: 'resolved', outcome, updated_at: now() })
   database.commentInsert(db, { ticket_id: id, session_id: opts?.sessionId ?? null, author, body, created_at: now() })
   return row
 }
 
 export function ticketReopen(db: Db, id: string): Ticket {
-  assertStatus(mustExist(database.ticketGet(db, id)), ['done', 'failed'], 'only done or failed tickets can be reopened')
-  return database.ticketUpdate(db, id, { status: 'reopened', claimed_at: null, updated_at: now() })
+  const t = mustExist(database.ticketGet(db, id))
+  if (t.status !== 'resolved') throw conflict('only resolved tickets can be reopened')
+  return database.ticketUpdate(db, id, { status: 'opened', outcome: null, claimed_at: null, updated_at: now() })
 }
 
-export function ticketChain(db: Db, id: string): TicketChainEntry[] {
+// Walk the dependency chain (was: parent chain). Follows depends_on backwards.
+export function ticketDependencyChain(db: Db, id: string): DependencyChainEntry[] {
   const chain: Ticket[] = []
   let current: Ticket | undefined = mustExist(database.ticketGet(db, id))
   const visited = new Set<string>()
@@ -107,12 +94,12 @@ export function ticketChain(db: Db, id: string): TicketChainEntry[] {
     if (visited.has(current.id)) break
     visited.add(current.id)
     chain.unshift(current)
-    if (!current.parent_id) break
-    current = database.ticketGet(db, current.parent_id)
+    if (!current.depends_on) break
+    current = database.ticketGet(db, current.depends_on)
   }
   return chain.map(t => ({
     id: t.id, title: t.title, description: t.description,
-    agent_id: t.agent_id, status: t.status,
+    agent_id: t.agent_id, status: t.status, outcome: t.outcome,
   }))
 }
 
@@ -120,7 +107,7 @@ export function ticketChain(db: Db, id: string): TicketChainEntry[] {
 // current session. Feedback section is marked authoritative since human
 // follow-ups frequently override the original ticket body.
 export function ticketPriorHistory(db: Db, ticketId: string, sessionId: string, agentName: string): string {
-  const NOISE = new Set(['Session started', 'Session started (SDK)', 'Session completed'])
+  const NOISE = new Set(['Session started', 'Session started (SDK)', 'Session finished', 'Session failed', 'Session cancelled'])
   const comments = database.commentByTicket(db, ticketId)
     .filter(c => c.session_id !== sessionId && !NOISE.has(c.body))
   if (comments.length === 0) return ''
@@ -174,3 +161,7 @@ export function tagAdd(db: Db, ticketId: string, tag: string): Tag {
 export function tagRemove(db: Db, ticketId: string, tag: string): void {
   database.ticketTagRemove(db, ticketId, tag)
 }
+
+// Suppress unused-import complaints during the migration; `and` and `ne`
+// are used by callers (scheduler) via re-export of drizzle ops elsewhere.
+void and; void ne

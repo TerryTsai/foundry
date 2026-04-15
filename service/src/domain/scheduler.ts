@@ -12,19 +12,20 @@ export async function schedulerDispatch(db: Db, projectId: string): Promise<void
   const proj = database.projectGet(db, projectId)
   if (!proj || proj.status !== 'active') return
 
-  const open     = ticketList(db, { projectId, status: 'open' })
-  const reopened = ticketList(db, { projectId, status: 'reopened' })
-  const claimed  = ticketList(db, { projectId, status: 'claimed' })
-  const agents   = agentList(db, { accountId: proj.owner_id })
+  const opened  = ticketList(db, { projectId, status: 'opened' })
+  const claimed = ticketList(db, { projectId, status: 'claimed' })
+  const agents  = agentList(db, { accountId: proj.owner_id })
 
   if (claimed.length >= proj.max_agents) return
 
-  const eligible = [...open, ...reopened].filter(t => {
+  const eligible = opened.filter(t => {
     if (!t.agent_id || !agents.find(a => a.id === t.agent_id)) return false
-    // Dependency gate: skip tickets whose blocker hasn't completed yet.
-    if (t.blocked_by) {
-      const blocker = database.ticketGet(db, t.blocked_by)
-      if (!blocker || blocker.status !== 'done') return false
+    // Dependency gate: skip tickets whose dependency hasn't finished yet.
+    // "Blocked" is derived — not stored. A pending ticket with an unmet
+    // dependency just isn't dispatchable.
+    if (t.depends_on) {
+      const dep = database.ticketGet(db, t.depends_on)
+      if (!dep || dep.status !== 'resolved' || dep.outcome !== 'finished') return false
     }
     return true
   })
@@ -50,10 +51,8 @@ export async function schedulerDispatch(db: Db, projectId: string): Promise<void
 
 export async function schedulerRecover(db: Db): Promise<void> {
   // Stale claimed tickets (orphaned by a server restart or crashed session)
-  // get released back to 'open'. Any 'running' session rows attached to
-  // those stale tickets are failed — otherwise we'd end up with ghost
-  // running sessions whose processes died long ago, plus a fresh dispatch
-  // spawning a real session alongside them. 5-minute fixed cutoff.
+  // get released back to opened. Any 'running' session rows attached to
+  // those stale tickets are failed. 5-minute fixed cutoff.
   const cutoff = new Date(Date.now() - 5 * 60 * 1000).toISOString()
   for (const proj of database.projectAll(db)) {
     for (const t of ticketList(db, { projectId: proj.id, status: 'claimed' })) {
@@ -68,7 +67,7 @@ export async function schedulerRecover(db: Db): Promise<void> {
             error: 'recovered: ticket stale, session presumed dead',
           })
         }
-        database.ticketUpdate(db, t.id, { status: 'open', claimed_at: null, updated_at: now() })
+        database.ticketUpdate(db, t.id, { status: 'opened', claimed_at: null, updated_at: now() })
       }
     }
   }
@@ -102,7 +101,7 @@ export function shutdownDrain(db: Db): void {
     })
     const t = database.ticketGet(db, s.ticket_id)
     if (t?.status === 'claimed') {
-      database.ticketUpdate(db, t.id, { status: 'open', claimed_at: null, updated_at: now() })
+      database.ticketUpdate(db, t.id, { status: 'opened', claimed_at: null, updated_at: now() })
     }
   }
   if (running.length) console.log(`drained ${running.length} running session(s)`)

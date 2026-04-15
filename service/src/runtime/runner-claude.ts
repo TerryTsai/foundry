@@ -11,7 +11,8 @@ import type { Config } from '../config.js'
 import type { Connection } from '../tables.js'
 import * as schema from '../tables.js'
 import { type Ticket, type Agent as AgentDef } from '../tables.js'
-import { ticketComplete, ticketFail } from '../domain/tickets.js'
+import { ticketResolve } from '../domain/tickets.js'
+import { runVerifiers } from './verify.js'
 import { now, mustExist } from '../util.js'
 
 import { workspaceEmpty, workspaceDestroy } from '../mcp/github.js'
@@ -425,13 +426,13 @@ export async function runAgentSessionViaClaude(
 
     const durationMs = Date.now() - startTime
     const summary = summarizeSession(toolCallTotal, inputTokens, outputTokens, costUsd, durationMs)
-    ticketComplete(db, ticketData.id, { agentName: agentDef.name, sessionId, notes: summary })
     database.sessionUpdate(db, sessionId, {
       status:        'done',
       ended_at:      now(),
       duration_ms:   durationMs,
       finish_reason: stopReason ?? `sdk:${numTurns}-turns`,
     })
+    await runVerifiers(db, config, ticketData, agentDef, { producerSummary: summary })
 
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
@@ -446,7 +447,7 @@ export async function runAgentSessionViaClaude(
     } catch {}
     const failSummary = summarizeSession(toolCallTotal, inputTokens, outputTokens, costUsd, Date.now() - startTime)
     const failNotes   = failSummary ? `${msg}\n\n${failSummary}` : msg
-    try { ticketFail(db, ticketData.id, { notes: failNotes, agentName: agentDef.name, sessionId }) } catch {}
+    try { ticketResolve(db, ticketData.id, 'failed', { notes: failNotes, agentName: agentDef.name, sessionId }) } catch {}
     database.sessionUpdate(db, sessionId, {
       status:      'failed',
       error:       msg,

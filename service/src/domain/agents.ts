@@ -46,7 +46,7 @@ export function agentGet(db: Db, id: string): Agent {
 }
 
 export function agentCreate(db: Db, accountId: string, input: z.infer<typeof validate.agentCreate>): Agent {
-  const { connection_id, name, model, description, max_tokens, max_steps, temperature, reasoning_budget, tools } = input
+  const { connection_id, name, model, description, max_tokens, max_steps, temperature, reasoning_budget, tools, verifiers } = input
   mustExist(database.connectionGet(db, connection_id), `connection '${connection_id}' not found`)
   const current = database.agentAll(db, [
     eq(schema.agent.account_id, accountId),
@@ -59,7 +59,8 @@ export function agentCreate(db: Db, accountId: string, input: z.infer<typeof val
     max_tokens: max_tokens ?? 8192, max_steps: max_steps ?? 20,
     temperature: temperature ?? null,
     reasoning_budget: reasoning_budget ?? null,
-    tools: tools ? JSON.stringify(tools) : null,
+    tools:     tools     ? JSON.stringify(tools)     : null,
+    verifiers: verifiers ? JSON.stringify(verifiers) : null,
     superseded_at: null,
     created_at:   now(),
   })
@@ -91,6 +92,9 @@ export function agentUpdate(db: Db, accountId: string, id: string, input: z.infe
       tools:            input.tools !== undefined
                           ? JSON.stringify(input.tools)
                           : prior.tools,
+      verifiers:        input.verifiers !== undefined
+                          ? (input.verifiers ? JSON.stringify(input.verifiers) : null)
+                          : prior.verifiers,
       superseded_at:    null,
       created_at:       t,
     })

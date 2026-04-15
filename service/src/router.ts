@@ -7,7 +7,7 @@ import { analytics } from './domain/analytics.js'
 import { connectionList, connectionGet, connectionCreate, connectionUpdate, connectionRemove } from './domain/connections.js'
 import {
   ticketList, ticketGet, ticketCreate, ticketUpdate,
-  ticketClaim, ticketComplete, ticketFail, ticketReopen, ticketChain,
+  ticketClaim, ticketResolve, ticketReopen, ticketDependencyChain,
   commentList, commentCreate, tagList, tagAdd, tagRemove,
 } from './domain/tickets.js'
 import { agentMcpList, agentList, agentGet, agentCreate, agentUpdate, agentRemove } from './domain/agents.js'
@@ -145,10 +145,9 @@ export function ticketRoutes(db: Db) {
   r.get   ('/:id',                                              run(req => ticketGet(db, req.params.id)),                        send())
   r.put   ('/:id',         parse(validate.ticketUpdate),        run(req => ticketUpdate(db, req.params.id, req.data)),           send())
   r.post  ('/:id/claim',                                        run(req => ticketClaim(db, req.params.id)),                      send())
-  r.post  ('/:id/done',    parse(validate.ticketDone),          run(req => ticketComplete(db, req.params.id, req.data.notes)),   send())
-  r.post  ('/:id/fail',    parse(validate.ticketFail),          run(req => ticketFail(db, req.params.id, req.data.notes)),       send())
+  r.post  ('/:id/resolve', parse(validate.ticketResolve),       run(req => ticketResolve(db, req.params.id, req.data.outcome, { notes: req.data.notes })), send())
   r.post  ('/:id/reopen',                                       run(req => ticketReopen(db, req.params.id)),                     send())
-  r.get   ('/:id/chain',                                        run(req => ticketChain(db, req.params.id)),                      send())
+  r.get   ('/:id/chain',                                        run(req => ticketDependencyChain(db, req.params.id)),            send())
   r.get   ('/:id/comment',                                      run(req => commentList(db, req.params.id)),                      send())
   r.post  ('/:id/comment', parse(validate.commentCreate),       run(req => commentCreate(db, req.params.id, req.data)),          send(201))
   r.get   ('/:id/session',                                      run(req => sessionByTicket(db, req.params.id)),                  send())
