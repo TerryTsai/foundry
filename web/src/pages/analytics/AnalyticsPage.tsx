@@ -282,7 +282,6 @@ function AgentBlocks({ agents, tools }: { agents: AnalyticsAgent[]; tools: Analy
         const old      = !!a.agent_superseded_at
         const myTools  = toolsByAgent.get(a.agent_id) ?? []
         const breadth  = myTools.length
-        const failSum  = myTools.reduce((n, t) => n + t.fail, 0)
         const costPct  = totalCost > 0 ? (a.cost_usd / totalCost) * 100 : 0
         const open     = expanded.has(a.agent_id)
 
@@ -298,8 +297,6 @@ function AgentBlocks({ agents, tools }: { agents: AnalyticsAgent[]; tools: Analy
               <div className="flex items-baseline gap-3 text-xs font-mono shrink-0 tabular-nums">
                 <span className="text-zinc-200">{fmtCost(a.cost_usd)}</span>
                 <span className="text-zinc-500">{a.sessions} sess</span>
-                <span className="text-amber-400/80" title="distinct tools used">{breadth} tool{breadth === 1 ? '' : 's'}</span>
-                {failSum > 0 && <span className="text-rose-400" title="failed tool calls">{failSum} fail</span>}
               </div>
             </div>
 
