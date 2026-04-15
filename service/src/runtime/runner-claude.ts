@@ -151,6 +151,18 @@ function resolveSubscriptionToken(db: Db, conn: Connection): string {
 
 type Block = { type: string; id?: string; text?: string; thinking?: string; name?: string; input?: unknown; signature?: string }
 
+// Cooperative cancel check. Same contract as runner-ai's version: poll
+// ticket + session state at message boundaries; break when either has
+// moved off the running/claimed state. Avoids AbortSignal plumbing
+// through the Claude Agent SDK.
+function shouldStop(db: Db, sessionId: string, ticketId: string): boolean {
+  const t = database.ticketGet(db, ticketId)
+  if (!t || t.status !== 'claimed') return true
+  const s = database.sessionGet(db, sessionId)
+  if (!s || s.status !== 'running') return true
+  return false
+}
+
 function mergeBlocks(prior: Block[], incoming: Block[]): Block[] {
   const merged = prior.slice()
   for (const b of incoming) {
@@ -329,6 +341,7 @@ export async function runAgentSessionViaClaude(
     const turnBlocks      = new Map<string, Block[]>()   // turn_id → merged block list
     const turnTokensWritten = new Set<string>()          // turn_ids whose tokens have landed
 
+    let cancelled = false
     for await (const message of query({
       prompt: userPrompt,
       options: {
@@ -341,6 +354,7 @@ export async function runAgentSessionViaClaude(
         model:           agentDef.model,
       },
     })) {
+      if (shouldStop(db, sessionId, ticketData.id)) { cancelled = true; break }
       if (message.type === 'assistant') {
         const turnId = message.message.id
         if (!turnId) continue
@@ -435,6 +449,12 @@ export async function runAgentSessionViaClaude(
     `)
 
     const durationMs = Date.now() - startTime
+    if (cancelled) {
+      database.sessionUpdate(db, sessionId, {
+        status: 'cancelled', ended_at: now(), duration_ms: durationMs, finish_reason: 'cancelled',
+      })
+      return
+    }
     const summary = summarizeSession(toolCallTotal, inputTokens, outputTokens, costUsd, durationMs)
     database.sessionUpdate(db, sessionId, {
       status:        'finished',

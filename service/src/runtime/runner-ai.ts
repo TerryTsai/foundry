@@ -177,6 +177,19 @@ function writeStepActivities(db: Db, sessionId: string, turnId: string, result: 
   return toolCalls
 }
 
+// Cooperative cancel check. Runners poll between steps; when the ticket
+// is no longer claimed (founder cancel, verifier dance reopen) or the
+// session was killed externally, the runner breaks out of its step loop.
+// At most one step of wasted inference per cancel — acceptable given the
+// alternative is plumbing AbortSignal through two different SDKs.
+function shouldStop(db: Db, sessionId: string, ticketId: string): boolean {
+  const t = database.ticketGet(db, ticketId)
+  if (!t || t.status !== 'claimed') return true
+  const s = database.sessionGet(db, sessionId)
+  if (!s || s.status !== 'running') return true
+  return false
+}
+
 function backfillExecutionIds(db: Db, sessionId: string) {
   db.run(sql`
     UPDATE activity
@@ -191,9 +204,9 @@ function backfillExecutionIds(db: Db, sessionId: string) {
 
 async function runLoop(db: Db, args: {
   model: ReturnType<typeof resolveModelWithDefaults>, system: string, tools: ToolSet, agentDef: AgentDef,
-  sessionId: string, initialMessage: string,
+  sessionId: string, ticketId: string, initialMessage: string,
 }): Promise<{ finishReason: string | null; tokensIn: number; tokensOut: number; toolCalls: number }> {
-  const { model, system, tools, agentDef, sessionId, initialMessage } = args
+  const { model, system, tools, agentDef, sessionId, ticketId, initialMessage } = args
   const messages: ModelMessage[] = [{ role: 'user', content: initialMessage }]
   let finishReason: string | null = null
   let tokensIn  = 0
@@ -201,6 +214,7 @@ async function runLoop(db: Db, args: {
   let toolCalls = 0
 
   for (let step = 0; step < agentDef.max_steps; step++) {
+    if (shouldStop(db, sessionId, ticketId)) { finishReason = 'cancelled'; break }
     const result = await generateText({ model, system, messages, tools, stopWhen: stepCountIs(1) })
     // One "turn" per step. ULID gives us a stable key to group that step's
     // activity rows, same role BetaMessage.id plays for the SDK runner.
@@ -263,12 +277,21 @@ async function runAgentSessionViaAi(
     }
     const model = resolveModelWithDefaults(db, agentDef)
     const { finishReason, tokensIn, tokensOut, toolCalls } = await runLoop(db, {
-      model, system: systemPrompt ?? '', tools, agentDef, sessionId, initialMessage: userPrompt,
+      model, system: systemPrompt ?? '', tools, agentDef, sessionId, ticketId: ticketData.id, initialMessage: userPrompt,
     })
 
     backfillExecutionIds(db, sessionId)
 
     const durationMs = Date.now() - startTime
+    // Cancelled mid-flight: ticket is already resolved[cancelled] or the
+    // session was killed. Mark session cancelled and skip the verifier
+    // dance — there's nothing to verify.
+    if (finishReason === 'cancelled') {
+      database.sessionUpdate(db, sessionId, {
+        status: 'cancelled', ended_at: now(), duration_ms: durationMs, finish_reason: 'cancelled',
+      })
+      return
+    }
     const summary = summarizeSession(toolCalls, tokensIn, tokensOut, 0, durationMs)
     // Producer's session ends here. Mark the session done; the runVerifiers
     // call below either resolves the ticket finished or reopens it.
