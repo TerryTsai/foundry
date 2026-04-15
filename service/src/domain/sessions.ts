@@ -15,7 +15,7 @@ export function sessionStatus(db: Db, id: string): { status: string } {
 
 export function sessionKill(db: Db, id: string): { ok: true } {
   assertStatus(mustExist(database.sessionGet(db, id)), 'running', 'session is not running')
-  database.sessionUpdate(db, id, { status: 'failed', error: 'killed', ended_at: now() })
+  database.sessionUpdate(db, id, { status: 'cancelled', error: 'killed', ended_at: now() })
   return { ok: true }
 }
 

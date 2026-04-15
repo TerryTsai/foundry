@@ -427,7 +427,7 @@ export async function runAgentSessionViaClaude(
     const durationMs = Date.now() - startTime
     const summary = summarizeSession(toolCallTotal, inputTokens, outputTokens, costUsd, durationMs)
     database.sessionUpdate(db, sessionId, {
-      status:        'done',
+      status:        'finished',
       ended_at:      now(),
       duration_ms:   durationMs,
       finish_reason: stopReason ?? `sdk:${numTurns}-turns`,

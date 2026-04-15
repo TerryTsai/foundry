@@ -184,7 +184,7 @@ function ActivityEntry({ a, execById, execHref }: {
     <ActivityRow
       icon={iconFor(a, payload)}
       label={labelFor(a, payload)}
-      status="done"
+      status="finished"
       meta={dateShort(a.created_at)}
       sub={sub}
     >

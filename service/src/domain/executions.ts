@@ -94,7 +94,7 @@ export function executionKill(db: Db, id: string): { ok: true } {
   assertStatus(mustExist(database.executionGet(db, id)), 'running', 'execution is not active')
   const handle = activeRuns.get(id)
   if (handle) { handle.kill(); activeRuns.delete(id) }
-  database.executionUpdate(db, id, { status: 'failed', exit_code: -1, ended_at: now() })
+  database.executionUpdate(db, id, { status: 'cancelled', exit_code: -1, ended_at: now() })
   return { ok: true }
 }
 

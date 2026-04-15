@@ -20,7 +20,7 @@ export function onExecutionExit(
   if (code === 0) collectOutputs(ctx.dirs.workspace, ctx.dirs.outputDir, ctx.artifactsOut)
   cleanupDirs(ctx.dirs.inputDir, ctx.dirs.outputDir, ctx.dirs.statsDir)
   database.executionUpdate(db, ctx.executionId, {
-    status:         code === 0 ? 'done' : 'failed',
+    status:         code === 0 ? 'finished' : 'failed',
     exit_code:      code,
     ended_at:       now(),
     duration_ms:    Date.now() - ctx.startTime,

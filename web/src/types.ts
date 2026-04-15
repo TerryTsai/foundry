@@ -212,7 +212,7 @@ export interface Session {
   ticket_id: string
   agent_id: string
   agent_name: string | null
-  status: 'running' | 'done' | 'failed'
+  status: 'running' | 'finished' | 'failed' | 'cancelled'
   model: string                        // derived from agent.model on read
   error: string | null
   tokens_in: number | null
@@ -234,7 +234,7 @@ export interface Execution {
   tool_input: string | null
   tool_use_id: string | null
   command: string
-  status: 'running' | 'done' | 'failed'
+  status: 'running' | 'finished' | 'failed' | 'cancelled'
   exit_code: number | null
   exit_signal: string | null
   stdout: string | null

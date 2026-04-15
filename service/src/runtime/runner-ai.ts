@@ -263,7 +263,7 @@ async function runAgentSessionViaAi(
     // Producer's session ends here. Mark the session done; the runVerifiers
     // call below either resolves the ticket finished or reopens it.
     database.sessionUpdate(db, sessionId, {
-      status: 'done', ended_at: now(), duration_ms: durationMs, finish_reason: finishReason,
+      status: 'finished', ended_at: now(), duration_ms: durationMs, finish_reason: finishReason,
     })
     await runVerifiers(db, config, ticketData, agentDef, { producerSummary: summary })
   } catch (err) {
