@@ -185,66 +185,11 @@ const CAT_TINT: Record<string, string> = {
   other:       'bg-zinc-500/15 text-zinc-300',
 }
 
-// Routers shouldn't touch non-foundry tools; QA shouldn't create tickets.
-// Devs are unconstrained. Returns null when no rule applies.
-function isRouter(name: string): boolean {
-  return name === 'Adviser' || name === 'Product Vision' || name === 'Product Manager'
-}
-function isOutOfRole(agentName: string, toolName: string): boolean {
-  if (isRouter(agentName)) return toolCategory(toolName) !== 'foundry'
-  if (agentName === 'QA Engineer') return toolName === 'ticketCreate'
-  return false
-}
-
-interface Anomaly {
-  agent: string
-  tool: string
-  count: number
-  reason: 'out-of-role' | 'high-fail'
-  detail?: string
-}
-function findAnomalies(tools: AnalyticsTool[]): Anomaly[] {
-  const out: Anomaly[] = []
-  for (const t of tools) {
-    if (isOutOfRole(t.agent_name, t.name)) {
-      out.push({ agent: t.agent_name, tool: t.name, count: t.calls, reason: 'out-of-role', detail: 'out of role' })
-    }
-    // Fail rate: only flag when the sample is meaningful (≥3 calls) and
-    // failure share is ≥20%.
-    if (t.calls >= 3 && t.fail / t.calls >= 0.2) {
-      out.push({
-        agent: t.agent_name, tool: t.name, count: t.calls, reason: 'high-fail',
-        detail: `${Math.round((t.fail / t.calls) * 100)}% fail (${t.fail}/${t.calls})`,
-      })
-    }
-  }
-  return out
-}
-
-function AnomalyCallout({ tools }: { tools: AnalyticsTool[] }) {
-  const alerts = findAnomalies(tools)
-  if (alerts.length === 0) return null
-  return (
-    <div className="rounded border border-amber-500/30 bg-amber-500/5 p-3 space-y-1.5">
-      <div className="flex items-center gap-2 text-xs text-amber-300/90 font-medium">
-        <span>⚠</span><span>{alerts.length} alert{alerts.length === 1 ? '' : 's'}</span>
-      </div>
-      <ul className="space-y-1">
-        {alerts.map((a, i) => (
-          <li key={i} className="flex items-baseline gap-2 text-xs text-zinc-300">
-            <span className="text-zinc-500 shrink-0">{a.agent}</span>
-            <span className="text-zinc-600">→</span>
-            <span className="font-mono text-amber-200/90">{a.tool}</span>
-            <span className="text-zinc-500 ml-auto shrink-0 text-[11px]">{a.detail}</span>
-          </li>
-        ))}
-      </ul>
-    </div>
-  )
-}
-
-// Compact category mix strip. Always 5 segments max; labels always fit.
+// Compact category mix bar. At most 5 segments. Labels live INSIDE the
+// bar — name+percent when wide, percent only when narrow, nothing when
+// too narrow (tap reveals a tooltip). No legend chips below.
 function CategoryStrip({ tools }: { tools: AnalyticsTool[] }) {
+  const [hover, setHover] = useState<string | null>(null)
   const totals: Record<string, number> = { foundry: 0, github: 0, sandbox: 0, browser: 0, integration: 0 }
   for (const t of tools) totals[toolCategory(t.name)] += t.calls
   const sum = Object.values(totals).reduce((s, n) => s + n, 0)
@@ -254,21 +199,40 @@ function CategoryStrip({ tools }: { tools: AnalyticsTool[] }) {
     .map(([k, n]) => ({ cat: k, n, pct: Math.round((n / sum) * 100) }))
     .sort((a, b) => b.n - a.n)
   return (
-    <div>
-      <div className="flex h-2 rounded overflow-hidden bg-zinc-900/40 gap-px">
-        {segments.map(s => (
-          <div key={s.cat} className={CAT_COLOR[s.cat]} style={{ width: `${(s.n / sum) * 100}%` }} />
-        ))}
+    <div className="relative">
+      <div className="flex h-6 rounded overflow-hidden bg-zinc-900/40 gap-px">
+        {segments.map(s => {
+          const w = (s.n / sum) * 100
+          const showName    = w >= 18
+          const showPctOnly = !showName && w >= 9
+          const dim = hover && hover !== s.cat ? 'opacity-40' : ''
+          return (
+            <button
+              key={s.cat}
+              type="button"
+              onMouseEnter={() => setHover(s.cat)}
+              onMouseLeave={() => setHover(null)}
+              onClick={() => setHover(hover === s.cat ? null : s.cat)}
+              className={`${CAT_COLOR[s.cat]} ${dim} flex items-center justify-center text-[10px] text-white/85 font-mono px-1 overflow-hidden whitespace-nowrap leading-none transition-opacity`}
+              style={{ width: `${w}%` }}
+              title={`${s.cat} · ${s.pct}% · ${s.n} call${s.n === 1 ? '' : 's'}`}
+              aria-label={`${s.cat}: ${s.pct}%`}
+            >
+              {showName && <span>{s.cat} <span className="opacity-70">{s.pct}%</span></span>}
+              {showPctOnly && <span>{s.pct}%</span>}
+            </button>
+          )
+        })}
       </div>
-      <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1.5 text-[10px] font-mono">
-        {segments.map(s => (
-          <span key={s.cat} className="flex items-center gap-1">
-            <span className={`inline-block w-2 h-2 rounded-sm ${CAT_COLOR[s.cat]}`} />
-            <span className="text-zinc-400">{s.cat}</span>
-            <span className="text-zinc-500 tabular-nums">{s.pct}%</span>
-          </span>
-        ))}
-      </div>
+      {hover && (() => {
+        const s = segments.find(x => x.cat === hover)
+        if (!s) return null
+        return (
+          <div className="absolute -top-6 left-1/2 -translate-x-1/2 bg-zinc-900/95 border border-zinc-700/60 rounded px-1.5 py-0.5 text-[10px] font-mono text-zinc-100 pointer-events-none whitespace-nowrap">
+            {s.cat} · {s.pct}% · {s.n} call{s.n === 1 ? '' : 's'}
+          </div>
+        )
+      })()}
     </div>
   )
 }
@@ -313,7 +277,6 @@ function AgentBlocks({ agents, tools }: { agents: AnalyticsAgent[]; tools: Analy
 
   return (
     <div className="space-y-4">
-      <AnomalyCallout tools={tools} />
       {sorted.map(a => {
         const label    = labels.get(a.agent_id)
         const old      = !!a.agent_superseded_at
