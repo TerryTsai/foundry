@@ -27,11 +27,18 @@ function parseVerifiers(raw: string | null): string[] {
 }
 
 // Read the verdict a verifier session wrote via the verdictReport tool.
-// Absent → fail-closed so a silent verifier can't accidentally ship.
-function readVerdict(db: Db, sessionId: string, agentName: string): VerdictOutcome {
+// Absent → persist a fail-closed synthetic so the reason survives for the
+// next round's producer prompt. A silent verifier is treated as having
+// failed to review; never as implicit approval.
+function readVerdict(db: Db, ticketId: string, sessionId: string, agentId: string, agentName: string): VerdictOutcome {
   const row = database.verdictBySession(db, sessionId)
-  if (!row) return { agent_name: agentName, pass: false, reason: 'verifier ended without reporting a verdict' }
-  return { agent_name: agentName, pass: row.pass, reason: row.reason }
+  if (row) return { agent_name: agentName, pass: row.pass, reason: row.reason }
+  const reason = 'verifier ended without reporting a verdict'
+  database.verdictInsert(db, {
+    ticket_id: ticketId, session_id: sessionId, agent_id: agentId,
+    pass: false, reason, created_at: now(),
+  })
+  return { agent_name: agentName, pass: false, reason }
 }
 
 export async function runVerifiers(
@@ -83,10 +90,17 @@ export async function runVerifiers(
       await runFn(db, config, sessionId, verifier, ticket)
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
-      verdicts.push({ agent_name: verifier.name, pass: false, reason: `verifier crashed: ${msg}` })
+      // Persist the crash reason as a fail verdict so the next round's
+      // producer sees it in its system prompt, same as any normal fail.
+      const reason = `verifier crashed: ${msg}`
+      database.verdictInsert(db, {
+        ticket_id: ticket.id, session_id: sessionId, agent_id: verifier.id,
+        pass: false, reason, created_at: now(),
+      })
+      verdicts.push({ agent_name: verifier.name, pass: false, reason })
       continue
     }
-    verdicts.push(readVerdict(db, sessionId, verifier.name))
+    verdicts.push(readVerdict(db, ticket.id, sessionId, verifier.id, verifier.name))
   }
 
   const allPass = verdicts.every(v => v.pass)
