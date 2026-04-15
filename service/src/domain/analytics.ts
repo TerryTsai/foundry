@@ -138,7 +138,29 @@ export function analytics(db: Db, accountId: string, opts: { days: number; proje
     ORDER BY tickets DESC
   `)
 
-  return { summary: { ...summary, ...tickets }, daily, agents, tags }
+  // Per-(agent, tool) breakdown — surfaces "wrong agent using wrong tool"
+  // anomalies (e.g. PM calling gitClone, Backend calling ticketReopen).
+  const tools = db.all<ToolRow>(sql`
+    SELECT
+      a.id   AS agent_id,
+      a.name AS agent_name,
+      e.tool_name AS name,
+      COUNT(*) AS calls,
+      COALESCE(SUM(CASE WHEN e.exit_code = 0 THEN 1 ELSE 0 END), 0) AS ok,
+      COALESCE(SUM(CASE WHEN e.exit_code != 0 AND e.exit_code IS NOT NULL THEN 1 ELSE 0 END), 0) AS fail,
+      COALESCE(SUM(e.duration_ms), 0) AS duration_ms
+    FROM execution e
+    JOIN session s ON s.id = e.session_id
+    JOIN ticket  t ON t.id = s.ticket_id
+    JOIN agent   a ON a.id = s.agent_id
+    WHERE t.project_id IN (${projList}) AND date(s.started_at) >= ${cutoff}
+      AND e.tool_name IS NOT NULL
+      ${agentFilter}
+    GROUP BY a.id, e.tool_name
+    ORDER BY a.name, calls DESC
+  `)
+
+  return { summary: { ...summary, ...tickets }, daily, agents, tags, tools }
 }
 
 interface SummaryRow {
@@ -171,6 +193,12 @@ interface TagRow {
   sessions: number; cost_usd: number; tokens_in: number; tokens_out: number; duration_ms: number
 }
 
+interface ToolRow {
+  agent_id: string; agent_name: string
+  name: string
+  calls: number; ok: number; fail: number; duration_ms: number
+}
+
 function emptyAnalytics() {
   return {
     summary: {
@@ -179,6 +207,6 @@ function emptyAnalytics() {
       total_exec_count: 0, total_cpu_ms: 0, total_net_bytes: 0, peak_memory_mb: null,
       total_tickets: 0, tickets_open: 0, tickets_done: 0, tickets_failed: 0,
     },
-    daily: [], agents: [], tags: [],
+    daily: [], agents: [], tags: [], tools: [],
   }
 }

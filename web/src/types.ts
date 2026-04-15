@@ -126,11 +126,22 @@ export interface AnalyticsTag {
   duration_ms: number
 }
 
+export interface AnalyticsTool {
+  agent_id: string
+  agent_name: string
+  name: string
+  calls: number
+  ok: number
+  fail: number
+  duration_ms: number
+}
+
 export interface Analytics {
   summary: AnalyticsSummary
   daily: AnalyticsDay[]
   agents: AnalyticsAgent[]
   tags: AnalyticsTag[]
+  tools: AnalyticsTool[]
 }
 
 export interface McpToolInfo {

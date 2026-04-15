@@ -1,10 +1,10 @@
-import { useState } from 'react'
+import { useState, Fragment } from 'react'
 import { useLoaderData } from 'react-router-dom'
 import { PageShell } from '../../components/layout/PageShell.js'
 import { AppHeader } from '../../components/layout/AppHeader.js'
 import { analyticsApi } from '../../api.js'
-import type { Analytics, AnalyticsDay, AnalyticsAgent, AnalyticsTag, Project, Agent } from '../../types.js'
-import { fmtTokens, fmtDuration, fmtBytes } from '../../lib/format.js'
+import type { Analytics, AnalyticsDay, AnalyticsAgent, AnalyticsTag, AnalyticsTool, Project, Agent } from '../../types.js'
+import { fmtTokens, fmtDuration, fmtBytes, fmtCost } from '../../lib/format.js'
 import { MultiSelect } from '../../components/primitives/MultiSelect.js'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -56,9 +56,10 @@ function SummarySection({ data }: { data: Analytics['summary'] }) {
     <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
       <StatCard label="sessions" value={String(data.total_sessions)} />
       <StatCard label="success rate" value={data.total_sessions === 0 ? '—' : `${successRate}%`} />
+      <StatCard label="cost" value={fmtCost(data.total_cost_usd)} />
+      <StatCard label="duration" value={data.total_duration_ms > 0 ? fmtDuration(data.total_duration_ms) : '—'} />
       <StatCard label="tokens in" value={fmtTokens(data.total_tokens_in)} />
       <StatCard label="tokens out" value={fmtTokens(data.total_tokens_out)} />
-      <StatCard label="duration" value={data.total_duration_ms > 0 ? fmtDuration(data.total_duration_ms) : '—'} />
       <StatCard label="tickets done" value={String(data.tickets_done)} />
       <StatCard label="net i/o" value={data.total_net_bytes > 0 ? fmtBytes(data.total_net_bytes) : '—'} />
     </div>
@@ -145,36 +146,103 @@ function AgentTable({ agents }: { agents: AnalyticsAgent[] }) {
   if (agents.length === 0) return (
     <p className="text-xs text-zinc-600 py-2">no agent data in range</p>
   )
+  // Sort by cost descending — biggest spenders first surfaces routing
+  // problems (e.g. PM doing dev work, a dev burning tokens on a stuck task).
+  const sorted = [...agents].sort((a, b) => b.cost_usd - a.cost_usd)
   return (
     <div className="overflow-x-auto -mx-4 px-4">
-      <table className="w-full text-xs min-w-[540px]">
+      <table className="w-full text-xs min-w-[640px]">
         <thead>
           <tr className="text-zinc-500 border-b border-zinc-800/60">
-            <th className="text-left font-normal pb-2 pr-4">agent</th>
+            <th className="text-left  font-normal pb-2 pr-4">agent</th>
             <th className="text-right font-normal pb-2 pr-4">sessions</th>
-            <th className="text-left font-normal pb-2 pr-4 min-w-[120px]">success</th>
+            <th className="text-left  font-normal pb-2 pr-4 min-w-[100px]">success</th>
+            <th className="text-right font-normal pb-2 pr-4">cost</th>
+            <th className="text-right font-normal pb-2 pr-4">tokens in</th>
+            <th className="text-right font-normal pb-2 pr-4">tokens out</th>
             <th className="text-right font-normal pb-2">avg dur</th>
           </tr>
         </thead>
         <tbody>
-          {agents.map(a => {
-            const rate = pct(a.sessions_done, a.sessions)
-            return (
-              <tr key={a.agent_id} className="border-b border-zinc-800/40 hover:bg-zinc-900/30 transition-colors">
-                <td className="py-2 pr-4 text-zinc-200 font-medium truncate max-w-[150px]">{a.agent_name}</td>
-                <td className="py-2 pr-4 text-right font-mono text-zinc-400">{a.sessions}</td>
-                <td className="py-2 pr-4">
-                  <div className="flex items-center gap-2">
-                    <div className="flex-1 h-1.5 bg-zinc-800 rounded-full overflow-hidden min-w-[60px]">
-                      <div className="h-full bg-emerald-500/70 rounded-full" style={{ width: `${rate}%` }} />
-                    </div>
-                    <span className="font-mono text-zinc-400 w-8 text-right shrink-0">{fmtPct(a.sessions_done, a.sessions)}</span>
+          {sorted.map(a => (
+            <tr key={a.agent_id} className="border-b border-zinc-800/40 hover:bg-zinc-900/30 transition-colors">
+              <td className="py-2 pr-4 text-zinc-200 font-medium truncate max-w-[150px]">{a.agent_name}</td>
+              <td className="py-2 pr-4 text-right font-mono text-zinc-400">{a.sessions}</td>
+              <td className="py-2 pr-4">
+                <div className="flex items-center gap-2">
+                  <div className="flex-1 h-1.5 bg-zinc-800 rounded-full overflow-hidden min-w-[50px]">
+                    <div className="h-full bg-emerald-500/70 rounded-full" style={{ width: `${pct(a.sessions_done, a.sessions)}%` }} />
                   </div>
-                </td>
-                <td className="py-2 text-right font-mono text-zinc-400">{a.avg_duration_ms > 0 ? fmtDuration(a.avg_duration_ms) : '—'}</td>
+                  <span className="font-mono text-zinc-400 w-8 text-right shrink-0">{fmtPct(a.sessions_done, a.sessions)}</span>
+                </div>
+              </td>
+              <td className="py-2 pr-4 text-right font-mono text-zinc-200">{fmtCost(a.cost_usd)}</td>
+              <td className="py-2 pr-4 text-right font-mono text-zinc-400">{fmtTokens(a.tokens_in)}</td>
+              <td className="py-2 pr-4 text-right font-mono text-zinc-400">{fmtTokens(a.tokens_out)}</td>
+              <td className="py-2          text-right font-mono text-zinc-400">{a.avg_duration_ms > 0 ? fmtDuration(a.avg_duration_ms) : '—'}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+// ── Per-agent tool usage (anomaly catcher) ────────────────────────────────────
+// Groups tool calls by agent. Surfaces "wrong agent using wrong tool" issues
+// at a glance — e.g. PM calling gitClone, Backend calling ticketReopen.
+function ToolUsageTable({ tools }: { tools: AnalyticsTool[] }) {
+  if (tools.length === 0) return (
+    <p className="text-xs text-zinc-600 py-2">no tool activity in range</p>
+  )
+  // Group by agent. Backend ordering preserves agent name + per-agent calls desc,
+  // so each section is already in the right shape.
+  const groups: Array<{ agent: string; rows: AnalyticsTool[]; totals: { calls: number; fail: number; ms: number } }> = []
+  for (const t of tools) {
+    let g = groups.find(x => x.agent === t.agent_name)
+    if (!g) { g = { agent: t.agent_name, rows: [], totals: { calls: 0, fail: 0, ms: 0 } }; groups.push(g) }
+    g.rows.push(t)
+    g.totals.calls += t.calls
+    g.totals.fail  += t.fail
+    g.totals.ms    += t.duration_ms
+  }
+  // Spend-order isn't tracked here directly; sort agents by total calls.
+  groups.sort((a, b) => b.totals.calls - a.totals.calls)
+  return (
+    <div className="overflow-x-auto -mx-4 px-4">
+      <table className="w-full text-xs min-w-[520px]">
+        <thead>
+          <tr className="text-zinc-500 border-b border-zinc-800/60">
+            <th className="text-left  font-normal pb-2 pr-4">agent · tool</th>
+            <th className="text-right font-normal pb-2 pr-4">calls</th>
+            <th className="text-right font-normal pb-2 pr-4">ok</th>
+            <th className="text-right font-normal pb-2 pr-4">fail</th>
+            <th className="text-right font-normal pb-2">time</th>
+          </tr>
+        </thead>
+        <tbody>
+          {groups.map(g => (
+            <Fragment key={g.agent}>
+              <tr className="border-b border-zinc-800/60 bg-zinc-900/40">
+                <td className="py-2 pr-4 text-zinc-200 font-medium">{g.agent}</td>
+                <td className="py-2 pr-4 text-right font-mono text-zinc-400">{g.totals.calls}</td>
+                <td className="py-2 pr-4 text-right font-mono text-zinc-600">—</td>
+                <td className={`py-2 pr-4 text-right font-mono ${g.totals.fail > 0 ? 'text-rose-400' : 'text-zinc-600'}`}>{g.totals.fail || '—'}</td>
+                <td className="py-2          text-right font-mono text-zinc-400">{g.totals.ms > 0 ? fmtDuration(g.totals.ms) : '—'}</td>
               </tr>
-            )
-          })}
+              {g.rows.map(t => (
+                <tr key={`${g.agent}-${t.name}`} className="border-b border-zinc-800/30 hover:bg-zinc-900/30 transition-colors">
+                  <td className="py-1.5 pr-4 pl-4">
+                    <span className="font-mono text-sky-400/80">{t.name}</span>
+                  </td>
+                  <td className="py-1.5 pr-4 text-right font-mono text-zinc-400">{t.calls}</td>
+                  <td className="py-1.5 pr-4 text-right font-mono text-zinc-500">{t.ok}</td>
+                  <td className={`py-1.5 pr-4 text-right font-mono ${t.fail > 0 ? 'text-rose-400' : 'text-zinc-700'}`}>{t.fail || '—'}</td>
+                  <td className="py-1.5          text-right font-mono text-zinc-500">{t.duration_ms > 0 ? fmtDuration(t.duration_ms) : '—'}</td>
+                </tr>
+              ))}
+            </Fragment>
+          ))}
         </tbody>
       </table>
     </div>
@@ -185,15 +253,16 @@ function AgentTable({ agents }: { agents: AnalyticsAgent[] }) {
 
 function TagTable({ tags }: { tags: AnalyticsTag[] }) {
   if (tags.length === 0) return null
-  const sorted = [...tags].sort((a, b) => b.sessions - a.sessions)
+  const sorted = [...tags].sort((a, b) => b.cost_usd - a.cost_usd)
   return (
     <div className="overflow-x-auto -mx-4 px-4">
-      <table className="w-full text-xs min-w-[440px]">
+      <table className="w-full text-xs min-w-[520px]">
         <thead>
           <tr className="text-zinc-500 border-b border-zinc-800/60">
-            <th className="text-left font-normal pb-2 pr-4">tag</th>
+            <th className="text-left  font-normal pb-2 pr-4">tag</th>
             <th className="text-right font-normal pb-2 pr-4">tickets</th>
             <th className="text-right font-normal pb-2 pr-4">sessions</th>
+            <th className="text-right font-normal pb-2 pr-4">cost</th>
             <th className="text-right font-normal pb-2">duration</th>
           </tr>
         </thead>
@@ -205,7 +274,8 @@ function TagTable({ tags }: { tags: AnalyticsTag[] }) {
               </td>
               <td className="py-2 pr-4 text-right font-mono text-zinc-400">{t.tickets}</td>
               <td className="py-2 pr-4 text-right font-mono text-zinc-400">{t.sessions}</td>
-              <td className="py-2 text-right font-mono text-zinc-400">{t.duration_ms > 0 ? fmtDuration(t.duration_ms) : '—'}</td>
+              <td className="py-2 pr-4 text-right font-mono text-zinc-200">{fmtCost(t.cost_usd)}</td>
+              <td className="py-2          text-right font-mono text-zinc-400">{t.duration_ms > 0 ? fmtDuration(t.duration_ms) : '—'}</td>
             </tr>
           ))}
         </tbody>
@@ -341,6 +411,12 @@ export function AnalyticsPage() {
         <Section title="agent performance">
           <AgentTable agents={data.agents} />
         </Section>
+
+        {data.tools.length > 0 && (
+          <Section title="tool usage by agent">
+            <ToolUsageTable tools={data.tools} />
+          </Section>
+        )}
 
         {data.tags.length > 0 && (
           <Section title="activity by tag">

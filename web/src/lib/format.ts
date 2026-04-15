@@ -20,6 +20,15 @@ export function fmtDuration(ms: number): string {
   return `${(ms / 3_600_000).toFixed(1)}h`
 }
 
+// USD cost. Sub-cent values get more precision so they don't round to $0.00
+// during low-spend periods (a $0.003 ticket is meaningfully different from $0).
+export function fmtCost(n: number): string {
+  if (n >= 1)    return `$${n.toFixed(2)}`
+  if (n >= 0.01) return `$${n.toFixed(2)}`
+  if (n > 0)     return `$${n.toFixed(4)}`
+  return '—'
+}
+
 export function fmtBytes(n: number): string {
   if (n < 1_024) return `${n} B`
   if (n < 1_048_576) return `${(n / 1_024).toFixed(1)} KB`
