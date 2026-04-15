@@ -183,21 +183,20 @@ async function handleTicketCreate(ctx: FoundryCtx, args: z.infer<typeof ticketCr
   return apiPost(ctx, 'ticketCreate', args, '/ticket', payload)
 }
 
-// Verdict is recorded as an activity row of kind='verdict' on the verifier's
-// own session. The verify dance reads it back to aggregate pass/fail.
+// Verdict is a first-class row keyed by the verifier's session. The verify
+// dance reads it back to aggregate pass/fail; the next producer sees prior
+// verdicts on the ticket in its system prompt (assembled by the runner).
 async function handleVerdictReport(ctx: FoundryCtx, args: z.infer<typeof verdictReportArgs>) {
-  const { activityInsert } = await import('../database.js')
-  activityInsert(ctx.db, {
-    session_id:   ctx.sessionId,
-    turn_id:      null,
-    kind:         'verdict',
-    order_index:  0,
-    payload:      JSON.stringify({ pass: args.pass, reason: args.reason }),
-    tool_use_id:  ctx.toolUseId ?? null,
-    execution_id: null,
-    tokens_in:    null,
-    tokens:       null,
-    created_at:   new Date().toISOString(),
+  const { verdictInsert, sessionGet } = await import('../database.js')
+  const sess = sessionGet(ctx.db, ctx.sessionId)
+  if (!sess) return { ok: false, error: 'session not found' }
+  verdictInsert(ctx.db, {
+    ticket_id:  sess.ticket_id,
+    session_id: ctx.sessionId,
+    agent_id:   sess.agent_id,
+    pass:       args.pass,
+    reason:     args.reason,
+    created_at: new Date().toISOString(),
   })
   return { ok: true, recorded: { pass: args.pass } }
 }

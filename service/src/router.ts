@@ -8,7 +8,7 @@ import { connectionList, connectionGet, connectionCreate, connectionUpdate, conn
 import {
   ticketList, ticketGet, ticketCreate, ticketUpdate,
   ticketClaim, ticketResolve, ticketReopen, ticketDependencyChain,
-  commentList, commentCreate, tagList, tagAdd, tagRemove,
+  commentList, commentCreate, tagList, tagAdd, tagRemove, verdictList,
 } from './domain/tickets.js'
 import { agentMcpList, agentList, agentGet, agentCreate, agentUpdate, agentRemove } from './domain/agents.js'
 import { sessionGet, sessionStatus, sessionKill, sessionActivities, sessionByTicket, sessionListAll, sessionStart } from './domain/sessions.js'
@@ -148,6 +148,7 @@ export function ticketRoutes(db: Db) {
   r.post  ('/:id/resolve', parse(validate.ticketResolve),       run(req => ticketResolve(db, req.params.id, req.data.outcome, { notes: req.data.notes })), send())
   r.post  ('/:id/reopen',                                       run(req => ticketReopen(db, req.params.id)),                     send())
   r.get   ('/:id/chain',                                        run(req => ticketDependencyChain(db, req.params.id)),            send())
+  r.get   ('/:id/verdict',                                      run(req => verdictList(db, req.params.id)),                      send())
   r.get   ('/:id/comment',                                      run(req => commentList(db, req.params.id)),                      send())
   r.post  ('/:id/comment', parse(validate.commentCreate),       run(req => commentCreate(db, req.params.id, req.data)),          send(201))
   r.get   ('/:id/session',                                      run(req => sessionByTicket(db, req.params.id)),                  send())

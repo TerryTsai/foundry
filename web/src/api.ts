@@ -1,4 +1,4 @@
-import type { Account, Connection, Project, Ticket, Comment, Agent, Session, Execution, UsageRollup, Tag, McpServerInfo, McpToolSelection, Analytics, ProviderMetadata } from './types.js'
+import type { Account, Connection, Project, Ticket, Comment, Agent, Session, Execution, UsageRollup, Tag, Verdict, McpServerInfo, McpToolSelection, Analytics, ProviderMetadata } from './types.js'
 
 const cache = new Map<string, { data: unknown; at: number }>()
 const CACHE_TTL = 30_000 // 30 seconds
@@ -118,6 +118,7 @@ export const ticketApi = {
   tags: (ticketId: string) => get<Tag[]>(`/ticket/${ticketId}/tag`),
   addTag: (ticketId: string, tag: string) => post<Tag>(`/ticket/${ticketId}/tag`, { tag }),
   removeTag: (ticketId: string, tag: string) => del<void>(`/ticket/${ticketId}/tag/${encodeURIComponent(tag)}`),
+  verdicts: (ticketId: string) => get<Verdict[]>(`/ticket/${ticketId}/verdict`),
 }
 
 // Comments

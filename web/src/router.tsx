@@ -163,14 +163,15 @@ export const router = createBrowserRouter([
                 index: true,
                 element: <TicketDetailPage />,
                 loader: async ({ params }) => {
-                  const [ticket, agents, comments, usage, tags] = await Promise.all([
+                  const [ticket, agents, comments, usage, tags, verdicts] = await Promise.all([
                     ticketApi.get(params.ticketId!),
                     agentApi.list(),
                     commentApi.list(params.ticketId!),
                     ticketApi.usage(params.ticketId!),
                     ticketApi.tags(params.ticketId!),
+                    ticketApi.verdicts(params.ticketId!),
                   ])
-                  return { ticket, agents, comments, usage, tags }
+                  return { ticket, agents, comments, usage, tags, verdicts }
                 },
               },
               {

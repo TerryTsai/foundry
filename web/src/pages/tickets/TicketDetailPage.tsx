@@ -1,11 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate, useLoaderData, useRevalidator } from 'react-router-dom'
-import { User, Bot, Info } from 'lucide-react'
+import { User, Bot, Info, Check, X } from 'lucide-react'
 import { ticketApi, commentApi, bustCache } from '../../api.js'
 import { ActivityRow } from '../../components/detail/ActivityRow.js'
 import { SectionLabel } from '../../components/detail/SectionLabel.js'
 import { DetailShell } from '../../components/layout/DetailShell.js'
-import type { Ticket, Agent, Comment, UsageRollup, Tag } from '../../types.js'
+import type { Ticket, Agent, Comment, UsageRollup, Tag, Verdict } from '../../types.js'
 import { useShell } from '../../Shell.js'
 import { Field } from '../../components/form/Field.js'
 import { TextArea } from '../../components/form/TextArea.js'
@@ -120,6 +120,36 @@ function CommentsSection({ projectId, ticketId, comments, onRefresh }: { project
   )
 }
 
+// ── Verdicts Section ──
+
+function VerdictsSection({ verdicts, agents }: { verdicts: Verdict[]; agents: Agent[] }) {
+  if (verdicts.length === 0) return null
+  const ts = (s: string) => new Date(s).toLocaleString(undefined, {
+    month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+  })
+  const agentName = (id: string) => agents.find(a => a.id === id)?.name ?? id
+  const passCount = verdicts.filter(v => v.pass).length
+  return (
+    <div>
+      <SectionLabel label={`verdicts (${passCount}/${verdicts.length} pass)`} />
+      <div>
+        {verdicts.map(v => (
+          <ActivityRow
+            key={v.id}
+            icon={v.pass
+              ? <Check size={14} className="text-emerald-500" />
+              : <X size={14} className="text-red-500" />}
+            label={agentName(v.agent_id)}
+            status={v.pass ? 'finished' : 'failed'}
+            meta={ts(v.created_at)}
+            body={v.reason}
+          />
+        ))}
+      </div>
+    </div>
+  )
+}
+
 // ── Loader data shape ──
 
 interface TicketLoaderData {
@@ -128,13 +158,14 @@ interface TicketLoaderData {
   comments: Comment[]
   usage: UsageRollup
   tags: Tag[]
+  verdicts: Verdict[]
 }
 
 // ── Ticket Detail Page ──
 
 export function TicketDetailPage() {
   const { projectId } = useShell()
-  const { ticket, agents, comments: initialComments, usage, tags: initialTags } = useLoaderData() as TicketLoaderData
+  const { ticket, agents, comments: initialComments, usage, tags: initialTags, verdicts } = useLoaderData() as TicketLoaderData
   const { revalidate } = useRevalidator()
   const navigate = useNavigate()
   const [editing, setEditing] = useState(false)
@@ -221,6 +252,8 @@ export function TicketDetailPage() {
       )}
 
       <TagSection ticketId={ticket.id} initialTags={initialTags} />
+
+      <VerdictsSection verdicts={verdicts} agents={agents} />
 
       <CommentsSection projectId={projectId} ticketId={ticket.id} comments={comments} onRefresh={refreshComments} />
 

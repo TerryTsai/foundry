@@ -190,6 +190,16 @@ export interface Comment {
   created_at: string
 }
 
+export interface Verdict {
+  id: string
+  ticket_id: string
+  session_id: string
+  agent_id: string
+  pass: boolean
+  reason: string
+  created_at: string
+}
+
 export interface Agent {
   id: string
   account_id: string

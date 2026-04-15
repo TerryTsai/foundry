@@ -227,3 +227,23 @@ export const execution = sqliteTable('execution', {
 })
 
 export type Execution = typeof execution.$inferSelect
+
+// ════════════════════════════════════════════════════════════════════════════
+// VERDICT — verifier pass/fail reports
+// ════════════════════════════════════════════════════════════════════════════
+// Written by a verifier session via the verdictReport MCP tool. One row per
+// verifier-session; the verifier dance reads these to decide whether to
+// finish a ticket or reopen it. Rounds are recovered by ordering sessions
+// on the ticket by started_at (producer → verifier… → next producer).
+export const verdict = sqliteTable('verdict', {
+  id:         text('id').primaryKey(),
+  ticket_id:  text('ticket_id').notNull().references(() => ticket.id),
+  session_id: text('session_id').notNull().references(() => session.id),
+  agent_id:   text('agent_id').notNull().references(() => agent.id),
+  pass:       integer('pass', { mode: 'boolean' }).notNull(),
+  reason:     text('reason').notNull().default(''),
+  created_at: text('created_at').notNull(),
+})
+
+export type Verdict = typeof verdict.$inferSelect
+export type NewVerdict = typeof verdict.$inferInsert

@@ -3,7 +3,7 @@ import { drizzle } from 'drizzle-orm/better-sqlite3'
 import { eq, and, sql, type SQL } from 'drizzle-orm'
 import { ulid } from 'ulid'
 import * as schema from './tables.js'
-import type { Account, Activity, Agent, AuthSession, Comment, Connection, Execution, Project, Session, Tag, Ticket } from './tables.js'
+import type { Account, Activity, Agent, AuthSession, Comment, Connection, Execution, Project, Session, Tag, Ticket, Verdict } from './tables.js'
 
 export type Db = ReturnType<typeof drizzle<typeof schema>>
 
@@ -47,6 +47,9 @@ export function createDatabase(path: string): Db {
     CREATE INDEX IF NOT EXISTS idx_tag_ticket_id          ON tag(ticket_id);
     CREATE INDEX IF NOT EXISTS idx_tag_name               ON tag(tag);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_tag_unique      ON tag(ticket_id, tag);
+
+    CREATE INDEX IF NOT EXISTS idx_verdict_ticket_id      ON verdict(ticket_id);
+    CREATE INDEX IF NOT EXISTS idx_verdict_session_id     ON verdict(session_id);
   `)
 
   return drizzle(sqlite, { schema })
@@ -468,4 +471,31 @@ export function executionRemove(d: Db, id: string): void {
 
 export function executionBySession(d: Db, sessionId: string): Execution[] {
   return d.select().from(schema.execution).where(eq(schema.execution.session_id, sessionId)).all() as Execution[]
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// VERDICT
+// ════════════════════════════════════════════════════════════════════════════
+
+export function verdictInsert(d: Db, data: {
+  ticket_id: string; session_id: string; agent_id: string
+  pass: boolean; reason: string; created_at: string
+}): Verdict {
+  const id = ulid()
+  d.insert(schema.verdict).values({ ...data, id }).run()
+  return d.select().from(schema.verdict).where(eq(schema.verdict.id, id)).get() as Verdict
+}
+
+export function verdictByTicket(d: Db, ticketId: string): Verdict[] {
+  return d.select().from(schema.verdict)
+    .where(eq(schema.verdict.ticket_id, ticketId))
+    .orderBy(schema.verdict.created_at)
+    .all() as Verdict[]
+}
+
+export function verdictBySession(d: Db, sessionId: string): Verdict | undefined {
+  return d.select().from(schema.verdict)
+    .where(eq(schema.verdict.session_id, sessionId))
+    .orderBy(schema.verdict.created_at)
+    .get() as Verdict | undefined
 }

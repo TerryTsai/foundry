@@ -5,18 +5,15 @@
 // + comments. The ticket's slot stays held throughout (the producer
 // session is done; the verifier sessions hold the slot while running).
 
-import { sql } from 'drizzle-orm'
-
 import { type Db } from '../database.js'
 import * as database from '../database.js'
-import * as schema from '../tables.js'
 import type { Config } from '../config.js'
 import type { Agent as AgentDef, Ticket } from '../tables.js'
 import { now } from '../util.js'
-import { ticketResolve, commentCreate } from '../domain/tickets.js'
+import { ticketResolve } from '../domain/tickets.js'
 import { ulid } from 'ulid'
 
-interface Verdict {
+interface VerdictOutcome {
   agent_name: string
   pass:       boolean
   reason:     string
@@ -30,23 +27,12 @@ function parseVerifiers(raw: string | null): string[] {
   } catch { return [] }
 }
 
-// Read the latest verdict activity for a verifier session. If absent,
-// treat as failure ("verifier didn't return a verdict") — fail-closed.
-function readVerdict(db: Db, sessionId: string, agentName: string): Verdict {
-  const row = db.get<{ payload: string }>(sql`
-    SELECT payload FROM activity
-    WHERE session_id = ${sessionId} AND kind = 'verdict'
-    ORDER BY created_at DESC LIMIT 1
-  `)
-  if (!row) {
-    return { agent_name: agentName, pass: false, reason: 'verifier ended without reporting a verdict' }
-  }
-  try {
-    const p = JSON.parse(row.payload) as { pass?: boolean; reason?: string }
-    return { agent_name: agentName, pass: !!p.pass, reason: p.reason ?? '' }
-  } catch {
-    return { agent_name: agentName, pass: false, reason: 'verdict payload malformed' }
-  }
+// Read the verdict a verifier session wrote via the verdictReport tool.
+// Absent → fail-closed so a silent verifier can't accidentally ship.
+function readVerdict(db: Db, sessionId: string, agentName: string): VerdictOutcome {
+  const row = database.verdictBySession(db, sessionId)
+  if (!row) return { agent_name: agentName, pass: false, reason: 'verifier ended without reporting a verdict' }
+  return { agent_name: agentName, pass: row.pass, reason: row.reason }
 }
 
 export async function runVerifiers(
@@ -62,7 +48,7 @@ export async function runVerifiers(
     return
   }
 
-  const verdicts: Verdict[] = []
+  const verdicts: VerdictOutcome[] = []
   // Sequential within a ticket so the slot doesn't fan out and starve
   // other tickets. Verifier inference is cheap relative to producer work.
   for (const vid of verifierIds) {
@@ -110,20 +96,10 @@ export async function runVerifiers(
     return
   }
 
-  // Any verifier rejected → reopen, leave the producer's agent_id intact,
-  // post each failing verdict as a comment so the producer can see what to fix.
-  for (const v of verdicts) {
-    if (v.pass) continue
-    commentCreate(db, ticket.id, {
-      author: v.agent_name,
-      body:   `[VERIFIER FAIL] ${v.reason}`,
-    })
-  }
-  // Reopen — ticket goes back to opened, scheduler will redispatch.
+  // Any verifier rejected → reopen. Verdicts are already persisted in the
+  // verdict table; the next producer's system prompt pulls them in via
+  // assembleSystemPrompt. No comments written — verdicts are the record.
   database.ticketUpdate(db, ticket.id, {
     status: 'opened', outcome: null, claimed_at: null, updated_at: now(),
   })
 }
-
-// Suppress unused import noise
-void schema

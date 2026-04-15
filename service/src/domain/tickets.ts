@@ -4,7 +4,7 @@ import type { z } from 'zod'
 import { type Db } from '../database.js'
 import * as database from '../database.js'
 import * as schema from '../tables.js'
-import type { Ticket, Tag, Comment } from '../tables.js'
+import type { Ticket, Tag, Comment, Verdict } from '../tables.js'
 import { mustExist, assertStatus, pick, now, timestamps } from '../util.js'
 import { conflict } from '../errors.js'
 import * as validate from '../validate.js'
@@ -137,6 +137,13 @@ export function commentList(db: Db, ticketId: string): Comment[] {
 export function commentCreate(db: Db, ticketId: string, input: { author: string; body: string; session_id?: string }): Comment {
   mustExist(database.ticketGet(db, ticketId))
   return database.commentInsert(db, { ticket_id: ticketId, session_id: input.session_id ?? null, author: input.author, body: input.body, created_at: now() })
+}
+
+// ── Verdicts ──
+
+export function verdictList(db: Db, ticketId: string): Verdict[] {
+  mustExist(database.ticketGet(db, ticketId))
+  return database.verdictByTicket(db, ticketId)
 }
 
 // ── Tags ──
