@@ -1,212 +1,85 @@
-// Unified agent-session runner.
+// Orchestrate a full ticket run: one producer session, then a flat
+// sequence of verifier sessions, then settle the ticket.
 //
-// One entry point drives both SDK paths. The session lifecycle — workspace,
-// system prompt, tool surface, activity lifecycle, session-row updates,
-// cancel handling, verifier dance — lives here. The SDK-specific turn
-// loops (Vercel AI SDK or Claude Agent SDK) are thin modules behind a
-// uniform contract; they emit activity rows into the same shape.
-//
-// Session kinds:
-//   producer  — runs agent, then calls runVerifiers on success
-//   verifier  — runs agent, does NOT call runVerifiers (avoids recursion
-//               when a verifier has no verifiers of its own)
-//
-// The `asVerifier` flag is the only behavioral difference between the two.
+// Reads like sentences: run the producer, run each verifier, settle.
+// No recursion, no asVerifier flag — the difference between a producer
+// and verifier is which middleware stack wraps the agent loop (see
+// session-stacks.ts). This file owns the cross-session glue only.
 
 import { type Db } from '../database.js'
 import * as database from '../database.js'
 import type { Config } from '../config.js'
-import type { Agent as AgentDef, Ticket } from '../tables.js'
-import { ticketResolve } from '../domain/tickets.js'
+import type { Agent as AgentDef, Ticket, Session } from '../tables.js'
 import { now } from '../util.js'
 
-import { workspaceEmpty, workspaceDestroy } from '../mcp/github.js'
+import type { SessionContext, SessionStep } from './compose.js'
+import { producerSession, verifierSession } from './session-stacks.js'
+import { settleTicket, summarizeProducer, readVerdict, type Verdict } from './settle-ticket.js'
 
-// ── Shared helpers ─────────────────────────────────────────────────────────
-
-export interface TurnsResult {
-  finishReason: string | null
-  tokensIn:     number
-  tokensOut:    number
-  toolCalls:    number
-  costUsd:      number
-  cancelled:    boolean
-}
-
-export interface TurnsContext {
-  db:           Db
-  config:       Config
-  sessionId:    string
-  ticketData:   Ticket
-  agentDef:     AgentDef
-  systemPrompt: string
-  userPrompt:   string
-  workDir:      string
-  shouldStop:   () => boolean
-}
-
-// Cooperative cancel: poll ticket + session state at step/message
-// boundaries. Break out when the ticket leaves `claimed` (founder cancel,
-// verifier-dance reopen) or the session leaves `running` (external kill).
-function makeShouldStop(db: Db, sessionId: string, ticketId: string): () => boolean {
-  return () => {
-    const t = database.ticketGet(db, ticketId)
-    if (!t || t.status !== 'claimed') return true
-    const s = database.sessionGet(db, sessionId)
-    if (!s || s.status !== 'running') return true
-    return false
+function openContext(
+  db: Db, config: Config, session: Session, agent: AgentDef, ticket: Ticket,
+): SessionContext {
+  return {
+    db, config, session, agent, ticket,
+    systemPrompt: '',
+    userPrompt:   '',
+    workDir:      '',
+    shouldStop:   () => false,
+    startedAt:    Date.now(),
   }
 }
 
-// Concat every descriptive layer into the agent's system prompt. Stored on
-// session.system_prompt so historical sessions remain reproducible even
-// after the source layers change.
-function assembleSystemPrompt(db: Db, ticket: Ticket, agent: AgentDef): string | undefined {
-  const project = database.projectGet(db, ticket.project_id)
-  const account = project ? database.accountGet(db, project.owner_id) : undefined
-
-  const parts: string[] = []
-  const push = (heading: string, body: string | null | undefined) => {
-    if (body && body.trim()) parts.push(`## ${heading}\n\n${body.trim()}`)
-  }
-  push('Founder',   account?.description)
-  push('Project',   project?.description)
-  push('Your role', agent.description)
-  push('Ticket',    ticket.description)
-
-  const comments = database.commentByTicket(db, ticket.id)
-  if (comments.length > 0) {
-    parts.push('## Comments\n\n' + comments.map(c => `[${c.author}] ${c.body}`).join('\n\n'))
-  }
-
-  const verdicts = database.verdictByTicket(db, ticket.id)
-  if (verdicts.length > 0) {
-    const lines = verdicts.map(v => {
-      const name = database.agentGet(db, v.agent_id)?.name ?? v.agent_id
-      const tag  = v.pass ? 'PASS' : 'FAIL'
-      return `[${name}] ${tag} — ${v.reason}`
-    })
-    parts.push('## Prior verdicts on this ticket\n\n' + lines.join('\n\n') + '\n\nAddress any FAIL reasons above before reporting finished again.')
-  }
-  return parts.length > 0 ? parts.join('\n\n---\n\n') : undefined
+function parseVerifiers(raw: string | null): string[] {
+  if (!raw) return []
+  try {
+    const v = JSON.parse(raw)
+    return Array.isArray(v) ? v.filter(x => typeof x === 'string') : []
+  } catch { return [] }
 }
 
-function triggerPrompt(ticket: Ticket): string {
-  const title = ticket.title.trim() || '(untitled)'
-  return `Begin work on the ticket above: **${title}**. Proceed autonomously.`
-}
-
-function fmtTokensShort(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
-  if (n >= 1_000)     return `${(n / 1_000).toFixed(1)}k`
-  return String(n)
-}
-
-function summarizeSession(r: TurnsResult, durationMs: number): string {
-  const parts: string[] = []
-  if (r.toolCalls > 0)                parts.push(`${r.toolCalls} tool${r.toolCalls === 1 ? '' : 's'}`)
-  if (r.tokensIn + r.tokensOut > 0)   parts.push(`${fmtTokensShort(r.tokensIn)} in · ${fmtTokensShort(r.tokensOut)} out`)
-  if (r.costUsd > 0)                  parts.push(`$${r.costUsd.toFixed(4)}`)
-  if (durationMs > 0)                 parts.push(`${(durationMs / 1000).toFixed(1)}s`)
-  return parts.join(' · ')
-}
-
-// Record the founder's trigger as a 'prompt' activity at session start.
-function writePromptActivity(db: Db, sessionId: string, text: string): void {
-  database.activityInsert(db, {
-    session_id:   sessionId,
-    turn_id:      null,
-    kind:         'prompt',
-    order_index:  0,
-    payload:      JSON.stringify({ text }),
-    tool_use_id:  null,
-    execution_id: null,
-    tokens_in:    null,
-    tokens:       null,
-    created_at:   now(),
-  })
-}
-
-// ── Entry point ───────────────────────────────────────────────────────────
-
-export interface RunOptions {
-  // Verifier sessions must not trigger their own verifier dance — otherwise
-  // a verifier with no verifiers resolves the ticket out from under the
-  // outer producer's dance, and the producer's session gets marked failed.
-  asVerifier?: boolean
+async function runOneSession(
+  stack: SessionStep, db: Db, config: Config,
+  session: Session, agent: AgentDef, ticket: Ticket,
+): Promise<SessionContext> {
+  const ctx = openContext(db, config, session, agent, ticket)
+  await stack(ctx)
+  return ctx
 }
 
 export async function runAgentSession(
-  db: Db, config: Config, sessionId: string, agentDef: AgentDef, ticketData: Ticket,
-  opts: RunOptions = {},
+  db: Db, config: Config, sessionId: string, producer: AgentDef, ticket: Ticket,
 ): Promise<void> {
-  const startTime = Date.now()
-  const workDir   = await workspaceEmpty()
-  const conn      = database.connectionGet(db, agentDef.connection_id)
-  const isSubscription = conn?.kind === 'anthropic-subscription'
+  const producerRow = database.sessionGet(db, sessionId)
+  if (!producerRow) throw new Error(`session ${sessionId} not found`)
 
+  // Producer. If it throws, the ticket has already been resolved 'failed'
+  // by withTicketFailOnCrash; skip verifiers entirely.
+  let producerCtx: SessionContext
   try {
-    const systemPrompt = assembleSystemPrompt(db, ticketData, agentDef) ?? ''
-    if (systemPrompt) database.sessionUpdate(db, sessionId, { system_prompt: systemPrompt })
+    producerCtx = await runOneSession(producerSession, db, config, producerRow, producer, ticket)
+  } catch { return }
 
-    const userPrompt = triggerPrompt(ticketData)
-    writePromptActivity(db, sessionId, userPrompt)
-
-    const turnsCtx: TurnsContext = {
-      db, config, sessionId, ticketData, agentDef,
-      systemPrompt, userPrompt, workDir,
-      shouldStop: makeShouldStop(db, sessionId, ticketData.id),
+  // Verifiers. Run each; on crash, the synthetic-fail-verdict middleware
+  // has already written a fail row, so readVerdict still returns a
+  // verdict. The orchestrator owns the "continue after crash" policy so
+  // one bad verifier doesn't abort the rest of the dance.
+  const verdicts: Verdict[] = []
+  for (const vid of parseVerifiers(producer.verifiers)) {
+    const verifier = database.agentGet(db, vid)
+    if (!verifier) {
+      verdicts.push({ agentName: vid, pass: false, reason: `verifier '${vid}' not found` })
+      continue
     }
-
-    const result = isSubscription
-      ? await (await import('./turns-claude.js')).runTurnsViaClaude(turnsCtx)
-      : await (await import('./turns-ai.js')).runTurnsViaAi(turnsCtx)
-
-    database.backfillActivityExecutionIds(db, sessionId)
-
-    const durationMs = Date.now() - startTime
-
-    if (result.cancelled) {
-      database.sessionUpdate(db, sessionId, {
-        status: 'cancelled', ended_at: now(), duration_ms: durationMs, finish_reason: 'cancelled',
-        cost_usd: result.costUsd,
-      })
-      return
-    }
-
-    database.sessionUpdate(db, sessionId, {
-      status:        'finished',
-      ended_at:      now(),
-      duration_ms:   durationMs,
-      finish_reason: result.finishReason,
-      cost_usd:      result.costUsd,
+    const verifierRow = database.sessionInsert(db, {
+      ticket_id: ticket.id, agent_id: verifier.id,
+      status: 'running', started_at: now(),
     })
-
-    // Only the producer drives the verifier dance. Verifier sessions exit
-    // here — the outer producer's runVerifiers will read their verdict.
-    if (opts.asVerifier) return
-
-    const summary = summarizeSession(result, durationMs)
-    const { runVerifiers } = await import('./verify.js')
-    await runVerifiers(db, config, ticketData, agentDef, { producerSummary: summary })
-
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err)
-    try { database.backfillActivityExecutionIds(db, sessionId) } catch {}
-    // Only the producer owns the ticket's terminal state. Verifier sessions
-    // record their own session.status='failed' but must not flip the
-    // ticket — the outer producer's verify dance handles that via a fail
-    // verdict insert.
-    if (!opts.asVerifier) {
-      try { ticketResolve(db, ticketData.id, 'failed', { notes: msg, agentName: agentDef.name, sessionId }) } catch {}
-    }
-    database.sessionUpdate(db, sessionId, {
-      status:      'failed',
-      error:       msg,
-      ended_at:    now(),
-      duration_ms: Date.now() - startTime,
-    })
-  } finally {
-    await workspaceDestroy(workDir)
+    try { await runOneSession(verifierSession, db, config, verifierRow, verifier, ticket) }
+    catch { /* verdict already synthesized; fall through to readVerdict */ }
+    verdicts.push(readVerdict(db, verifierRow.id, verifier.name))
   }
+
+  const durationMs = Date.now() - producerCtx.startedAt
+  const summary    = producerCtx.result ? summarizeProducer(producerCtx.result, durationMs) : ''
+  settleTicket(db, ticket, producer, verdicts, summary)
 }

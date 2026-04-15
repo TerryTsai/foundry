@@ -17,7 +17,7 @@ import * as schema from '../tables.js'
 import type { Connection } from '../tables.js'
 import { now, mustExist } from '../util.js'
 
-import type { TurnsContext, TurnsResult } from './runner.js'
+import type { TurnsContext, TurnsResult } from './compose.js'
 
 import * as foundryServer from '../mcp/foundry.js'
 import * as githubServer  from '../mcp/github.js'

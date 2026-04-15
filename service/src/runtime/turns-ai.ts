@@ -14,7 +14,7 @@ import type { Connection } from '../tables.js'
 import { now } from '../util.js'
 
 import { resolveModelWithDefaults } from './model.js'
-import type { TurnsContext, TurnsResult } from './runner.js'
+import type { TurnsContext, TurnsResult } from './compose.js'
 
 import * as foundryServer from '../mcp/foundry.js'
 import * as githubServer  from '../mcp/github.js'
