@@ -11,7 +11,6 @@ import type { Config } from '../config.js'
 import type { Agent as AgentDef, Ticket } from '../tables.js'
 import { now } from '../util.js'
 import { ticketResolve } from '../domain/tickets.js'
-import { ulid } from 'ulid'
 
 interface VerdictOutcome {
   agent_name: string
@@ -57,11 +56,16 @@ export async function runVerifiers(
       verdicts.push({ agent_name: vid, pass: false, reason: `verifier '${vid}' not found` })
       continue
     }
-    const sessionId = ulid()
-    database.sessionInsert(db, {
+    // sessionInsert mints the id; must use the returned row's id. Prior
+    // bug: we generated a ulid locally and passed it to the runner, but
+    // sessionInsert ignored our id and used its own, so every write the
+    // runner made (activity, execution, verdict) FK-failed against a
+    // non-existent session row.
+    const sess = database.sessionInsert(db, {
       ticket_id: ticket.id, agent_id: verifier.id,
       status: 'running', started_at: now(),
     })
+    const sessionId = sess.id
     // Defer-import the runner to avoid a circular import (runner imports
     // this module). Routing by connection kind mirrors runner-ai's
     // top-level dispatch.
