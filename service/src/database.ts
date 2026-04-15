@@ -441,6 +441,22 @@ export function activityByTurnOrder(d: Db, sessionId: string, turnId: string, or
     .get() as Activity | undefined
 }
 
+// Wire up activity.execution_id for every tool_call row in a session by
+// matching activity.tool_use_id against execution.tool_use_id. The MCP
+// handler creates the execution row between the runner emitting the
+// tool_call activity and the next stream event, so the correlation is
+// backfilled at session close rather than inline.
+export function backfillActivityExecutionIds(d: Db, sessionId: string): void {
+  d.run(sql`
+    UPDATE activity
+       SET execution_id = (SELECT id FROM execution WHERE execution.tool_use_id = activity.tool_use_id)
+     WHERE session_id = ${sessionId}
+       AND kind = 'tool_call'
+       AND execution_id IS NULL
+       AND tool_use_id IS NOT NULL
+  `)
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // EXECUTION
 // ════════════════════════════════════════════════════════════════════════════
