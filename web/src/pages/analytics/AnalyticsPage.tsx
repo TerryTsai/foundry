@@ -175,65 +175,105 @@ function buildVersionLabels(agents: AnalyticsAgent[]): Map<string, string | null
   return out
 }
 
-// Subtle category-tinted backgrounds for the chip legend.
-const CAT_TINT: Record<string, string> = {
-  foundry:     'bg-sky-500/15 text-sky-200',
-  github:      'bg-emerald-500/15 text-emerald-200',
-  sandbox:     'bg-amber-500/15 text-amber-200',
-  browser:     'bg-violet-500/15 text-violet-200',
-  integration: 'bg-rose-500/15 text-rose-200',
-  other:       'bg-zinc-500/15 text-zinc-300',
+// Squarified treemap layout. Items get rectangles whose AREAS are
+// proportional to value, packed greedily into rows that minimize the
+// worst aspect ratio. Operates in normalized coords; output is in
+// percentages so the consumer renders with `aspect-ratio` containers.
+interface Placed { x: number; y: number; w: number; h: number }
+function squarify<T extends { value: number }>(items: T[], aspect: number): Array<Placed & { item: T }> {
+  const sorted = [...items].sort((a, b) => b.value - a.value)
+  const total = sorted.reduce((s, i) => s + i.value, 0)
+  if (total === 0) return []
+  // Work in coords where w = aspect, h = 1; total area = aspect.
+  const scale = aspect / total
+  const sized = sorted.map(it => ({ item: it, area: it.value * scale }))
+  const out: Array<Placed & { item: T }> = []
+  let x = 0, y = 0, w = aspect, h = 1, i = 0
+  const worst = (row: typeof sized, side: number) => {
+    const sum = row.reduce((s, r) => s + r.area, 0)
+    const sideSq = side * side, sumSq = sum * sum
+    let max = 0
+    for (const r of row) max = Math.max(max, (sideSq * r.area) / sumSq, sumSq / (sideSq * r.area))
+    return max
+  }
+  while (i < sized.length) {
+    const side = Math.min(w, h)
+    const row: typeof sized = []
+    while (i < sized.length) {
+      const next = [...row, sized[i]]
+      if (row.length === 0 || worst(next, side) <= worst(row, side)) { row.push(sized[i]); i++ }
+      else break
+    }
+    const rowSum = row.reduce((s, r) => s + r.area, 0)
+    const depth = rowSum / side
+    const horizontal = w >= h
+    let pos = 0
+    for (const r of row) {
+      const breadth = r.area / depth
+      out.push({
+        item: r.item,
+        x: horizontal ? x : x + pos,
+        y: horizontal ? y + pos : y,
+        w: horizontal ? depth   : breadth,
+        h: horizontal ? breadth : depth,
+      })
+      pos += breadth
+    }
+    if (horizontal) { x += depth; w -= depth } else { y += depth; h -= depth }
+  }
+  // Normalize to percent of container.
+  return out.map(p => ({
+    ...p,
+    x: (p.x / aspect) * 100,
+    y: p.y * 100,
+    w: (p.w / aspect) * 100,
+    h: p.h * 100,
+  }))
 }
 
-function ToolSurface({ tools, calls }: { tools: AnalyticsTool[]; calls: number }) {
+function ToolSurface({ tools }: { tools: AnalyticsTool[] }) {
   const [hover, setHover] = useState<string | null>(null)
+  // Aspect 5:1 reads as a wide strip, leaves rectangles tall enough to
+  // hold a label even for moderate-sized tools.
+  const layout = squarify(tools.map(t => ({ ...t, value: t.calls })), 5)
   return (
-    <div>
-      {/* proportional bar — names live in the chip strip below; this bar is
-          purely visual so widths read at a glance. Tap/hover a segment to
-          highlight its chip; tap a chip to highlight the segment. */}
-      <div className="flex h-5 rounded overflow-hidden bg-zinc-900/40 gap-px">
-        {tools.map(t => {
-          const w = (t.calls / calls) * 100
-          const cls = CAT_COLOR[toolCategory(t.name)]
-          const dim = hover && hover !== t.name ? 'opacity-40' : ''
-          return (
-            <button
-              key={t.name}
-              type="button"
-              onMouseEnter={() => setHover(t.name)}
-              onMouseLeave={() => setHover(null)}
-              onClick={() => setHover(hover === t.name ? null : t.name)}
-              className={`${cls} ${dim} transition-opacity`}
-              style={{ width: `${w}%` }}
-              title={`${t.name}: ${t.calls} call${t.calls === 1 ? '' : 's'}${t.fail > 0 ? ` · ${t.fail} failed` : ''}`}
-              aria-label={`${t.name}: ${t.calls} calls`}
-            />
-          )
-        })}
-      </div>
-
-      {/* chip legend — always visible, scannable, mobile-friendly */}
-      <div className="flex flex-wrap gap-1 mt-1.5">
-        {tools.map(t => {
-          const tint = CAT_TINT[toolCategory(t.name)]
-          const ring = hover === t.name ? 'ring-1 ring-zinc-100/40' : ''
-          return (
-            <button
-              key={t.name}
-              type="button"
-              onMouseEnter={() => setHover(t.name)}
-              onMouseLeave={() => setHover(null)}
-              onClick={() => setHover(hover === t.name ? null : t.name)}
-              className={`${tint} ${ring} text-[10px] font-mono px-1.5 py-0.5 rounded transition-all`}
-            >
-              {t.name}
-              <span className="text-zinc-400 ml-1 tabular-nums">{t.calls}</span>
-              {t.fail > 0 && <span className="text-rose-300 ml-1 tabular-nums">·{t.fail}f</span>}
-            </button>
-          )
-        })}
-      </div>
+    <div className="relative w-full bg-zinc-900/40 rounded overflow-hidden" style={{ aspectRatio: '5 / 1' }}>
+      {layout.map(p => {
+        const t   = p.item
+        const cls = CAT_COLOR[toolCategory(t.name)]
+        const dim = hover && hover !== t.name ? 'opacity-40' : ''
+        const showLabel = p.w >= 12 && p.h >= 25
+        return (
+          <button
+            key={t.name}
+            type="button"
+            onMouseEnter={() => setHover(t.name)}
+            onMouseLeave={() => setHover(null)}
+            onClick={() => setHover(hover === t.name ? null : t.name)}
+            className={`${cls} ${dim} absolute transition-opacity flex items-center justify-start text-[10px] text-white/85 font-mono px-1 overflow-hidden whitespace-nowrap leading-tight`}
+            style={{ left: `${p.x}%`, top: `${p.y}%`, width: `${p.w}%`, height: `${p.h}%` }}
+            title={`${t.name} · ${t.calls} call${t.calls === 1 ? '' : 's'}${t.fail > 0 ? ` · ${t.fail} failed` : ''}`}
+            aria-label={`${t.name}: ${t.calls} calls`}
+          >
+            {showLabel && (
+              <span className="truncate">
+                {t.name}<span className="opacity-60 ml-1">{t.calls}</span>
+              </span>
+            )}
+          </button>
+        )
+      })}
+      {/* tooltip when a small rectangle is hovered */}
+      {hover && (() => {
+        const t = tools.find(x => x.name === hover)
+        if (!t) return null
+        return (
+          <div className="absolute top-1 right-1 bg-zinc-900/95 border border-zinc-700/60 rounded px-1.5 py-0.5 text-[10px] font-mono text-zinc-100 pointer-events-none">
+            {t.name} <span className="text-zinc-400 ml-1">{t.calls}</span>
+            {t.fail > 0 && <span className="text-rose-300 ml-1">·{t.fail}f</span>}
+          </div>
+        )
+      })()}
     </div>
   )
 }
@@ -283,8 +323,8 @@ function AgentBlocks({ agents, tools }: { agents: AnalyticsAgent[]; tools: Analy
               <div className="h-full rounded bg-sky-500/70" style={{ width: `${costPct}%` }} />
             </div>
 
-            {/* tool-use surface — proportional rectangles + chip legend below */}
-            {calls > 0 && <ToolSurface tools={myTools} calls={calls} />}
+            {/* tool-use surface — squarified treemap; rectangle area = call share */}
+            {calls > 0 && <ToolSurface tools={myTools} />}
           </div>
         )
       })}
