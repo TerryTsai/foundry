@@ -9,6 +9,7 @@ import { TextArea } from '../../components/form/TextArea.js'
 import { Select } from '../../components/form/Select.js'
 import { ActionButton } from '../../components/form/ActionButton.js'
 import { ToolPicker } from '../../components/form/ToolPicker.js'
+import { VerifierPicker } from '../../components/form/VerifierPicker.js'
 import { useBreadcrumbLabel } from '../../Breadcrumb.js'
 import { fmtDuration, fmtBytes } from '../../lib/format.js'
 
@@ -77,7 +78,13 @@ export function AgentDetailPage() {
   const [reasoningBudget, setReasoningBudget] = useState(agent.reasoning_budget !== null ? String(agent.reasoning_budget) : '')
   const [servers, setServers] = useState<McpServerInfo[]>([])
   const [toolSelection, setToolSelection] = useState<McpToolSelection | null>(null)
+  const [allAgents, setAllAgents] = useState<Agent[]>([])
+  const [verifiers, setVerifiers] = useState<string[]>(() => {
+    try { const v = agent.verifiers ? JSON.parse(agent.verifiers) : []; return Array.isArray(v) ? v : [] } catch { return [] }
+  })
   const [error, setError] = useState('')
+
+  useEffect(() => { agentApi.list().then(setAllAgents).catch(() => {}) }, [])
 
   // Load servers then normalize stored tools against the real server/tool list
   useEffect(() => {
@@ -102,6 +109,7 @@ export function AgentDetailPage() {
         temperature: temperature ? +temperature : undefined,
         reasoning_budget: reasoningBudget ? +reasoningBudget : null,
         tools,
+        verifiers: verifiers.length > 0 ? verifiers : null,
       })
       setEditing(false)
       navigate('/settings/agents')
@@ -178,6 +186,7 @@ export function AgentDetailPage() {
             <TextInput type="number" value={reasoningBudget} onChange={e => setReasoningBudget(e.target.value)} min="1024" placeholder="off" />
           </Field>
           <ToolPicker servers={servers} selection={toolSelection} onChange={setToolSelection} />
+          <VerifierPicker agents={allAgents.filter(a => a.id !== agent.id)} selected={verifiers} onChange={setVerifiers} />
           <div className="flex gap-2 pt-2">
             <ActionButton label="cancel" variant="secondary" onClick={() => setEditing(false)} className="flex-1" />
             <ActionButton label="save" type="submit" className="flex-1" />

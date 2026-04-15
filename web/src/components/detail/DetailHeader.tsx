@@ -1,16 +1,14 @@
-import { marked } from 'marked'
 import { StatusBadge } from '../StatusBadge.js'
 
 interface DetailHeaderProps {
   type: string
   title: string
-  subtitle?: string
   status?: string
   mono?: boolean
   actions?: React.ReactNode
 }
 
-export function DetailHeader({ type, title, subtitle, status, mono, actions }: DetailHeaderProps) {
+export function DetailHeader({ type, title, status, mono, actions }: DetailHeaderProps) {
   return (
     <div>
       <div className="flex items-center justify-between">
@@ -25,9 +23,6 @@ export function DetailHeader({ type, title, subtitle, status, mono, actions }: D
         </h2>
         {status && <div className="shrink-0"><StatusBadge status={status} /></div>}
       </div>
-      {subtitle && (
-        <div className="prose-zinc text-sm text-zinc-700 dark:text-zinc-400 mt-1 max-w-full overflow-x-auto" dangerouslySetInnerHTML={{ __html: marked.parse(subtitle) as string }} />
-      )}
     </div>
   )
 }

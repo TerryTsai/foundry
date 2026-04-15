@@ -169,6 +169,12 @@ export function TicketDetailPage() {
     navigate(`/p/${projectId}/tickets`)
   }
 
+  async function handleCancel() {
+    if (!confirm('Cancel this ticket?')) return
+    await ticketApi.resolve(ticket.id, 'cancelled')
+    navigate(`/p/${projectId}/tickets`)
+  }
+
   const ts = (s: string) => new Date(s).toLocaleString(undefined, {
     month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
   })
@@ -221,6 +227,12 @@ export function TicketDetailPage() {
       {!editing && ticket.status === 'resolved' && (
         <div className="pt-2">
           <ActionButton label="reopen" variant="secondary" onClick={handleReopen} className="w-full" />
+        </div>
+      )}
+
+      {!editing && ticket.status !== 'resolved' && (
+        <div className="pt-2">
+          <ActionButton label="cancel ticket" variant="destructive" onClick={handleCancel} className="w-full" />
         </div>
       )}
     </DetailShell>

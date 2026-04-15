@@ -148,9 +148,9 @@ export const agentApi = {
   list: () => get<Agent[]>('/agent'),
   get: (id: string) => get<Agent>(`/agent/${id}`),
   mcp: () => get<McpServerInfo[]>('/agent/mcp'),
-  create: (data: { connection_id: string; name: string; model: string; description: string; max_tokens?: number; max_steps?: number; temperature?: number; reasoning_budget?: number | null; tools?: McpToolSelection }) =>
+  create: (data: { connection_id: string; name: string; model: string; description: string; max_tokens?: number; max_steps?: number; temperature?: number; reasoning_budget?: number | null; tools?: McpToolSelection; verifiers?: string[] }) =>
     post<Agent>('/agent', data),
-  update: (id: string, data: { connection_id?: string; model?: string; description?: string; max_tokens?: number; max_steps?: number; temperature?: number; reasoning_budget?: number | null; tools?: McpToolSelection }) =>
+  update: (id: string, data: { connection_id?: string; model?: string; description?: string; max_tokens?: number; max_steps?: number; temperature?: number; reasoning_budget?: number | null; tools?: McpToolSelection; verifiers?: string[] | null }) =>
     put<Agent>(`/agent/${id}`, data),
   delete: (id: string) => del<{ ok: boolean }>(`/agent/${id}`),
   usage: (id: string) => get<UsageRollup>(`/agent/${id}/usage`),

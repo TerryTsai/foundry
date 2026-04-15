@@ -1,13 +1,14 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, useLoaderData } from 'react-router-dom'
 import { agentApi } from '../../api.js'
-import type { Connection, McpServerInfo, McpToolSelection } from '../../types.js'
+import type { Agent, Connection, McpServerInfo, McpToolSelection } from '../../types.js'
 import { Field } from '../../components/form/Field.js'
 import { TextInput } from '../../components/form/TextInput.js'
 import { TextArea } from '../../components/form/TextArea.js'
 import { Select } from '../../components/form/Select.js'
 import { ActionButton } from '../../components/form/ActionButton.js'
 import { ToolPicker } from '../../components/form/ToolPicker.js'
+import { VerifierPicker } from '../../components/form/VerifierPicker.js'
 
 export function AgentNewPage() {
   const navigate = useNavigate()
@@ -22,9 +23,12 @@ export function AgentNewPage() {
   const [reasoningBudget, setReasoningBudget] = useState('')
   const [servers, setServers] = useState<McpServerInfo[]>([])
   const [toolSelection, setToolSelection] = useState<McpToolSelection | null>(null)
+  const [allAgents, setAllAgents] = useState<Agent[]>([])
+  const [verifiers, setVerifiers] = useState<string[]>([])
   const [error, setError] = useState('')
 
   useEffect(() => { agentApi.mcp().then(setServers).catch(() => {}) }, [])
+  useEffect(() => { agentApi.list().then(setAllAgents).catch(() => {}) }, [])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -38,6 +42,7 @@ export function AgentNewPage() {
         temperature: temperature ? +temperature : undefined,
         reasoning_budget: reasoningBudget ? +reasoningBudget : null,
         tools,
+        verifiers: verifiers.length > 0 ? verifiers : undefined,
       })
       navigate('/settings/agents')
     } catch (err) { setError(err instanceof Error ? err.message : 'failed') }
@@ -77,6 +82,7 @@ export function AgentNewPage() {
           <TextInput type="number" value={reasoningBudget} onChange={e => setReasoningBudget(e.target.value)} min="1024" placeholder="off" />
         </Field>
         <ToolPicker servers={servers} selection={toolSelection} onChange={setToolSelection} />
+        <VerifierPicker agents={allAgents} selected={verifiers} onChange={setVerifiers} />
         <Field label="description">
           <TextArea label="description" value={description} onChange={e => setDescription(e.target.value)} required rows={8} />
         </Field>
