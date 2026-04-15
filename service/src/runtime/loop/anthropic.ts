@@ -1,9 +1,9 @@
-// Claude Agent SDK turn loop. Called from runner.ts for connections
-// whose kind is 'anthropic-subscription'. The SDK streams a single
-// BetaMessage across multiple emissions per turn; we merge incoming
-// content blocks per turn and upsert one activity row per block keyed
-// by (session_id, turn_id, order_index). Tokens ride on the first
-// activity of the turn; SUM across activities == modelUsage exactly.
+// Claude Agent SDK loop — the subscription backend. Used for connections
+// of kind 'anthropic-subscription'. The SDK streams a single BetaMessage
+// across multiple emissions per turn; we merge incoming content blocks
+// per turn and upsert one activity row per block keyed by (session_id,
+// turn_id, order_index). Tokens ride on the first activity of the turn;
+// SUM across activities == modelUsage exactly.
 
 import { query } from '@anthropic-ai/claude-agent-sdk'
 import { readFileSync } from 'fs'
@@ -11,19 +11,19 @@ import { join } from 'path'
 import { homedir } from 'os'
 import { eq } from 'drizzle-orm'
 
-import { type Db } from '../database.js'
-import * as database from '../database.js'
-import * as schema from '../tables.js'
-import type { Connection } from '../tables.js'
-import { now, mustExist } from '../util.js'
+import { type Db } from '../../database.js'
+import * as database from '../../database.js'
+import * as schema from '../../tables.js'
+import type { Connection } from '../../tables.js'
+import { now, mustExist } from '../../util.js'
 
-import type { TurnsContext, TurnsResult } from './compose.js'
+import type { SessionContext, LoopResult } from '../compose.js'
 
-import * as foundryServer from '../mcp/foundry.js'
-import * as githubServer  from '../mcp/github.js'
-import * as sandboxServer from '../mcp/sandbox.js'
-import * as browserServer from '../mcp/browser.js'
-import { parseToolSelection, byConnectionKind } from '../mcp/registry.js'
+import * as foundryServer from '../../mcp/foundry.js'
+import * as githubServer  from '../../mcp/github.js'
+import * as sandboxServer from '../../mcp/sandbox.js'
+import * as browserServer from '../../mcp/browser.js'
+import { parseToolSelection, byConnectionKind } from '../../mcp/registry.js'
 
 type Block = { type: string; id?: string; text?: string; thinking?: string; name?: string; input?: unknown; signature?: string }
 
@@ -133,9 +133,12 @@ function upsertActivity(db: Db, params: {
   })
 }
 
-function buildMcpServers(ctx: TurnsContext): Record<string, ReturnType<typeof foundryServer.buildSdk>> {
-  const { db, config, sessionId, workDir, agentDef, ticketData } = ctx
-  const selection = parseToolSelection(agentDef.tools)
+function buildMcpServers(ctx: SessionContext): Record<string, ReturnType<typeof foundryServer.buildSdk>> {
+  const { db, config, workDir } = ctx
+  const sessionId  = ctx.session.id
+  const agentDef   = ctx.agent
+  const ticketData = ctx.ticket
+  const selection  = parseToolSelection(agentDef.tools)
   const mcpServers: Record<string, ReturnType<typeof foundryServer.buildSdk>> = {}
 
   if (selection === null || 'foundry' in selection) {
@@ -172,8 +175,10 @@ function buildMcpServers(ctx: TurnsContext): Record<string, ReturnType<typeof fo
   return mcpServers
 }
 
-export async function runTurnsViaClaude(ctx: TurnsContext): Promise<TurnsResult> {
-  const { db, sessionId, agentDef, systemPrompt, userPrompt, workDir, shouldStop } = ctx
+export async function runAnthropicLoop(ctx: SessionContext): Promise<LoopResult> {
+  const { db, systemPrompt, userPrompt, workDir, shouldStop } = ctx
+  const sessionId  = ctx.session.id
+  const agentDef   = ctx.agent
   const conn       = mustExist(database.connectionGet(db, agentDef.connection_id), 'connection not found')
   const oauthToken = resolveSubscriptionToken(db, conn)
   const mcpServers = buildMcpServers(ctx)

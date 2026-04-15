@@ -2,15 +2,15 @@ import { createAnthropic } from '@ai-sdk/anthropic'
 import { createOpenAI } from '@ai-sdk/openai'
 import { wrapLanguageModel, defaultSettingsMiddleware } from 'ai'
 
-import { type Db } from '../database.js'
-import * as database from '../database.js'
-import type { Agent as AgentDef } from '../tables.js'
-import { mustExist } from '../util.js'
-import { badRequest } from '../errors.js'
+import { type Db } from '../../database.js'
+import * as database from '../../database.js'
+import type { Agent as AgentDef } from '../../tables.js'
+import { mustExist } from '../../util.js'
+import { badRequest } from '../../errors.js'
 
 // Model factory table — one entry per provider kind that can serve as an
 // LLM. The Claude Agent SDK path (kind 'anthropic-subscription') bypasses
-// this entirely; its token is consumed by the subscription runner.
+// this entirely; its token is consumed by the anthropic loop directly.
 
 type ModelFactory = (apiKey: string) => { languageModel: (id: string) => unknown }
 

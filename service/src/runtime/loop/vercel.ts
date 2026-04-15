@@ -1,26 +1,25 @@
-// Vercel AI SDK turn loop. Called from runner.ts for any connection
-// whose kind is NOT 'anthropic-subscription'. One generateText call per
-// step; each step's ContentPart[] is projected into activity rows. Tokens
-// ride on the first activity of the step.
+// Vercel AI SDK loop — the non-subscription backend. One generateText
+// call per step; each step's ContentPart[] is projected into activity
+// rows. Tokens ride on the first activity of the step.
 
 import { generateText, stepCountIs, type ModelMessage, type ToolSet } from 'ai'
 import { eq } from 'drizzle-orm'
 import { ulid } from 'ulid'
 
-import { type Db } from '../database.js'
-import * as database from '../database.js'
-import * as schema from '../tables.js'
-import type { Connection } from '../tables.js'
-import { now } from '../util.js'
+import { type Db } from '../../database.js'
+import * as database from '../../database.js'
+import * as schema from '../../tables.js'
+import type { Connection } from '../../tables.js'
+import { now } from '../../util.js'
 
 import { resolveModelWithDefaults } from './model.js'
-import type { TurnsContext, TurnsResult } from './compose.js'
+import type { SessionContext, LoopResult } from '../compose.js'
 
-import * as foundryServer from '../mcp/foundry.js'
-import * as githubServer  from '../mcp/github.js'
-import * as sandboxServer from '../mcp/sandbox.js'
-import * as browserServer from '../mcp/browser.js'
-import { byConnectionKind } from '../mcp/registry.js'
+import * as foundryServer from '../../mcp/foundry.js'
+import * as githubServer  from '../../mcp/github.js'
+import * as sandboxServer from '../../mcp/sandbox.js'
+import * as browserServer from '../../mcp/browser.js'
+import { byConnectionKind } from '../../mcp/registry.js'
 
 type StepResult = Awaited<ReturnType<typeof generateText<ToolSet>>>
 
@@ -39,8 +38,11 @@ function parseConn(conn: Connection): { secrets: Record<string, string>; connCon
   return { secrets, connConfig }
 }
 
-function buildTools(ctx: TurnsContext): ToolSet {
-  const { db, config, sessionId, workDir, agentDef, ticketData } = ctx
+function buildTools(ctx: SessionContext): ToolSet {
+  const { db, config, workDir } = ctx
+  const sessionId  = ctx.session.id
+  const agentDef   = ctx.agent
+  const ticketData = ctx.ticket
   const tools: ToolSet = {
     ...foundryServer.buildAi({ db, config, sessionId, workspace: workDir, projectId: ticketData.project_id, accountId: agentDef.account_id, ticketId: ticketData.id, agentName: agentDef.name }),
     ...githubServer .buildAi({ db, config, sessionId, workspace: workDir, ticket: ticketData, agentName: agentDef.name }),
@@ -108,10 +110,12 @@ function writeStepActivities(db: Db, sessionId: string, turnId: string, result: 
   return toolCalls
 }
 
-export async function runTurnsViaAi(ctx: TurnsContext): Promise<TurnsResult> {
-  const { db, sessionId, agentDef, systemPrompt, userPrompt, shouldStop } = ctx
-  const model    = resolveModelWithDefaults(db, agentDef)
-  const tools    = buildTools(ctx)
+export async function runVercelLoop(ctx: SessionContext): Promise<LoopResult> {
+  const { db, systemPrompt, userPrompt, shouldStop } = ctx
+  const sessionId = ctx.session.id
+  const agentDef  = ctx.agent
+  const model     = resolveModelWithDefaults(db, agentDef)
+  const tools     = buildTools(ctx)
   const messages: ModelMessage[] = [{ role: 'user', content: userPrompt }]
 
   let finishReason: string | null = null

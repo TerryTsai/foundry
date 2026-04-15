@@ -96,7 +96,7 @@ export async function sessionStart(db: Db, config: Config, agentDefId: string, t
   })
   sessionStartedComment(db, ticketId, agentDef.name, row.id)
 
-  const { runAgentSession } = await import('../runtime/runner.js')
+  const { runAgentSession } = await import('../runtime/ticket-run.js')
   runAgentSession(db, config, row.id, agentDef, t).catch((err: unknown) =>
     console.error(`session ${row.id} crashed:`, err))
 

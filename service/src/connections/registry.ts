@@ -1,5 +1,5 @@
 import type { ConnectionProvider } from './types.js'
-import { modelFactoryByKind } from '../runtime/model.js'
+import { modelFactoryByKind } from '../runtime/loop/model.js'
 import { byConnectionKind } from '../mcp/registry.js'
 
 import { anthropic }             from './anthropic.js'

@@ -15,21 +15,6 @@ export interface LoopResult {
   cancelled:    boolean
 }
 
-// Loop-facing shape — flat fields, consumed by turns-ai.ts / turns-claude.ts.
-// invoke-agent.ts adapts SessionContext to this.
-export interface TurnsContext {
-  db:           Db
-  config:       Config
-  sessionId:    string
-  ticketData:   Ticket
-  agentDef:     AgentDef
-  systemPrompt: string
-  userPrompt:   string
-  workDir:      string
-  shouldStop:   () => boolean
-}
-export type TurnsResult = LoopResult
-
 export interface SessionContext {
   db:           Db
   config:       Config

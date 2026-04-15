@@ -42,7 +42,7 @@ export async function schedulerDispatch(db: Db, projectId: string): Promise<void
     })
     sessionStartedComment(db, t.id, def.name, row.id)
 
-    const { runAgentSession } = await import('../runtime/runner.js')
+    const { runAgentSession } = await import('../runtime/ticket-run.js')
     const { config } = await import('../config.js')
     runAgentSession(db, config, row.id, def, t).catch((err: unknown) =>
       console.error('dispatch session error:', err))
