@@ -32,3 +32,8 @@ export const toInt = (s: string, fallback = 0): number => {
 export const succeeds = async (fn: () => Promise<unknown>): Promise<boolean> => {
   try { await fn(); return true } catch { return false }
 }
+
+export function fmtPercent(n: number): string {
+  if (!Number.isFinite(n) || n < 0 || n > 1) return '—'
+  return `${(n * 100).toFixed(1)}%`
+}
