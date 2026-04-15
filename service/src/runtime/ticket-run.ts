@@ -110,7 +110,7 @@ const runProducer = use(
   withActivityBackfill,
   withTicketFailOnCrash,
   withScratchWorkspace,
-  withSystemPrompt,
+  withSystemPrompt('producer'),
   withOpeningPrompt,
   withCooperativeCancel,
 )(invokeAgent)
@@ -121,7 +121,7 @@ const runVerifier = use(
   withActivityBackfill,
   withSyntheticFailVerdict,
   withScratchWorkspace,
-  withSystemPrompt,
+  withSystemPrompt('verifier'),
   withOpeningPrompt,
   withCooperativeCancel,
 )(invokeAgent)
@@ -135,7 +135,8 @@ export async function runAgentSession(
   if (!producerRow) throw new Error(`session ${sessionId} not found`)
 
   const producerCtx = await runProducer(makeContext(db, config, producerRow, ticket, producer))
-  if (!producerCtx.result) return  // producer crashed; ticket already resolved 'failed'
+  if (!producerCtx.result) return                // producer crashed; ticket already resolved 'failed'
+  if (producerCtx.result.cancelled) return       // founder cancelled; respect the halt
 
   const verdicts: Verdict[] = []
   for (const vid of parseVerifiers(producer.verifiers)) {
@@ -148,7 +149,8 @@ export async function runAgentSession(
       ticket_id: ticket.id, agent_id: verifier.id,
       status: 'running', started_at: now(),
     })
-    await runVerifier(makeContext(db, config, verifierRow, ticket, verifier))
+    const verifierCtx = await runVerifier(makeContext(db, config, verifierRow, ticket, verifier))
+    if (verifierCtx.result?.cancelled) return    // founder cancelled mid-dance; stop
     verdicts.push(readVerdict(db, verifierRow.id, verifier.name))
   }
 

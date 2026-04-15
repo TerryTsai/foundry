@@ -11,8 +11,12 @@ import type { Middleware } from '../compose.js'
 export const withSyntheticFailVerdict: Middleware = (next) => async (ctx) => {
   try { await next(ctx) }
   finally {
-    const existing = database.verdictBySession(ctx.db, ctx.session.id)
-    if (!existing) {
+    // Skip synthesis on cancel: the Claude Agent SDK keeps draining
+    // in-flight MCP tool calls after we break out of the loop, so a real
+    // verdictReport can still land seconds later. Writing a synthetic
+    // fail here would shadow it. A cancelled verifier is inconclusive,
+    // not failed — the orchestrator halts the dance instead.
+    if (!ctx.result?.cancelled && !database.verdictBySession(ctx.db, ctx.session.id)) {
       const reason = ctx.result
         ? 'verifier ended without reporting a verdict'
         : 'verifier crashed before reporting a verdict'
