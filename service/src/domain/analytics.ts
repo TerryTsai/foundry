@@ -92,7 +92,7 @@ export function analytics(db: Db, accountId: string, opts: { days: number; proje
 
   const agents = db.all<AgentRow>(sql`
     SELECT
-      a.id AS agent_id, a.name AS agent_name,
+      MAX(a.id) AS agent_id, a.name AS agent_name,
       COUNT(*) AS sessions,
       COALESCE(SUM(CASE WHEN s.status = 'done'   THEN 1 ELSE 0 END), 0) AS sessions_done,
       COALESCE(SUM(CASE WHEN s.status = 'failed' THEN 1 ELSE 0 END), 0) AS sessions_failed,
@@ -111,7 +111,7 @@ export function analytics(db: Db, accountId: string, opts: { days: number; proje
     ) m_agg ON m_agg.session_id = s.id
     WHERE t.project_id IN (${projList}) AND date(s.started_at) >= ${cutoff}
     ${agentFilter}
-    GROUP BY a.id
+    GROUP BY a.name
     ORDER BY cost_usd DESC
   `)
 
@@ -142,8 +142,8 @@ export function analytics(db: Db, accountId: string, opts: { days: number; proje
   // anomalies (e.g. PM calling gitClone, Backend calling ticketReopen).
   const tools = db.all<ToolRow>(sql`
     SELECT
-      a.id   AS agent_id,
-      a.name AS agent_name,
+      MAX(a.id) AS agent_id,
+      a.name    AS agent_name,
       e.tool_name AS name,
       COUNT(*) AS calls,
       COALESCE(SUM(CASE WHEN e.exit_code = 0 THEN 1 ELSE 0 END), 0) AS ok,
@@ -156,7 +156,7 @@ export function analytics(db: Db, accountId: string, opts: { days: number; proje
     WHERE t.project_id IN (${projList}) AND date(s.started_at) >= ${cutoff}
       AND e.tool_name IS NOT NULL
       ${agentFilter}
-    GROUP BY a.id, e.tool_name
+    GROUP BY a.name, e.tool_name
     ORDER BY a.name, calls DESC
   `)
 
