@@ -175,110 +175,125 @@ function buildVersionLabels(agents: AnalyticsAgent[]): Map<string, string | null
   return out
 }
 
-// Squarified treemap layout. Items get rectangles whose AREAS are
-// proportional to value, packed greedily into rows that minimize the
-// worst aspect ratio. Operates in normalized coords; output is in
-// percentages so the consumer renders with `aspect-ratio` containers.
-interface Placed { x: number; y: number; w: number; h: number }
-function squarify<T extends { value: number }>(items: T[], aspect: number): Array<Placed & { item: T }> {
-  const sorted = [...items].sort((a, b) => b.value - a.value)
-  const total = sorted.reduce((s, i) => s + i.value, 0)
-  if (total === 0) return []
-  // Work in coords where w = aspect, h = 1; total area = aspect.
-  const scale = aspect / total
-  const sized = sorted.map(it => ({ item: it, area: it.value * scale }))
-  const out: Array<Placed & { item: T }> = []
-  let x = 0, y = 0, w = aspect, h = 1, i = 0
-  const worst = (row: typeof sized, side: number) => {
-    const sum = row.reduce((s, r) => s + r.area, 0)
-    const sideSq = side * side, sumSq = sum * sum
-    let max = 0
-    for (const r of row) max = Math.max(max, (sideSq * r.area) / sumSq, sumSq / (sideSq * r.area))
-    return max
-  }
-  while (i < sized.length) {
-    const side = Math.min(w, h)
-    const row: typeof sized = []
-    while (i < sized.length) {
-      const next = [...row, sized[i]]
-      if (row.length === 0 || worst(next, side) <= worst(row, side)) { row.push(sized[i]); i++ }
-      else break
-    }
-    const rowSum = row.reduce((s, r) => s + r.area, 0)
-    const depth = rowSum / side
-    const horizontal = w >= h
-    let pos = 0
-    for (const r of row) {
-      const breadth = r.area / depth
-      out.push({
-        item: r.item,
-        x: horizontal ? x : x + pos,
-        y: horizontal ? y + pos : y,
-        w: horizontal ? depth   : breadth,
-        h: horizontal ? breadth : depth,
-      })
-      pos += breadth
-    }
-    if (horizontal) { x += depth; w -= depth } else { y += depth; h -= depth }
-  }
-  // Normalize to percent of container.
-  return out.map(p => ({
-    ...p,
-    x: (p.x / aspect) * 100,
-    y: p.y * 100,
-    w: (p.w / aspect) * 100,
-    h: p.h * 100,
-  }))
+// Subtle category-tinted backgrounds for the chip details view.
+const CAT_TINT: Record<string, string> = {
+  foundry:     'bg-sky-500/15 text-sky-200',
+  github:      'bg-emerald-500/15 text-emerald-200',
+  sandbox:     'bg-amber-500/15 text-amber-200',
+  browser:     'bg-violet-500/15 text-violet-200',
+  integration: 'bg-rose-500/15 text-rose-200',
+  other:       'bg-zinc-500/15 text-zinc-300',
 }
 
-function ToolSurface({ tools }: { tools: AnalyticsTool[] }) {
-  const [hover, setHover] = useState<string | null>(null)
-  // Aspect 5:1 reads as a wide strip, leaves rectangles tall enough to
-  // hold a label even for moderate-sized tools.
-  const layout = squarify(tools.map(t => ({ ...t, value: t.calls })), 5)
+// Routers shouldn't touch non-foundry tools; QA shouldn't create tickets.
+// Devs are unconstrained. Returns null when no rule applies.
+function isRouter(name: string): boolean {
+  return name === 'Adviser' || name === 'Product Vision' || name === 'Product Manager'
+}
+function isOutOfRole(agentName: string, toolName: string): boolean {
+  if (isRouter(agentName)) return toolCategory(toolName) !== 'foundry'
+  if (agentName === 'QA Engineer') return toolName === 'ticketCreate'
+  return false
+}
+
+interface Anomaly {
+  agent: string
+  tool: string
+  count: number
+  reason: 'out-of-role' | 'high-fail'
+  detail?: string
+}
+function findAnomalies(tools: AnalyticsTool[]): Anomaly[] {
+  const out: Anomaly[] = []
+  for (const t of tools) {
+    if (isOutOfRole(t.agent_name, t.name)) {
+      out.push({ agent: t.agent_name, tool: t.name, count: t.calls, reason: 'out-of-role', detail: 'out of role' })
+    }
+    // Fail rate: only flag when the sample is meaningful (≥3 calls) and
+    // failure share is ≥20%.
+    if (t.calls >= 3 && t.fail / t.calls >= 0.2) {
+      out.push({
+        agent: t.agent_name, tool: t.name, count: t.calls, reason: 'high-fail',
+        detail: `${Math.round((t.fail / t.calls) * 100)}% fail (${t.fail}/${t.calls})`,
+      })
+    }
+  }
+  return out
+}
+
+function AnomalyCallout({ tools }: { tools: AnalyticsTool[] }) {
+  const alerts = findAnomalies(tools)
+  if (alerts.length === 0) return null
   return (
-    <div className="relative w-full bg-zinc-900/40 rounded overflow-hidden" style={{ aspectRatio: '5 / 1' }}>
-      {layout.map(p => {
-        const t   = p.item
-        const cls = CAT_COLOR[toolCategory(t.name)]
-        const dim = hover && hover !== t.name ? 'opacity-40' : ''
-        const showLabel = p.w >= 12 && p.h >= 25
+    <div className="rounded border border-amber-500/30 bg-amber-500/5 p-3 space-y-1.5">
+      <div className="flex items-center gap-2 text-xs text-amber-300/90 font-medium">
+        <span>⚠</span><span>{alerts.length} alert{alerts.length === 1 ? '' : 's'}</span>
+      </div>
+      <ul className="space-y-1">
+        {alerts.map((a, i) => (
+          <li key={i} className="flex items-baseline gap-2 text-xs text-zinc-300">
+            <span className="text-zinc-500 shrink-0">{a.agent}</span>
+            <span className="text-zinc-600">→</span>
+            <span className="font-mono text-amber-200/90">{a.tool}</span>
+            <span className="text-zinc-500 ml-auto shrink-0 text-[11px]">{a.detail}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
+// Compact category mix strip. Always 5 segments max; labels always fit.
+function CategoryStrip({ tools }: { tools: AnalyticsTool[] }) {
+  const totals: Record<string, number> = { foundry: 0, github: 0, sandbox: 0, browser: 0, integration: 0 }
+  for (const t of tools) totals[toolCategory(t.name)] += t.calls
+  const sum = Object.values(totals).reduce((s, n) => s + n, 0)
+  if (sum === 0) return null
+  const segments = (Object.entries(totals) as Array<[keyof typeof CAT_COLOR, number]>)
+    .filter(([, n]) => n > 0)
+    .map(([k, n]) => ({ cat: k, n, pct: Math.round((n / sum) * 100) }))
+    .sort((a, b) => b.n - a.n)
+  return (
+    <div>
+      <div className="flex h-2 rounded overflow-hidden bg-zinc-900/40 gap-px">
+        {segments.map(s => (
+          <div key={s.cat} className={CAT_COLOR[s.cat]} style={{ width: `${(s.n / sum) * 100}%` }} />
+        ))}
+      </div>
+      <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1.5 text-[10px] font-mono">
+        {segments.map(s => (
+          <span key={s.cat} className="flex items-center gap-1">
+            <span className={`inline-block w-2 h-2 rounded-sm ${CAT_COLOR[s.cat]}`} />
+            <span className="text-zinc-400">{s.cat}</span>
+            <span className="text-zinc-500 tabular-nums">{s.pct}%</span>
+          </span>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// Expandable tool detail — sorted chip list, on demand.
+function ToolDetail({ tools }: { tools: AnalyticsTool[] }) {
+  const sorted = [...tools].sort((a, b) => b.calls - a.calls)
+  return (
+    <div className="flex flex-wrap gap-1 mt-2">
+      {sorted.map(t => {
+        const tint = CAT_TINT[toolCategory(t.name)]
         return (
-          <button
-            key={t.name}
-            type="button"
-            onMouseEnter={() => setHover(t.name)}
-            onMouseLeave={() => setHover(null)}
-            onClick={() => setHover(hover === t.name ? null : t.name)}
-            className={`${cls} ${dim} absolute transition-opacity flex items-center justify-start text-[10px] text-white/85 font-mono px-1 overflow-hidden whitespace-nowrap leading-tight`}
-            style={{ left: `${p.x}%`, top: `${p.y}%`, width: `${p.w}%`, height: `${p.h}%` }}
-            title={`${t.name} · ${t.calls} call${t.calls === 1 ? '' : 's'}${t.fail > 0 ? ` · ${t.fail} failed` : ''}`}
-            aria-label={`${t.name}: ${t.calls} calls`}
-          >
-            {showLabel && (
-              <span className="truncate">
-                {t.name}<span className="opacity-60 ml-1">{t.calls}</span>
-              </span>
-            )}
-          </button>
+          <span key={t.name} className={`${tint} text-[10px] font-mono px-1.5 py-0.5 rounded`}>
+            {t.name}
+            <span className="text-zinc-400 ml-1 tabular-nums">{t.calls}</span>
+            {t.fail > 0 && <span className="text-rose-300 ml-1 tabular-nums">·{t.fail}f</span>}
+          </span>
         )
       })}
-      {/* tooltip when a small rectangle is hovered */}
-      {hover && (() => {
-        const t = tools.find(x => x.name === hover)
-        if (!t) return null
-        return (
-          <div className="absolute top-1 right-1 bg-zinc-900/95 border border-zinc-700/60 rounded px-1.5 py-0.5 text-[10px] font-mono text-zinc-100 pointer-events-none">
-            {t.name} <span className="text-zinc-400 ml-1">{t.calls}</span>
-            {t.fail > 0 && <span className="text-rose-300 ml-1">·{t.fail}f</span>}
-          </div>
-        )
-      })()}
     </div>
   )
 }
 
 function AgentBlocks({ agents, tools }: { agents: AnalyticsAgent[]; tools: AnalyticsTool[] }) {
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
   if (agents.length === 0) return (
     <p className="text-xs text-zinc-600 py-2">no agent activity in range</p>
   )
@@ -292,20 +307,26 @@ function AgentBlocks({ agents, tools }: { agents: AnalyticsAgent[]; tools: Analy
     const arr = toolsByAgent.get(t.agent_id) ?? []
     arr.push(t); toolsByAgent.set(t.agent_id, arr)
   }
+  const toggle = (id: string) => setExpanded(prev => {
+    const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n
+  })
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
+      <AnomalyCallout tools={tools} />
       {sorted.map(a => {
-        const label   = labels.get(a.agent_id)
-        const old     = !!a.agent_superseded_at
-        const myTools = toolsByAgent.get(a.agent_id) ?? []
-        const calls   = myTools.reduce((n, t) => n + t.calls, 0)
-        const breadth = myTools.length
-        const costPct = totalCost > 0 ? (a.cost_usd / totalCost) * 100 : 0
+        const label    = labels.get(a.agent_id)
+        const old      = !!a.agent_superseded_at
+        const myTools  = toolsByAgent.get(a.agent_id) ?? []
+        const breadth  = myTools.length
+        const failSum  = myTools.reduce((n, t) => n + t.fail, 0)
+        const costPct  = totalCost > 0 ? (a.cost_usd / totalCost) * 100 : 0
+        const open     = expanded.has(a.agent_id)
 
         return (
           <div key={a.agent_id} className={old ? 'opacity-50' : ''}>
-            <div className="flex items-baseline justify-between gap-2 mb-1.5">
+            {/* identity + headline */}
+            <div className="flex items-baseline justify-between gap-2 mb-1">
               <div className="flex items-baseline gap-2 min-w-0">
                 <span className="text-sm font-medium text-zinc-100 truncate">{a.agent_name}</span>
                 {label && <span className="text-[10px] text-zinc-500 font-mono">{label}</span>}
@@ -315,28 +336,32 @@ function AgentBlocks({ agents, tools }: { agents: AnalyticsAgent[]; tools: Analy
                 <span className="text-zinc-200">{fmtCost(a.cost_usd)}</span>
                 <span className="text-zinc-500">{a.sessions} sess</span>
                 <span className="text-amber-400/80" title="distinct tools used">{breadth} tool{breadth === 1 ? '' : 's'}</span>
+                {failSum > 0 && <span className="text-rose-400" title="failed tool calls">{failSum} fail</span>}
               </div>
             </div>
 
             {/* cost share within project */}
-            <div className="h-1 bg-zinc-900 rounded mb-1.5 overflow-hidden">
+            <div className="h-1 bg-zinc-900 rounded mb-2 overflow-hidden">
               <div className="h-full rounded bg-sky-500/70" style={{ width: `${costPct}%` }} />
             </div>
 
-            {/* tool-use surface — squarified treemap; rectangle area = call share */}
-            {calls > 0 && <ToolSurface tools={myTools} />}
+            {/* category mix — answers "what kind of work" without the per-tool noise */}
+            <CategoryStrip tools={myTools} />
+
+            {/* tool-level detail — on demand */}
+            {breadth > 0 && (
+              <button
+                type="button"
+                onClick={() => toggle(a.agent_id)}
+                className="mt-2 text-[10px] text-zinc-500 hover:text-zinc-300 transition-colors"
+              >
+                {open ? 'hide' : 'show'} {breadth} tool{breadth === 1 ? '' : 's'} {open ? '▴' : '▾'}
+              </button>
+            )}
+            {open && <ToolDetail tools={myTools} />}
           </div>
         )
       })}
-
-      {/* legend */}
-      <div className="flex flex-wrap gap-3 pt-2 text-[10px] text-zinc-500">
-        {Object.entries(CAT_COLOR).filter(([k]) => k !== 'other').map(([k, c]) => (
-          <span key={k} className="flex items-center gap-1.5">
-            <span className={`inline-block w-2.5 h-2.5 rounded-sm ${c}`} />{k}
-          </span>
-        ))}
-      </div>
     </div>
   )
 }
