@@ -103,6 +103,8 @@ export interface AnalyticsDay {
 export interface AnalyticsAgent {
   agent_id: string
   agent_name: string
+  agent_created_at: string
+  agent_superseded_at: string | null
   sessions: number
   sessions_done: number
   sessions_failed: number
@@ -129,6 +131,7 @@ export interface AnalyticsTag {
 export interface AnalyticsTool {
   agent_id: string
   agent_name: string
+  agent_created_at: string
   name: string
   calls: number
   ok: number

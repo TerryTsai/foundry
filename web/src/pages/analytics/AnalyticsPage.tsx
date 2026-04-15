@@ -1,4 +1,4 @@
-import { useState, Fragment } from 'react'
+import { useState } from 'react'
 import { useLoaderData } from 'react-router-dom'
 import { PageShell } from '../../components/layout/PageShell.js'
 import { AppHeader } from '../../components/layout/AppHeader.js'
@@ -8,11 +8,6 @@ import { fmtTokens, fmtDuration, fmtBytes, fmtCost } from '../../lib/format.js'
 import { MultiSelect } from '../../components/primitives/MultiSelect.js'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
-
-function fmtPct(n: number, d: number): string {
-  if (d === 0) return '—'
-  return `${Math.round((n / d) * 100)}%`
-}
 
 function pct(n: number, d: number): number {
   return d === 0 ? 0 : Math.round((n / d) * 100)
@@ -140,121 +135,122 @@ function DailyChart({ daily }: { daily: AnalyticsDay[] }) {
   )
 }
 
-// ── Agent performance table ───────────────────────────────────────────────────
+// ── Agent + tool surface (proportional area) ──────────────────────────────────
+// One block per agent (versioned — superseded versions render dimmed). Each
+// block stacks: header (name, cost, sessions, breadth), cost-share bar
+// (this agent's % of total), and a tool-use surface (proportional rectangles
+// colored by tool category). Replaces the prior agent + tool tables.
 
-function AgentTable({ agents }: { agents: AnalyticsAgent[] }) {
-  if (agents.length === 0) return (
-    <p className="text-xs text-zinc-600 py-2">no agent data in range</p>
-  )
-  // Sort by cost descending — biggest spenders first surfaces routing
-  // problems (e.g. PM doing dev work, a dev burning tokens on a stuck task).
-  const sorted = [...agents].sort((a, b) => b.cost_usd - a.cost_usd)
-  return (
-    <div className="overflow-x-auto -mx-4 px-4">
-      <table className="w-full text-xs min-w-[640px]">
-        <thead>
-          <tr className="text-zinc-500 border-b border-zinc-800/60">
-            <th className="text-left  font-normal pb-2 pr-4">agent</th>
-            <th className="text-right font-normal pb-2 pr-4">sessions</th>
-            <th className="text-left  font-normal pb-2 pr-4 min-w-[100px]">success</th>
-            <th className="text-right font-normal pb-2 pr-4">cost</th>
-            <th className="text-right font-normal pb-2 pr-4">tokens in</th>
-            <th className="text-right font-normal pb-2 pr-4">tokens out</th>
-            <th className="text-right font-normal pb-2">avg dur</th>
-          </tr>
-        </thead>
-        <tbody>
-          {sorted.map(a => (
-            <tr key={a.agent_id} className="border-b border-zinc-800/40 hover:bg-zinc-900/30 transition-colors">
-              <td className="py-2 pr-4 text-zinc-200 font-medium truncate max-w-[150px]">{a.agent_name}</td>
-              <td className="py-2 pr-4 text-right font-mono text-zinc-400">{a.sessions}</td>
-              <td className="py-2 pr-4">
-                <div className="flex items-center gap-2">
-                  <div className="flex-1 h-1.5 bg-zinc-800 rounded-full overflow-hidden min-w-[50px]">
-                    <div className="h-full bg-emerald-500/70 rounded-full" style={{ width: `${pct(a.sessions_done, a.sessions)}%` }} />
-                  </div>
-                  <span className="font-mono text-zinc-400 w-8 text-right shrink-0">{fmtPct(a.sessions_done, a.sessions)}</span>
-                </div>
-              </td>
-              <td className="py-2 pr-4 text-right font-mono text-zinc-200">{fmtCost(a.cost_usd)}</td>
-              <td className="py-2 pr-4 text-right font-mono text-zinc-400">{fmtTokens(a.tokens_in)}</td>
-              <td className="py-2 pr-4 text-right font-mono text-zinc-400">{fmtTokens(a.tokens_out)}</td>
-              <td className="py-2          text-right font-mono text-zinc-400">{a.avg_duration_ms > 0 ? fmtDuration(a.avg_duration_ms) : '—'}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  )
+const CAT_COLOR: Record<string, string> = {
+  foundry:     'bg-sky-500/80',
+  github:      'bg-emerald-500/80',
+  sandbox:     'bg-amber-500/80',
+  browser:     'bg-violet-500/80',
+  integration: 'bg-rose-500/80',
+  other:       'bg-zinc-500/80',
 }
 
-// ── Per-agent tool usage (anomaly catcher) ────────────────────────────────────
-// Groups tool calls by agent. Surfaces "wrong agent using wrong tool" issues
-// at a glance — e.g. PM calling gitClone, Backend calling ticketReopen.
-function ToolUsageTable({ tools }: { tools: AnalyticsTool[] }) {
-  if (tools.length === 0) return (
-    <p className="text-xs text-zinc-600 py-2">no tool activity in range</p>
-  )
-  // Group by agent. Header row shows totals AND breadth (distinct tool count) —
-  // breadth is the key overreach signal. A router agent with breadth ≥ 4 is
-  // doing too much; a dev agent with breadth ≥ 15 is improvising.
-  const groups: Array<{
-    agent: string
-    rows: AnalyticsTool[]
-    totals: { calls: number; ok: number; fail: number; ms: number; breadth: number }
-  }> = []
-  for (const t of tools) {
-    let g = groups.find(x => x.agent === t.agent_name)
-    if (!g) { g = { agent: t.agent_name, rows: [], totals: { calls: 0, ok: 0, fail: 0, ms: 0, breadth: 0 } }; groups.push(g) }
-    g.rows.push(t)
-    g.totals.calls += t.calls
-    g.totals.ok    += t.ok
-    g.totals.fail  += t.fail
-    g.totals.ms    += t.duration_ms
+function toolCategory(name: string): keyof typeof CAT_COLOR {
+  if (name.startsWith('ticket') || ['agentsList', 'sessionList', 'connectionList', 'think'].includes(name)) return 'foundry'
+  if (name.startsWith('git') || name.startsWith('workspace')) return 'github'
+  if (['read', 'write', 'patch', 'remove', 'search', 'find', 'exec', 'run', 'bash'].includes(name)) return 'sandbox'
+  if (['fetch', 'scrape'].includes(name)) return 'browser'
+  return 'integration'
+}
+
+// Assign v1/v2/… version labels for agents whose name appears more than
+// once. Singletons get null (no suffix). Numbering follows created_at asc.
+function buildVersionLabels(agents: AnalyticsAgent[]): Map<string, string | null> {
+  const byName = new Map<string, AnalyticsAgent[]>()
+  for (const a of agents) {
+    const arr = byName.get(a.agent_name) ?? []
+    arr.push(a); byName.set(a.agent_name, arr)
   }
-  for (const g of groups) g.totals.breadth = g.rows.length
-  // Sort by breadth desc — agents doing the most varied work surface first.
-  groups.sort((a, b) => b.totals.breadth - a.totals.breadth || b.totals.calls - a.totals.calls)
+  const out = new Map<string, string | null>()
+  for (const [, list] of byName) {
+    if (list.length === 1) { out.set(list[0].agent_id, null); continue }
+    const sorted = [...list].sort((a, b) => a.agent_created_at.localeCompare(b.agent_created_at))
+    sorted.forEach((a, i) => out.set(a.agent_id, `v${i + 1}`))
+  }
+  return out
+}
+
+function AgentBlocks({ agents, tools }: { agents: AnalyticsAgent[]; tools: AnalyticsTool[] }) {
+  if (agents.length === 0) return (
+    <p className="text-xs text-zinc-600 py-2">no agent activity in range</p>
+  )
+  const labels = buildVersionLabels(agents)
+  const totalCost = agents.reduce((n, a) => n + a.cost_usd, 0)
+  const sorted = [...agents].sort((a, b) => b.cost_usd - a.cost_usd)
+
+  // Group tools by agent_id (preserve per-agent calls-desc order from backend).
+  const toolsByAgent = new Map<string, AnalyticsTool[]>()
+  for (const t of tools) {
+    const arr = toolsByAgent.get(t.agent_id) ?? []
+    arr.push(t); toolsByAgent.set(t.agent_id, arr)
+  }
+
   return (
-    <div className="overflow-x-auto -mx-4 px-4">
-      <table className="w-full text-xs min-w-[600px]">
-        <thead>
-          <tr className="text-zinc-500 border-b border-zinc-800/60">
-            <th className="text-left  font-normal pb-2 pr-4">agent · tool</th>
-            <th className="text-right font-normal pb-2 pr-4">breadth</th>
-            <th className="text-right font-normal pb-2 pr-4">calls</th>
-            <th className="text-right font-normal pb-2 pr-4">ok</th>
-            <th className="text-right font-normal pb-2 pr-4">fail</th>
-            <th className="text-right font-normal pb-2">time</th>
-          </tr>
-        </thead>
-        <tbody>
-          {groups.map(g => (
-            <Fragment key={g.agent}>
-              <tr className="border-b border-zinc-800/60 bg-zinc-900/40">
-                <td className="py-2 pr-4 text-zinc-200 font-medium">{g.agent}</td>
-                <td className="py-2 pr-4 text-right font-mono text-amber-400/90">{g.totals.breadth}</td>
-                <td className="py-2 pr-4 text-right font-mono text-zinc-400">{g.totals.calls}</td>
-                <td className="py-2 pr-4 text-right font-mono text-zinc-400">{g.totals.ok}</td>
-                <td className={`py-2 pr-4 text-right font-mono ${g.totals.fail > 0 ? 'text-rose-400' : 'text-zinc-600'}`}>{g.totals.fail || '—'}</td>
-                <td className="py-2          text-right font-mono text-zinc-400">{g.totals.ms > 0 ? fmtDuration(g.totals.ms) : '—'}</td>
-              </tr>
-              {g.rows.map(t => (
-                <tr key={`${g.agent}-${t.name}`} className="border-b border-zinc-800/30 hover:bg-zinc-900/30 transition-colors">
-                  <td className="py-1.5 pr-4 pl-4">
-                    <span className="font-mono text-sky-400/80">{t.name}</span>
-                  </td>
-                  <td className="py-1.5 pr-4 text-right" />
-                  <td className="py-1.5 pr-4 text-right font-mono text-zinc-400">{t.calls}</td>
-                  <td className="py-1.5 pr-4 text-right font-mono text-zinc-500">{t.ok}</td>
-                  <td className={`py-1.5 pr-4 text-right font-mono ${t.fail > 0 ? 'text-rose-400' : 'text-zinc-700'}`}>{t.fail || '—'}</td>
-                  <td className="py-1.5          text-right font-mono text-zinc-500">{t.duration_ms > 0 ? fmtDuration(t.duration_ms) : '—'}</td>
-                </tr>
-              ))}
-            </Fragment>
-          ))}
-        </tbody>
-      </table>
+    <div className="space-y-5">
+      {sorted.map(a => {
+        const label   = labels.get(a.agent_id)
+        const old     = !!a.agent_superseded_at
+        const myTools = toolsByAgent.get(a.agent_id) ?? []
+        const calls   = myTools.reduce((n, t) => n + t.calls, 0)
+        const breadth = myTools.length
+        const costPct = totalCost > 0 ? (a.cost_usd / totalCost) * 100 : 0
+
+        return (
+          <div key={a.agent_id} className={old ? 'opacity-50' : ''}>
+            <div className="flex items-baseline justify-between gap-2 mb-1.5">
+              <div className="flex items-baseline gap-2 min-w-0">
+                <span className="text-sm font-medium text-zinc-100 truncate">{a.agent_name}</span>
+                {label && <span className="text-[10px] text-zinc-500 font-mono">{label}</span>}
+                {old && <span className="text-[9px] uppercase tracking-wider text-zinc-600">superseded</span>}
+              </div>
+              <div className="flex items-baseline gap-3 text-xs font-mono shrink-0 tabular-nums">
+                <span className="text-zinc-200">{fmtCost(a.cost_usd)}</span>
+                <span className="text-zinc-500">{a.sessions} sess</span>
+                <span className="text-amber-400/80" title="distinct tools used">{breadth} tool{breadth === 1 ? '' : 's'}</span>
+              </div>
+            </div>
+
+            {/* cost share within project */}
+            <div className="h-1 bg-zinc-900 rounded mb-1.5 overflow-hidden">
+              <div className="h-full rounded bg-sky-500/70" style={{ width: `${costPct}%` }} />
+            </div>
+
+            {/* tool-use surface — proportional rectangles, color by category */}
+            {calls > 0 && (
+              <div className="flex h-6 rounded overflow-hidden bg-zinc-900/40 gap-px">
+                {myTools.map(t => {
+                  const w = (t.calls / calls) * 100
+                  const cls = CAT_COLOR[toolCategory(t.name)]
+                  return (
+                    <div
+                      key={t.name}
+                      className={`${cls} flex items-center justify-start text-[9px] text-white/85 font-mono px-1 overflow-hidden whitespace-nowrap`}
+                      style={{ width: `${w}%` }}
+                      title={`${t.name}: ${t.calls} call${t.calls === 1 ? '' : 's'}${t.fail > 0 ? `, ${t.fail} failed` : ''}`}
+                    >
+                      {w >= 7 && t.name}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        )
+      })}
+
+      {/* legend */}
+      <div className="flex flex-wrap gap-3 pt-2 text-[10px] text-zinc-500">
+        {Object.entries(CAT_COLOR).filter(([k]) => k !== 'other').map(([k, c]) => (
+          <span key={k} className="flex items-center gap-1.5">
+            <span className={`inline-block w-2.5 h-2.5 rounded-sm ${c}`} />{k}
+          </span>
+        ))}
+      </div>
     </div>
   )
 }
@@ -418,15 +414,9 @@ export function AnalyticsPage() {
           <DailyChart daily={data.daily} />
         </Section>
 
-        <Section title="agent performance">
-          <AgentTable agents={data.agents} />
+        <Section title="agents">
+          <AgentBlocks agents={data.agents} tools={data.tools} />
         </Section>
-
-        {data.tools.length > 0 && (
-          <Section title="tool usage by agent">
-            <ToolUsageTable tools={data.tools} />
-          </Section>
-        )}
 
         {data.tags.length > 0 && (
           <Section title="activity by tag">

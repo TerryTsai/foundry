@@ -92,7 +92,9 @@ export function analytics(db: Db, accountId: string, opts: { days: number; proje
 
   const agents = db.all<AgentRow>(sql`
     SELECT
-      MAX(a.id) AS agent_id, a.name AS agent_name,
+      a.id AS agent_id, a.name AS agent_name,
+      a.created_at AS agent_created_at,
+      a.superseded_at AS agent_superseded_at,
       COUNT(*) AS sessions,
       COALESCE(SUM(CASE WHEN s.status = 'done'   THEN 1 ELSE 0 END), 0) AS sessions_done,
       COALESCE(SUM(CASE WHEN s.status = 'failed' THEN 1 ELSE 0 END), 0) AS sessions_failed,
@@ -111,7 +113,7 @@ export function analytics(db: Db, accountId: string, opts: { days: number; proje
     ) m_agg ON m_agg.session_id = s.id
     WHERE t.project_id IN (${projList}) AND date(s.started_at) >= ${cutoff}
     ${agentFilter}
-    GROUP BY a.name
+    GROUP BY a.id
     ORDER BY cost_usd DESC
   `)
 
@@ -142,8 +144,9 @@ export function analytics(db: Db, accountId: string, opts: { days: number; proje
   // anomalies (e.g. PM calling gitClone, Backend calling ticketReopen).
   const tools = db.all<ToolRow>(sql`
     SELECT
-      MAX(a.id) AS agent_id,
-      a.name    AS agent_name,
+      a.id   AS agent_id,
+      a.name AS agent_name,
+      a.created_at AS agent_created_at,
       e.tool_name AS name,
       COUNT(*) AS calls,
       COALESCE(SUM(CASE WHEN e.exit_code = 0 THEN 1 ELSE 0 END), 0) AS ok,
@@ -156,8 +159,8 @@ export function analytics(db: Db, accountId: string, opts: { days: number; proje
     WHERE t.project_id IN (${projList}) AND date(s.started_at) >= ${cutoff}
       AND e.tool_name IS NOT NULL
       ${agentFilter}
-    GROUP BY a.name, e.tool_name
-    ORDER BY a.name, calls DESC
+    GROUP BY a.id, e.tool_name
+    ORDER BY a.created_at, a.id, calls DESC
   `)
 
   return { summary: { ...summary, ...tickets }, daily, agents, tags, tools }
@@ -183,6 +186,7 @@ interface DailyRow {
 
 interface AgentRow {
   agent_id: string; agent_name: string
+  agent_created_at: string; agent_superseded_at: string | null
   sessions: number; sessions_done: number; sessions_failed: number
   cost_usd: number; tokens_in: number; tokens_out: number
   duration_ms: number; avg_duration_ms: number; avg_cost_usd: number
@@ -195,6 +199,7 @@ interface TagRow {
 
 interface ToolRow {
   agent_id: string; agent_name: string
+  agent_created_at: string
   name: string
   calls: number; ok: number; fail: number; duration_ms: number
 }
