@@ -3,7 +3,7 @@ import { EventEmitter } from 'events'
 import { readFileSync } from 'fs'
 import { join } from 'path'
 
-import { toInt } from '../util.js'
+import { toInt } from '../../util.js'
 
 // Podman sandbox runner. Wraps the user command to capture cgroup +
 // network stats on exit via a sentinel delimiter on stdout so we can

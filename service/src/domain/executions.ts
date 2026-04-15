@@ -6,9 +6,8 @@ import * as database from '../database.js'
 import type { Execution } from '../tables.js'
 import type { Config } from '../config.js'
 import { mustExist, assertStatus, now } from '../util.js'
-import { spawnRun, type RunHandle } from '../runtime/podman.js'
-import { prepareWorkspace } from '../runtime/workspace.js'
-import { onExecutionExit } from '../runtime/exit-handler.js'
+import { spawnRun, type RunHandle } from '../runtime/sandbox/podman.js'
+import { prepareWorkspace, finishExecution } from '../runtime/sandbox/workspace.js'
 
 const activeRuns = new Map<string, RunHandle>()
 
@@ -73,7 +72,7 @@ export function executionCreate(db: Db, config: Config, input: {
   handle.emitter.on('stdout', (line: string) => stdout.push(line))
   handle.emitter.on('stderr', (line: string) => stderr.push(line))
   handle.emitter.on('exit', (code, stats) => {
-    onExecutionExit(db, { executionId: row.id, startTime, dirs, artifactsOut, stdout, stderr }, code, stats)
+    finishExecution(db, { executionId: row.id, startTime, dirs, artifactsOut, stdout, stderr }, code, stats)
     activeRuns.delete(row.id)
   })
   return { id: row.id, emitter: handle.emitter }
