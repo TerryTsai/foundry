@@ -322,6 +322,16 @@ function AgentBlocks({ agents, tools }: { agents: AnalyticsAgent[]; tools: Analy
           </div>
         )
       })}
+
+      {/* legend — color → mcp server. Always visible at the bottom; quiet. */}
+      <div className="flex flex-wrap gap-x-3 gap-y-1 pt-2 text-[10px] font-mono text-zinc-500">
+        {(Object.keys(CAT_COLOR) as Array<keyof typeof CAT_COLOR>).filter(k => k !== 'other').map(k => (
+          <span key={k} className="flex items-center gap-1.5">
+            <span className={`inline-block w-2.5 h-2.5 rounded-sm ${CAT_COLOR[k]}`} />
+            {k}
+          </span>
+        ))}
+      </div>
     </div>
   )
 }
