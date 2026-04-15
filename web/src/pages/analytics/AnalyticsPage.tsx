@@ -195,25 +195,33 @@ function ToolUsageTable({ tools }: { tools: AnalyticsTool[] }) {
   if (tools.length === 0) return (
     <p className="text-xs text-zinc-600 py-2">no tool activity in range</p>
   )
-  // Group by agent. Backend ordering preserves agent name + per-agent calls desc,
-  // so each section is already in the right shape.
-  const groups: Array<{ agent: string; rows: AnalyticsTool[]; totals: { calls: number; fail: number; ms: number } }> = []
+  // Group by agent. Header row shows totals AND breadth (distinct tool count) —
+  // breadth is the key overreach signal. A router agent with breadth ≥ 4 is
+  // doing too much; a dev agent with breadth ≥ 15 is improvising.
+  const groups: Array<{
+    agent: string
+    rows: AnalyticsTool[]
+    totals: { calls: number; ok: number; fail: number; ms: number; breadth: number }
+  }> = []
   for (const t of tools) {
     let g = groups.find(x => x.agent === t.agent_name)
-    if (!g) { g = { agent: t.agent_name, rows: [], totals: { calls: 0, fail: 0, ms: 0 } }; groups.push(g) }
+    if (!g) { g = { agent: t.agent_name, rows: [], totals: { calls: 0, ok: 0, fail: 0, ms: 0, breadth: 0 } }; groups.push(g) }
     g.rows.push(t)
     g.totals.calls += t.calls
+    g.totals.ok    += t.ok
     g.totals.fail  += t.fail
     g.totals.ms    += t.duration_ms
   }
-  // Spend-order isn't tracked here directly; sort agents by total calls.
-  groups.sort((a, b) => b.totals.calls - a.totals.calls)
+  for (const g of groups) g.totals.breadth = g.rows.length
+  // Sort by breadth desc — agents doing the most varied work surface first.
+  groups.sort((a, b) => b.totals.breadth - a.totals.breadth || b.totals.calls - a.totals.calls)
   return (
     <div className="overflow-x-auto -mx-4 px-4">
-      <table className="w-full text-xs min-w-[520px]">
+      <table className="w-full text-xs min-w-[600px]">
         <thead>
           <tr className="text-zinc-500 border-b border-zinc-800/60">
             <th className="text-left  font-normal pb-2 pr-4">agent · tool</th>
+            <th className="text-right font-normal pb-2 pr-4">breadth</th>
             <th className="text-right font-normal pb-2 pr-4">calls</th>
             <th className="text-right font-normal pb-2 pr-4">ok</th>
             <th className="text-right font-normal pb-2 pr-4">fail</th>
@@ -225,8 +233,9 @@ function ToolUsageTable({ tools }: { tools: AnalyticsTool[] }) {
             <Fragment key={g.agent}>
               <tr className="border-b border-zinc-800/60 bg-zinc-900/40">
                 <td className="py-2 pr-4 text-zinc-200 font-medium">{g.agent}</td>
+                <td className="py-2 pr-4 text-right font-mono text-amber-400/90">{g.totals.breadth}</td>
                 <td className="py-2 pr-4 text-right font-mono text-zinc-400">{g.totals.calls}</td>
-                <td className="py-2 pr-4 text-right font-mono text-zinc-600">—</td>
+                <td className="py-2 pr-4 text-right font-mono text-zinc-400">{g.totals.ok}</td>
                 <td className={`py-2 pr-4 text-right font-mono ${g.totals.fail > 0 ? 'text-rose-400' : 'text-zinc-600'}`}>{g.totals.fail || '—'}</td>
                 <td className="py-2          text-right font-mono text-zinc-400">{g.totals.ms > 0 ? fmtDuration(g.totals.ms) : '—'}</td>
               </tr>
@@ -235,6 +244,7 @@ function ToolUsageTable({ tools }: { tools: AnalyticsTool[] }) {
                   <td className="py-1.5 pr-4 pl-4">
                     <span className="font-mono text-sky-400/80">{t.name}</span>
                   </td>
+                  <td className="py-1.5 pr-4 text-right" />
                   <td className="py-1.5 pr-4 text-right font-mono text-zinc-400">{t.calls}</td>
                   <td className="py-1.5 pr-4 text-right font-mono text-zinc-500">{t.ok}</td>
                   <td className={`py-1.5 pr-4 text-right font-mono ${t.fail > 0 ? 'text-rose-400' : 'text-zinc-700'}`}>{t.fail || '—'}</td>
