@@ -15,6 +15,7 @@ import { now } from '../util.js'
 
 import { use, type SessionContext, type SessionStep } from './compose.js'
 
+import { withCrashSafe }            from './middleware/crash-safe.js'
 import { withSessionLifecycle }     from './middleware/session-lifecycle.js'
 import { withActivityBackfill }     from './middleware/activity-backfill.js'
 import { withTicketFailOnCrash }    from './middleware/ticket-fail-on-crash.js'
@@ -104,6 +105,7 @@ const invokeAgent: SessionStep = async (ctx) => {
 // ── stacks: producer and verifier differ by three middlewares ─────────────
 
 const runProducer = use(
+  withCrashSafe,
   withSessionLifecycle,
   withActivityBackfill,
   withTicketFailOnCrash,
@@ -114,6 +116,7 @@ const runProducer = use(
 )(invokeAgent)
 
 const runVerifier = use(
+  withCrashSafe,
   withSessionLifecycle,
   withActivityBackfill,
   withSyntheticFailVerdict,
@@ -131,9 +134,8 @@ export async function runAgentSession(
   const producerRow = database.sessionGet(db, sessionId)
   if (!producerRow) throw new Error(`session ${sessionId} not found`)
 
-  let producerCtx: SessionContext
-  try { producerCtx = await runProducer(makeContext(db, config, producerRow, ticket, producer)) }
-  catch { return }  // ticket already resolved 'failed' by withTicketFailOnCrash
+  const producerCtx = await runProducer(makeContext(db, config, producerRow, ticket, producer))
+  if (!producerCtx.result) return  // producer crashed; ticket already resolved 'failed'
 
   const verdicts: Verdict[] = []
   for (const vid of parseVerifiers(producer.verifiers)) {
@@ -146,8 +148,7 @@ export async function runAgentSession(
       ticket_id: ticket.id, agent_id: verifier.id,
       status: 'running', started_at: now(),
     })
-    try { await runVerifier(makeContext(db, config, verifierRow, ticket, verifier)) }
-    catch { /* verdict already synthesized; fall through to readVerdict */ }
+    await runVerifier(makeContext(db, config, verifierRow, ticket, verifier))
     verdicts.push(readVerdict(db, verifierRow.id, verifier.name))
   }
 
