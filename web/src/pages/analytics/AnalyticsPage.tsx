@@ -175,6 +175,69 @@ function buildVersionLabels(agents: AnalyticsAgent[]): Map<string, string | null
   return out
 }
 
+// Subtle category-tinted backgrounds for the chip legend.
+const CAT_TINT: Record<string, string> = {
+  foundry:     'bg-sky-500/15 text-sky-200',
+  github:      'bg-emerald-500/15 text-emerald-200',
+  sandbox:     'bg-amber-500/15 text-amber-200',
+  browser:     'bg-violet-500/15 text-violet-200',
+  integration: 'bg-rose-500/15 text-rose-200',
+  other:       'bg-zinc-500/15 text-zinc-300',
+}
+
+function ToolSurface({ tools, calls }: { tools: AnalyticsTool[]; calls: number }) {
+  const [hover, setHover] = useState<string | null>(null)
+  return (
+    <div>
+      {/* proportional bar — names live in the chip strip below; this bar is
+          purely visual so widths read at a glance. Tap/hover a segment to
+          highlight its chip; tap a chip to highlight the segment. */}
+      <div className="flex h-5 rounded overflow-hidden bg-zinc-900/40 gap-px">
+        {tools.map(t => {
+          const w = (t.calls / calls) * 100
+          const cls = CAT_COLOR[toolCategory(t.name)]
+          const dim = hover && hover !== t.name ? 'opacity-40' : ''
+          return (
+            <button
+              key={t.name}
+              type="button"
+              onMouseEnter={() => setHover(t.name)}
+              onMouseLeave={() => setHover(null)}
+              onClick={() => setHover(hover === t.name ? null : t.name)}
+              className={`${cls} ${dim} transition-opacity`}
+              style={{ width: `${w}%` }}
+              title={`${t.name}: ${t.calls} call${t.calls === 1 ? '' : 's'}${t.fail > 0 ? ` · ${t.fail} failed` : ''}`}
+              aria-label={`${t.name}: ${t.calls} calls`}
+            />
+          )
+        })}
+      </div>
+
+      {/* chip legend — always visible, scannable, mobile-friendly */}
+      <div className="flex flex-wrap gap-1 mt-1.5">
+        {tools.map(t => {
+          const tint = CAT_TINT[toolCategory(t.name)]
+          const ring = hover === t.name ? 'ring-1 ring-zinc-100/40' : ''
+          return (
+            <button
+              key={t.name}
+              type="button"
+              onMouseEnter={() => setHover(t.name)}
+              onMouseLeave={() => setHover(null)}
+              onClick={() => setHover(hover === t.name ? null : t.name)}
+              className={`${tint} ${ring} text-[10px] font-mono px-1.5 py-0.5 rounded transition-all`}
+            >
+              {t.name}
+              <span className="text-zinc-400 ml-1 tabular-nums">{t.calls}</span>
+              {t.fail > 0 && <span className="text-rose-300 ml-1 tabular-nums">·{t.fail}f</span>}
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 function AgentBlocks({ agents, tools }: { agents: AnalyticsAgent[]; tools: AnalyticsTool[] }) {
   if (agents.length === 0) return (
     <p className="text-xs text-zinc-600 py-2">no agent activity in range</p>
@@ -220,25 +283,8 @@ function AgentBlocks({ agents, tools }: { agents: AnalyticsAgent[]; tools: Analy
               <div className="h-full rounded bg-sky-500/70" style={{ width: `${costPct}%` }} />
             </div>
 
-            {/* tool-use surface — proportional rectangles, color by category */}
-            {calls > 0 && (
-              <div className="flex h-6 rounded overflow-hidden bg-zinc-900/40 gap-px">
-                {myTools.map(t => {
-                  const w = (t.calls / calls) * 100
-                  const cls = CAT_COLOR[toolCategory(t.name)]
-                  return (
-                    <div
-                      key={t.name}
-                      className={`${cls} flex items-center justify-start text-[9px] text-white/85 font-mono px-1 overflow-hidden whitespace-nowrap`}
-                      style={{ width: `${w}%` }}
-                      title={`${t.name}: ${t.calls} call${t.calls === 1 ? '' : 's'}${t.fail > 0 ? `, ${t.fail} failed` : ''}`}
-                    >
-                      {w >= 7 && t.name}
-                    </div>
-                  )
-                })}
-              </div>
-            )}
+            {/* tool-use surface — proportional rectangles + chip legend below */}
+            {calls > 0 && <ToolSurface tools={myTools} calls={calls} />}
           </div>
         )
       })}
