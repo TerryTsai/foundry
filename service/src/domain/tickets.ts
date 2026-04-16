@@ -88,6 +88,10 @@ export function ticketResolve(
 export function ticketReopen(db: Db, id: string): Ticket {
   const t = mustExist(database.ticketGet(db, id))
   if (t.status !== 'resolved') throw conflict('only resolved tickets can be reopened')
+  // Verified work is accepted into the project. Changing or removing it
+  // is new scope — fork a new ticket instead of reopening.
+  const verdicts = database.verdictByTicket(db, id)
+  if (verdicts.some(v => v.pass)) throw conflict('verified tickets cannot be reopened — fork a new ticket for scope changes')
   return database.ticketUpdate(db, id, { status: 'opened', outcome: null, claimed_at: null, updated_at: now() })
 }
 
