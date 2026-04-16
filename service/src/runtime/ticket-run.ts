@@ -11,6 +11,7 @@ import * as database from '../database.js'
 import type { Config } from '../config.js'
 import type { Agent as AgentDef, Ticket, Session } from '../tables.js'
 import { ticketResolve } from '../domain/tickets.js'
+import { sessionStartedComment } from '../domain/sessions.js'
 import { now } from '../util.js'
 
 import { use, type SessionContext, type SessionStep } from './compose.js'
@@ -149,9 +150,17 @@ export async function runAgentSession(
       ticket_id: ticket.id, agent_id: verifier.id,
       status: 'running', started_at: now(),
     })
+    sessionStartedComment(db, ticket.id, verifier.name, verifierRow.id)
     const verifierCtx = await runVerifier(makeContext(db, config, verifierRow, ticket, verifier))
     if (verifierCtx.result?.cancelled) return    // founder cancelled mid-dance; stop
-    verdicts.push(readVerdict(db, verifierRow.id, verifier.name))
+    const verdict = readVerdict(db, verifierRow.id, verifier.name)
+    const tag = verdict.pass ? 'PASS' : 'FAIL'
+    database.commentInsert(db, {
+      ticket_id: ticket.id, session_id: verifierRow.id,
+      author: verifier.name, created_at: now(),
+      body: `Verdict: ${tag} — ${verdict.reason}`,
+    })
+    verdicts.push(verdict)
   }
 
   settleTicket(db, ticket, producer, verdicts, summarizeProducer(producerCtx))
