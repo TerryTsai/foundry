@@ -6,7 +6,6 @@ import * as schema from '../tables.js'
 import { now } from '../util.js'
 import { ticketList, ticketClaim } from './tickets.js'
 import { agentList } from './agents.js'
-import { sessionStartedComment } from './sessions.js'
 
 export async function schedulerDispatch(db: Db, projectId: string): Promise<void> {
   const proj = database.projectGet(db, projectId)
@@ -40,8 +39,6 @@ export async function schedulerDispatch(db: Db, projectId: string): Promise<void
       ticket_id: t.id, agent_id: def.id,
       status: 'running', started_at: now(),
     })
-    sessionStartedComment(db, t.id, def.name, row.id)
-
     const { runAgentSession } = await import('../runtime/ticket-run.js')
     const { config } = await import('../config.js')
     runAgentSession(db, config, row.id, def, t).catch((err: unknown) =>
