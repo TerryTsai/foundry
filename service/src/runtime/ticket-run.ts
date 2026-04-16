@@ -16,7 +16,7 @@ import { now } from '../util.js'
 import { use, type SessionContext, type SessionStep } from './compose.js'
 
 import { withCrashSafe }            from './middleware/crash-safe.js'
-import { withSessionLifecycle }     from './middleware/session-lifecycle.js'
+import { withSessionBookkeeping }   from './middleware/session-bookkeeping.js'
 import { withActivityBackfill }     from './middleware/activity-backfill.js'
 import { withTicketFailOnCrash }    from './middleware/ticket-fail-on-crash.js'
 import { withSyntheticFailVerdict } from './middleware/synthetic-fail-verdict.js'
@@ -24,7 +24,6 @@ import { withScratchWorkspace }     from './middleware/scratch-workspace.js'
 import { withSystemPrompt }         from './middleware/system-prompt.js'
 import { withOpeningPrompt }        from './middleware/opening-prompt.js'
 import { withCooperativeCancel }    from './middleware/cooperative-cancel.js'
-import { withSessionComments }     from './middleware/session-comments.js'
 
 // ── helpers ───────────────────────────────────────────────────────────────
 
@@ -107,8 +106,7 @@ const invokeAgent: SessionStep = async (ctx) => {
 
 const runProducer = use(
   withCrashSafe,
-  withSessionComments,
-  withSessionLifecycle,
+  withSessionBookkeeping,
   withActivityBackfill,
   withTicketFailOnCrash,
   withScratchWorkspace,
@@ -119,8 +117,7 @@ const runProducer = use(
 
 const runVerifier = use(
   withCrashSafe,
-  withSessionComments,
-  withSessionLifecycle,
+  withSessionBookkeeping,
   withActivityBackfill,
   withSyntheticFailVerdict,
   withScratchWorkspace,
