@@ -87,6 +87,22 @@ export function TicketsSplitLayout() {
   const setCreatedFilter = makeSetter('created')
   const setClaimedFilter = makeSetter('claimed')
 
+  // Inbox toggle. Default on (absent param = inbox). Narrows to tickets that
+  // need founder action: unassigned-opened, or resolved with non-finished
+  // outcome. Any explicit filter (status, agent, etc.) disables inbox so
+  // advanced filtering reads what it's given.
+  const inboxOn = searchParams.get('view') !== 'all'
+  const anyExplicitFilter = statuses.size + agentFilter.size + createdFilter.size + claimedFilter.size > 0
+  const inboxActive = inboxOn && !anyExplicitFilter
+  function toggleInbox() {
+    setSearchParams((prev: URLSearchParams) => {
+      const p = new URLSearchParams(prev)
+      if (inboxOn) p.set('view', 'all')
+      else         p.delete('view')
+      return p
+    }, { replace: true })
+  }
+
   // Tag filter: tagFilter holds selected tags; tagTickets holds OR-merged results.
   const tagFilter    = getParam('tag')
   const setTagFilter = makeSetter('tag')
@@ -122,6 +138,13 @@ export function TicketsSplitLayout() {
   const uniqueAgentNames = Array.from(new Set(tickets.map(agentName))).sort()
 
   const filtered = sourceTickets.filter(t => {
+    // Inbox narrows to tickets that need founder action. Skipped whenever
+    // any explicit filter chip is set, so advanced filtering is unshackled.
+    if (inboxActive) {
+      const unassignedOpen = t.status === 'opened' && !t.agent_id
+      const needsDecision  = t.status === 'resolved' && t.outcome !== 'finished'
+      if (!unassignedOpen && !needsDecision) return false
+    }
     // Filter chip → display label. `opened`/`claimed` match the state
     // directly. `finished`/`failed`/`cancelled` are outcomes of `resolved`.
     if (statuses.size > 0) {
@@ -142,6 +165,17 @@ export function TicketsSplitLayout() {
 
   const filterChips = (
     <>
+      <button
+        onClick={toggleInbox}
+        className={`flex items-center px-3 py-1.5 rounded-full border text-xs transition-colors shrink-0 ${
+          inboxActive
+            ? 'border-sky-500/60 bg-sky-500/10 text-sky-600 dark:text-sky-300'
+            : 'border-transparent text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800/50 active:bg-zinc-200 dark:active:bg-zinc-800'
+        }`}
+        title={inboxActive ? 'Showing only tickets that need action — click for all' : 'Show only tickets that need action'}
+      >
+        Inbox
+      </button>
       <MultiSelect label="Status"  options={[...STATUSES]}                    selected={statuses}       onChange={setStatuses} />
       {uniqueAgentNames.length > 0 && (
         <MultiSelect label="Agent" options={uniqueAgentNames}                 selected={agentFilter}    onChange={setAgentFilter} />
