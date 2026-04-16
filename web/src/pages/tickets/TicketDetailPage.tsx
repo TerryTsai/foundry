@@ -215,7 +215,7 @@ export function TicketDetailPage() {
       type="ticket" id={ticket.id} title={ticket.title}
       status={ticket.status === 'resolved' ? (ticket.outcome ?? 'resolved') : ticket.status}
       subtitle={!editing ? ticket.description : undefined}
-      actions={!editing && ticket.status === 'opened' ? (
+      actions={!editing && ticket.status === 'opened' && verdicts.length === 0 ? (
         <button onClick={() => setEditing(true)}
           className="text-xs text-zinc-400 dark:text-zinc-500 active:text-zinc-900 dark:active:text-zinc-100 shrink-0">
           edit

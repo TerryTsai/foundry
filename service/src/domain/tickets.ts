@@ -47,7 +47,13 @@ export function ticketCreate(db: Db, input: z.infer<typeof validate.ticketCreate
 
 export function ticketUpdate(db: Db, id: string, input: z.infer<typeof validate.ticketUpdate>): Ticket {
   assertStatus(mustExist(database.ticketGet(db, id)), 'opened', 'ticket can only be edited while opened')
-  return database.ticketUpdate(db, id, { ...pick(input, 'title', 'body', 'agent_id', 'priority'), updated_at: now() })
+  // Title and description are frozen once work has started. Scope change
+  // = fork the ticket; edits would hide planning churn.
+  if (input.title !== undefined || input.description !== undefined) {
+    const sessions = database.sessionByTicket(db, id)
+    if (sessions.length > 0) throw conflict('title and description are frozen once work has started — fork this ticket for scope changes')
+  }
+  return database.ticketUpdate(db, id, { ...pick(input, 'title', 'description', 'agent_id', 'priority'), updated_at: now() })
 }
 
 // Atomic claim. Returns the claimed row on success, null if another
