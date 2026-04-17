@@ -242,24 +242,13 @@ async function handlePagesDeploy(ctx: CloudflareCtx, args: z.infer<typeof pagesD
   const acct = resolveAccountId(ctx, args.account_id)
   const branch = args.branch ?? 'main'
   const dir = `/work/${args.dir}`
-  // Pre-flight: ensure dir exists and has files; patch wrangler.toml if needed.
-  const preflight = [
+  const command = [
     `if [ ! -d ${JSON.stringify(dir)} ]; then echo "ERR: directory ${args.dir} does not exist in /work" >&2; exit 1; fi`,
     `if [ -z "$(ls -A ${JSON.stringify(dir)} 2>/dev/null)" ]; then echo "ERR: directory ${args.dir} is empty — add at least an index.html" >&2; exit 1; fi`,
     `if [ -f /work/wrangler.toml ] && ! grep -q pages_build_output_dir /work/wrangler.toml; then echo 'pages_build_output_dir = "${args.dir}"' >> /work/wrangler.toml; fi`,
-  ].join('\n')
-  const command = [
-    preflight,
-    'wrangler pages project create',
-    JSON.stringify(args.project_name),
-    '--production-branch', JSON.stringify(branch),
-    '|| true',
-    '&&',
-    `wrangler pages deploy ${JSON.stringify(dir)}`,
-    '--project-name', JSON.stringify(args.project_name),
-    '--branch',       JSON.stringify(branch),
-    '--commit-dirty=true',
-  ].join('\n')
+    `wrangler pages project create ${JSON.stringify(args.project_name)} --production-branch ${JSON.stringify(branch)} || true`,
+    `wrangler pages deploy ${JSON.stringify(dir)} --project-name ${JSON.stringify(args.project_name)} --branch ${JSON.stringify(branch)} --commit-dirty=true`,
+  ].join(' && ')
   const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace,
     command, 'pagesDeploy', args, {
       network: true,
@@ -323,7 +312,7 @@ async function handleD1List(ctx: CloudflareCtx, args: z.infer<typeof d1ListArgs>
   return runWrangler(ctx, 'd1List', args, 'd1 list')
 }
 async function handleD1Query(ctx: CloudflareCtx, args: z.infer<typeof d1QueryArgs>) {
-  return runWrangler(ctx, 'd1Query', args, `d1 execute ${JSON.stringify(args.database)} --command ${JSON.stringify(args.sql)}`)
+  return runWrangler(ctx, 'd1Query', args, `d1 execute ${JSON.stringify(args.database)} --remote --command ${JSON.stringify(args.sql)}`)
 }
 async function handleKvDeleteNamespace(ctx: CloudflareCtx, args: z.infer<typeof kvDeleteNamespaceArgs>) {
   return runWrangler(ctx, 'kvDeleteNamespace', args, `kv namespace delete --namespace-id=${JSON.stringify(args.namespace_id)}`)
