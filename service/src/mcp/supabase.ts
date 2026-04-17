@@ -12,13 +12,6 @@ export const info: McpServerInfo = {
   name:        'Supabase',
   category:    'data',
   description: 'Postgres tables via PostgREST.',
-  tools: [
-    { name: 'tableSelect', description: 'SELECT rows from a table with optional filters.' },
-    { name: 'tableInsert', description: 'INSERT one or more rows into a table.' },
-    { name: 'tableUpdate', description: 'UPDATE rows matching a filter.' },
-    { name: 'tableDelete', description: 'DELETE rows matching a filter.' },
-    { name: 'ping',        description: 'Verify credentials against the REST root.' },
-  ],
 }
 
 type SupabaseCtx = ConnCtx

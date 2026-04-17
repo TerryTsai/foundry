@@ -11,14 +11,6 @@ export const info: McpServerInfo = {
   name:        'UptimeRobot',
   category:    'product',
   description: 'HTTP / ping uptime monitors.',
-  tools: [
-    { name: 'monitorList',   description: 'List monitors, optionally filtered.' },
-    { name: 'monitorCreate', description: 'Create a new monitor.' },
-    { name: 'monitorPause',  description: 'Pause a monitor (status=0).' },
-    { name: 'monitorResume', description: 'Resume a paused monitor (status=1).' },
-    { name: 'monitorDelete', description: 'Delete a monitor.' },
-    { name: 'ping',          description: 'Verify the API key.' },
-  ],
 }
 
 type UptimeCtx = ConnCtx

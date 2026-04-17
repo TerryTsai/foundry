@@ -69,6 +69,6 @@ export function providerMetadata(p: ConnectionProvider): ProviderMetadata {
     name:        p.name,
     credentials: p.credentials,
     has_model:   modelFactoryByKind[p.kind] !== undefined,
-    tool_names:  byConnectionKind[p.kind as keyof typeof byConnectionKind]?.info.tools.map(t => t.name) ?? [],
+    tool_names:  byConnectionKind[p.kind as keyof typeof byConnectionKind]?.tools.map(t => t.name) ?? [],
   }
 }

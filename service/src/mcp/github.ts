@@ -45,17 +45,6 @@ export const info: McpServerInfo = {
   name:        'GitHub',
   category:    'code',
   description: 'Development flow against a configured GitHub repo: clone, inspect, stage, commit, open draft PRs.',
-  tools: [
-    { name: 'gitClone',          description: 'Clone the configured GitHub repo into the empty session workspace and create the per-session branch. First step of a code session.' },
-    { name: 'gitStatus',         description: 'Show the working tree status (porcelain format).' },
-    { name: 'gitDiff',           description: 'Show the working-tree or staged diff, optionally scoped to paths.' },
-    { name: 'gitAdd',            description: 'Stage specific paths for commit. Literal paths only — no -A, no wildcards.' },
-    { name: 'gitRemove',         description: 'Remove paths from the working tree and index (git rm).' },
-    { name: 'gitCommit',         description: 'Commit the staged index with a message.' },
-    { name: 'gitPullRequest',    description: 'Push the session branch and open a pull request for review.' },
-    { name: 'gitMerge',          description: 'Push the session branch, open a PR, and merge it immediately. Fails on conflict.' },
-    { name: 'gitRebase',         description: 'Rebase the session branch against latest main. Use after a merge conflict.' },
-  ],
 }
 
 // ════════════════════════════════════════════════════════════════════════════

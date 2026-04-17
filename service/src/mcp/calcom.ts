@@ -11,13 +11,6 @@ export const info: McpServerInfo = {
   name:        'Cal.com',
   category:    'growth',
   description: 'Scheduling, event types, and bookings.',
-  tools: [
-    { name: 'bookingList',   description: 'List bookings, optionally filtered.' },
-    { name: 'bookingGet',    description: 'Fetch one booking.' },
-    { name: 'bookingCancel', description: 'Cancel a booking.' },
-    { name: 'eventTypeList', description: 'List event types.' },
-    { name: 'ping',          description: 'Verify the API key.' },
-  ],
 }
 
 type CalcomCtx = ConnCtx

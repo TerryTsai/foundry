@@ -25,16 +25,6 @@ export const info: McpServerInfo = {
   name:        'Sandbox',
   category:    'core',
   description: 'Isolated Linux environment with a persistent session workspace: files, commands, search.',
-  tools: [
-    { name: 'run',    description: 'Run a single shell command in the sandbox.' },
-    { name: 'runScript', description: 'Run a multi-line script in the sandbox (sh, python, or node).' },
-    { name: 'read',   description: 'Read a file from the workspace, with optional offset/limit pagination.' },
-    { name: 'write',  description: 'Create or overwrite a file in the workspace.' },
-    { name: 'patch',  description: 'Apply a targeted string replacement to a file.' },
-    { name: 'remove', description: 'Delete a file or directory from the workspace.' },
-    { name: 'find',   description: 'Find files by glob pattern.' },
-    { name: 'search', description: 'Regex-grep across files.' },
-  ],
 }
 
 export interface SandboxCtx {

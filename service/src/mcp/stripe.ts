@@ -12,13 +12,6 @@ export const info: McpServerInfo = {
   name:        'Stripe',
   category:    'growth',
   description: 'Payments, subscriptions, and checkout.',
-  tools: [
-    { name: 'customerList',     description: 'List customers.' },
-    { name: 'customerGet',      description: 'Fetch one customer.' },
-    { name: 'subscriptionList', description: 'List subscriptions, optionally filtered.' },
-    { name: 'checkoutCreate',   description: 'Create a Checkout Session for a one-time or recurring payment.' },
-    { name: 'ping',             description: 'Verify the secret key.' },
-  ],
 }
 
 type StripeCtx = ConnCtx

@@ -11,12 +11,6 @@ export const info: McpServerInfo = {
   name:        'Sentry',
   category:    'product',
   description: 'Error tracking.',
-  tools: [
-    { name: 'listIssues',   description: 'List issues in a project (paginated).' },
-    { name: 'getIssue',     description: 'Fetch one issue by id.' },
-    { name: 'resolveIssue', description: 'Mark an issue resolved.' },
-    { name: 'ping',         description: 'Verify credentials.' },
-  ],
 }
 
 type SentryCtx = ConnCtx

@@ -13,12 +13,6 @@ export const info: McpServerInfo = {
   name:        'PostHog',
   category:    'product',
   description: 'Product analytics and feature flags.',
-  tools: [
-    { name: 'queryHogQL',       description: 'Run a HogQL (SQL) query against the project.' },
-    { name: 'featureFlagList',  description: 'List feature flags on the project.' },
-    { name: 'featureFlagGet',   description: 'Fetch one feature flag by key.' },
-    { name: 'ping',             description: 'Verify credentials by fetching the project.' },
-  ],
 }
 
 type PosthogCtx = ConnCtx

@@ -10,14 +10,6 @@ export const info: McpServerInfo = {
   name:        'Clerk',
   category:    'growth',
   description: 'User auth (sessions, profiles, orgs).',
-  tools: [
-    { name: 'userList',   description: 'List users with optional filters.' },
-    { name: 'userGet',    description: 'Fetch one user by id.' },
-    { name: 'userUpdate', description: 'Patch one user.' },
-    { name: 'userBan',    description: 'Ban a user. Reverses with userUnban.' },
-    { name: 'userUnban',  description: 'Un-ban a user.' },
-    { name: 'ping',       description: 'Verify the secret key.' },
-  ],
 }
 
 type ClerkCtx = ConnCtx

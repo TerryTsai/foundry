@@ -11,13 +11,6 @@ export const info: McpServerInfo = {
   name:        'Crisp',
   category:    'growth',
   description: 'Customer chat conversations.',
-  tools: [
-    { name: 'conversationList',  description: 'List conversations on the website.' },
-    { name: 'conversationGet',   description: 'Fetch one conversation.' },
-    { name: 'conversationSend',  description: 'Post a message into a conversation as the operator.' },
-    { name: 'conversationClose', description: 'Set a conversation\'s state to resolved.' },
-    { name: 'ping',              description: 'Verify credentials.' },
-  ],
 }
 
 type CrispCtx = ConnCtx

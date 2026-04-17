@@ -10,49 +10,6 @@ export const info: McpServerInfo = {
   name:        'AWS',
   category:    'infra',
   description: 'AWS tools for deploying sites: S3, Lambda, API Gateway, IAM, CloudFront.',
-  tools: [
-    // S3
-    { name: 's3CreateBucket',       description: 'Create an S3 bucket.' },
-    { name: 's3DeleteBucket',       description: 'Delete an empty S3 bucket.' },
-    { name: 's3List',               description: 'List S3 buckets or objects within a bucket.' },
-    { name: 's3Upload',             description: 'Upload a workspace file to S3.' },
-    { name: 's3Download',           description: 'Download an S3 object to the workspace.' },
-    { name: 's3Delete',             description: 'Delete an S3 object.' },
-    { name: 's3EmptyBucket',        description: 'Delete all objects in an S3 bucket (required before bucket deletion).' },
-    { name: 's3SyncUpload',         description: 'Sync a workspace directory to an S3 bucket prefix.' },
-    { name: 's3SetWebsite',         description: 'Enable static website hosting on an S3 bucket.' },
-    { name: 's3DisableBlockPublic', description: 'Disable Block Public Access on an S3 bucket (required before setting a public policy).' },
-    { name: 's3SetPublicRead',      description: 'Set a public-read bucket policy for website hosting.' },
-    // Account
-    { name: 'stsGetCallerIdentity', description: 'Get the AWS account ID and caller ARN.' },
-    // Lambda
-    { name: 'lambdaList',           description: 'List Lambda functions.' },
-    { name: 'lambdaCreate',         description: 'Create a Lambda function from a zip in S3 or workspace.' },
-    { name: 'lambdaUpdate',         description: 'Update a Lambda function\'s code from a zip.' },
-    { name: 'lambdaDelete',         description: 'Delete a Lambda function.' },
-    { name: 'lambdaInvoke',         description: 'Invoke a Lambda function.' },
-    { name: 'lambdaSetEnv',         description: 'Set environment variables on a Lambda function.' },
-    // API Gateway
-    { name: 'apiGatewayCreate',     description: 'Create an HTTP API Gateway.' },
-    { name: 'apiGatewayList',       description: 'List API Gateways.' },
-    { name: 'apiGatewayDelete',     description: 'Delete an API Gateway.' },
-    { name: 'apiGatewayAddRoute',   description: 'Add a route + Lambda integration to an API Gateway.' },
-    { name: 'apiGatewayDeploy',     description: 'Deploy an API Gateway stage.' },
-    // Lambda permissions
-    { name: 'lambdaAddPermission',  description: 'Grant another service (e.g. API Gateway) permission to invoke a Lambda.' },
-    // IAM
-    { name: 'iamCreateRole',        description: 'Create an IAM role with a trust policy.' },
-    { name: 'iamAttachPolicy',      description: 'Attach a managed policy to a role.' },
-    { name: 'iamListRolePolicies',  description: 'List managed policies attached to a role.' },
-    { name: 'iamDetachPolicy',      description: 'Detach a managed policy from a role.' },
-    { name: 'iamDeleteRole',        description: 'Delete an IAM role (detach policies first).' },
-    // CloudFront
-    { name: 'cloudfrontCreate',     description: 'Create a CloudFront distribution for an S3 origin.' },
-    { name: 'cloudfrontList',       description: 'List CloudFront distributions.' },
-    { name: 'cloudfrontDisable',    description: 'Disable a CloudFront distribution (required before deletion).' },
-    { name: 'cloudfrontDelete',     description: 'Delete a disabled CloudFront distribution.' },
-    { name: 'cloudfrontInvalidate', description: 'Invalidate CloudFront cache paths.' },
-  ],
 }
 
 type AwsCtx = ConnCtx

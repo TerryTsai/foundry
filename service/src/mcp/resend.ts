@@ -10,11 +10,6 @@ export const info: McpServerInfo = {
   name:        'Resend',
   category:    'growth',
   description: 'Transactional email.',
-  tools: [
-    { name: 'sendEmail', description: 'Send a transactional email.' },
-    { name: 'getEmail',  description: 'Fetch a previously-sent email by id.' },
-    { name: 'ping',      description: 'Verify the API key.' },
-  ],
 }
 
 type ResendCtx = ConnCtx

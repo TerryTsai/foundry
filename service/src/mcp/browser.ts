@@ -18,10 +18,6 @@ export const info: McpServerInfo = {
   name:        'Browser',
   category:    'core',
   description: 'Web access: HTTP requests and page text extraction.',
-  tools: [
-    { name: 'fetch',  description: 'Make an HTTP request (GET/POST/etc.) and return the body.' },
-    { name: 'scrape', description: 'Fetch a web page and return extracted text.' },
-  ],
 }
 
 export interface BrowserCtx {

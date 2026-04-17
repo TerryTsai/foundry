@@ -9,25 +9,44 @@ import { mustExist, now } from '../util.js'
 import { conflict, badRequest, notFound } from '../errors.js'
 import * as providers from '../connections/registry.js'
 import { registry as mcpRegistry, byConnectionKind, type McpServerInfo } from '../mcp/registry.js'
+import * as foundryMcp from '../mcp/foundry.js'
+import * as githubMcp  from '../mcp/github.js'
+import * as sandboxMcp from '../mcp/sandbox.js'
+import * as browserMcp from '../mcp/browser.js'
 import * as validate from '../validate.js'
 
 // MCP server catalog surfaced to the agent-edit UI. Returns the built-ins
 // plus one synthesized entry per account connection whose kind has a
 // matching MCP module. The id/key (`<kind>:<name>`) is the same one the
 // runtime uses when mounting the Agent-SDK server.
-export function agentMcpList(db: Db, accountId: string): McpServerInfo[] {
-  const out: McpServerInfo[] = [...mcpRegistry]
+interface McpListEntry {
+  id: string; name: string; category: string; description: string
+  tools: Array<{ name: string; description: string }>
+}
+
+const builtInTools: Record<string, { name: string; description: string }[]> = {
+  foundry: foundryMcp.tools.map(t => ({ name: t.name, description: t.description })),
+  github:  githubMcp.tools.map(t  => ({ name: t.name, description: t.description })),
+  sandbox: sandboxMcp.tools.map(t => ({ name: t.name, description: t.description })),
+  browser: browserMcp.tools.map(t => ({ name: t.name, description: t.description })),
+}
+
+export function agentMcpList(db: Db, accountId: string): McpListEntry[] {
+  const out: McpListEntry[] = mcpRegistry.map(info => ({
+    ...info,
+    tools: builtInTools[info.id] ?? [],
+  }))
   const conns = database.connectionByAccount(db, accountId)
   for (const conn of conns) {
     const mod = byConnectionKind[conn.kind as keyof typeof byConnectionKind]
     const provider = providers.providerGet(conn.kind)
     if (!mod || !provider) continue
     out.push({
-      id:          `${provider.kind}:${conn.name}` as never,
+      id:          `${provider.kind}:${conn.name}`,
       name:        `${provider.name} · ${conn.name}`,
       category:    mod.info.category,
       description: `Connection-backed tools from ${provider.name} (${conn.name}).`,
-      tools:       mod.info.tools,
+      tools:       mod.tools.map(t => ({ name: t.name, description: t.description })),
     })
   }
   return out

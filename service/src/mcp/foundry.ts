@@ -22,20 +22,6 @@ export const info: McpServerInfo = {
   name:        'Foundry',
   category:    'core',
   description: 'Foundry harness introspection: tickets, agents, sessions, connections.',
-  tools: [
-    { name: 'ticketList',    description: 'List tickets in the current project.' },
-    { name: 'ticketGet',     description: 'Fetch a ticket by id.' },
-    { name: 'ticketCreate',  description: 'Create a new ticket in the current project.' },
-    { name: 'ticketComment', description: 'Post a comment on a ticket.' },
-    { name: 'ticketCancel',  description: 'Cancel a ticket.' },
-    { name: 'verdictReport', description: 'Verifier-only: report pass/fail for the producer\'s work on this ticket.' },
-    { name: 'ticketTagAdd',    description: 'Add a tag to a ticket.' },
-    { name: 'ticketTagRemove', description: 'Remove a tag from a ticket.' },
-    { name: 'agentsList',    description: 'List agents configured in the account.' },
-    { name: 'sessionList',   description: 'List agent sessions for a ticket.' },
-    { name: 'connectionList',  description: 'List configured external connections (LLM backends, integrations).' },
-    { name: 'think',         description: 'Scratch reasoning pad. No side effects.' },
-  ],
 }
 
 export interface FoundryCtx {

@@ -12,15 +12,6 @@ export const info: McpServerInfo = {
   name:        'Linear',
   category:    'code',
   description: 'Issue tracking and product planning.',
-  tools: [
-    { name: 'teamList',    description: 'List teams in the workspace.' },
-    { name: 'stateList',   description: 'List workflow states for a team (needed to transition issues).' },
-    { name: 'issueList',   description: 'List issues with optional filters.' },
-    { name: 'issueGet',    description: 'Fetch one issue by id or identifier.' },
-    { name: 'issueCreate', description: 'Create a new issue.' },
-    { name: 'issueUpdate', description: 'Update an existing issue.' },
-    { name: 'ping',        description: 'Verify the API key.' },
-  ],
 }
 
 type LinearCtx = ConnCtx

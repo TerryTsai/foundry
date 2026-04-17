@@ -39,11 +39,6 @@ export const SERVER_IDS = [
 ] as const
 export type  McpServerId = typeof SERVER_IDS[number]
 
-export interface McpToolInfo {
-  name:        string
-  description: string
-}
-
 export interface ToolDef {
   name:        string
   description: string
@@ -51,9 +46,6 @@ export interface ToolDef {
   handler:     (ctx: any, args: any) => any
 }
 
-// Category buckets used by the agent-tool-selection UI to group rows.
-// Keep the set small — it's the skim-level grouping a founder sees when
-// picking tools for a new agent.
 export type McpCategory = 'core' | 'code' | 'infra' | 'data' | 'product' | 'growth'
 
 export interface McpServerInfo {
@@ -61,7 +53,6 @@ export interface McpServerInfo {
   name:        string
   description: string
   category:    McpCategory
-  tools:       McpToolInfo[]
 }
 
 // Agent tool selection shape. `null` means "all servers, all tools".
@@ -82,10 +73,9 @@ export function registryGet(id: McpServerId): McpServerInfo | undefined {
   return registry.find(s => s.id === id)
 }
 
-// Flat list of tool names across built-in servers. Used by the legacy
-// GET /tools endpoint that the current web UI consumes for agent tool
-// selection. Will be replaced by GET /mcp (nested shape) in a later pass.
-export const TOOL_NAMES: readonly string[] = registry.flatMap(s => s.tools.map(t => t.name))
+export const TOOL_NAMES: readonly string[] = [
+  ...foundry.tools, ...github.tools, ...sandbox.tools, ...browser.tools,
+].map(t => t.name)
 
 // Filter a server's tool array by the agent's allowed selection. null / '*'
 // means all tools pass through. An explicit string[] keeps only tools whose
