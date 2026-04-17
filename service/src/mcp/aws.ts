@@ -25,7 +25,10 @@ export const info: McpServerInfo = {
     { name: 's3Delete',             description: 'Delete an S3 object.' },
     { name: 's3SyncUpload',         description: 'Sync a workspace directory to an S3 bucket prefix.' },
     { name: 's3SetWebsite',         description: 'Enable static website hosting on an S3 bucket.' },
+    { name: 's3DisableBlockPublic', description: 'Disable Block Public Access on an S3 bucket (required before setting a public policy).' },
     { name: 's3SetPublicRead',      description: 'Set a public-read bucket policy for website hosting.' },
+    // Account
+    { name: 'stsGetCallerIdentity', description: 'Get the AWS account ID and caller ARN.' },
     // Lambda
     { name: 'lambdaList',           description: 'List Lambda functions.' },
     { name: 'lambdaCreate',         description: 'Create a Lambda function from a zip in S3 or workspace.' },
@@ -123,10 +126,15 @@ const s3SetWebsiteArgs = z.object({
   error:    z.string().optional().describe('Error document.'),
   region:   z.string().optional(),
 })
+const s3DisableBlockPublicArgs = z.object({
+  bucket: z.string().describe('Bucket name.'),
+  region: z.string().optional(),
+})
 const s3SetPublicReadArgs = z.object({
   bucket: z.string().describe('Bucket name.'),
   region: z.string().optional(),
 })
+const stsGetCallerIdentityArgs = z.object({ region: z.string().optional() })
 
 async function handleS3CreateBucket(ctx: AwsCtx, args: z.infer<typeof s3CreateBucketArgs>) {
   const region = args.region?.trim() ?? (typeof ctx.connConfig.region === 'string' ? ctx.connConfig.region.trim() : 'us-east-1')
@@ -159,6 +167,13 @@ async function handleS3SetWebsite(ctx: AwsCtx, args: z.infer<typeof s3SetWebsite
   const errorDoc = args.error ? `,ErrorDocument={Key=${JSON.stringify(args.error)}}` : ''
   return runAws(ctx, 's3SetWebsite', args,
     `s3api put-bucket-website --bucket ${JSON.stringify(args.bucket)} --website-configuration IndexDocument={Suffix=${JSON.stringify(args.index)}}${errorDoc}`)
+}
+async function handleS3DisableBlockPublic(ctx: AwsCtx, args: z.infer<typeof s3DisableBlockPublicArgs>) {
+  return runAws(ctx, 's3DisableBlockPublic', args,
+    `s3api put-public-access-block --bucket ${JSON.stringify(args.bucket)} --public-access-block-configuration BlockPublicAcls=false,IgnorePublicAcls=false,BlockPublicPolicy=false,RestrictPublicBuckets=false`)
+}
+async function handleStsGetCallerIdentity(ctx: AwsCtx, args: z.infer<typeof stsGetCallerIdentityArgs>) {
+  return runAws(ctx, 'stsGetCallerIdentity', args, 'sts get-caller-identity')
 }
 async function handleS3SetPublicRead(ctx: AwsCtx, args: z.infer<typeof s3SetPublicReadArgs>) {
   const policy = JSON.stringify(JSON.stringify({
@@ -195,10 +210,9 @@ const lambdaInvokeArgs = z.object({
 })
 const lambdaAddPermissionArgs = z.object({
   function_name: z.string().describe('Lambda function name or ARN.'),
-  statement_id:  z.string().describe('Unique statement id (e.g. "apigateway-invoke").'),
-  action:        z.string().default('lambda:InvokeFunction').describe('Action to allow.'),
-  principal:     z.string().describe('Service principal (e.g. "apigateway.amazonaws.com").'),
-  source_arn:    z.string().optional().describe('Source ARN to restrict (e.g. API Gateway execution ARN).'),
+  statement_id:  z.string().default('apigateway-invoke').describe('Unique statement id.'),
+  principal:     z.string().default('apigateway.amazonaws.com').describe('Service principal.'),
+  api_id:        z.string().optional().describe('API Gateway id. If provided, source ARN is constructed automatically.'),
   region:        z.string().optional(),
 })
 const lambdaSetEnvArgs = z.object({
@@ -231,9 +245,17 @@ async function handleLambdaInvoke(ctx: AwsCtx, args: z.infer<typeof lambdaInvoke
   return runAws(ctx, 'lambdaInvoke', args, `lambda invoke --function-name ${JSON.stringify(args.name)}${payload} /tmp/lambda-out.json && cat /tmp/lambda-out.json`)
 }
 async function handleLambdaAddPermission(ctx: AwsCtx, args: z.infer<typeof lambdaAddPermissionArgs>) {
-  const srcArn = args.source_arn ? ` --source-arn ${JSON.stringify(args.source_arn)}` : ''
+  let srcArn = ''
+  if (args.api_id) {
+    const region = args.region?.trim()
+      ?? (typeof ctx.connConfig.region === 'string' ? ctx.connConfig.region.trim() : null)
+      ?? 'us-east-1'
+    const identity: any = await runAws(ctx, 'lambdaAddPermission', args, 'sts get-caller-identity')
+    const account = identity?.result?.Account
+    if (account) srcArn = ` --source-arn arn:aws:execute-api:${region}:${account}:${args.api_id}/*`
+  }
   return runAws(ctx, 'lambdaAddPermission', args,
-    `lambda add-permission --function-name ${JSON.stringify(args.function_name)} --statement-id ${JSON.stringify(args.statement_id)} --action ${args.action} --principal ${args.principal}${srcArn}`)
+    `lambda add-permission --function-name ${JSON.stringify(args.function_name)} --statement-id ${JSON.stringify(args.statement_id)} --action lambda:InvokeFunction --principal ${args.principal}${srcArn}`)
 }
 async function handleLambdaSetEnv(ctx: AwsCtx, args: z.infer<typeof lambdaSetEnvArgs>) {
   const vars = JSON.stringify(JSON.stringify({ Variables: args.variables }))
@@ -290,9 +312,9 @@ async function handleApiGatewayDeploy(ctx: AwsCtx, args: z.infer<typeof apiGatew
 // ── IAM schemas + handlers ──
 
 const iamCreateRoleArgs = z.object({
-  name:         z.string().describe('Role name.'),
-  trust_policy: z.string().describe('Trust policy JSON (who can assume this role).'),
-  region:       z.string().optional(),
+  name:    z.string().describe('Role name.'),
+  service: z.string().describe('AWS service principal that can assume this role (e.g. "lambda.amazonaws.com", "apigateway.amazonaws.com").'),
+  region:  z.string().optional(),
 })
 const iamAttachPolicyArgs = z.object({
   role_name:  z.string().describe('Role name.'),
@@ -305,8 +327,12 @@ const iamDeleteRoleArgs = z.object({
 })
 
 async function handleIamCreateRole(ctx: AwsCtx, args: z.infer<typeof iamCreateRoleArgs>) {
+  const trustPolicy = JSON.stringify({
+    Version: '2012-10-17',
+    Statement: [{ Effect: 'Allow', Principal: { Service: args.service }, Action: 'sts:AssumeRole' }],
+  })
   return runAws(ctx, 'iamCreateRole', args,
-    `iam create-role --role-name ${JSON.stringify(args.name)} --assume-role-policy-document ${JSON.stringify(args.trust_policy)}`)
+    `iam create-role --role-name ${JSON.stringify(args.name)} --assume-role-policy-document ${JSON.stringify(trustPolicy)}`)
 }
 async function handleIamAttachPolicy(ctx: AwsCtx, args: z.infer<typeof iamAttachPolicyArgs>) {
   return runAws(ctx, 'iamAttachPolicy', args,
@@ -381,7 +407,9 @@ const DESC: Record<string, string> = {
   s3Delete:             'Delete an object from S3.',
   s3SyncUpload:         'Sync a workspace directory to an S3 bucket. Optionally delete remote files not present locally.',
   s3SetWebsite:         'Enable static website hosting on an S3 bucket.',
-  s3SetPublicRead:      'Apply a public-read bucket policy for static website hosting.',
+  s3DisableBlockPublic: 'Disable Block Public Access on an S3 bucket. Required before s3SetPublicRead — new buckets block public access by default.',
+  s3SetPublicRead:      'Apply a public-read bucket policy for static website hosting. Call s3DisableBlockPublic first.',
+  stsGetCallerIdentity: 'Get the AWS account ID, user ARN, and user ID for the current credentials.',
   lambdaList:           'List Lambda functions in the account.',
   lambdaCreate:         'Create a Lambda function. Requires an IAM role ARN (create with iamCreateRole first, then wait ~10s for propagation). Provide a zip from workspace or S3.',
   lambdaUpdate:         'Update a Lambda function\'s code from a zip.',
@@ -393,8 +421,8 @@ const DESC: Record<string, string> = {
   apiGatewayDelete:     'Delete an API Gateway.',
   apiGatewayAddRoute:   'Add a route to an API Gateway with a Lambda integration. Creates the integration and route in one call. The Lambda must have an invoke permission for API Gateway — call lambdaAddPermission first.',
   apiGatewayDeploy:     'Create/update a stage on an API Gateway with auto-deploy enabled.',
-  lambdaAddPermission:  'Grant a service (e.g. apigateway.amazonaws.com) permission to invoke a Lambda. Required before wiring API Gateway routes.',
-  iamCreateRole:        'Create an IAM role with a trust policy document.',
+  lambdaAddPermission:  'Grant a service permission to invoke a Lambda. Pass api_id and the source ARN is constructed automatically. Required before wiring API Gateway routes.',
+  iamCreateRole:        'Create an IAM role. Pass a service principal (e.g. "lambda.amazonaws.com") — trust policy is constructed automatically. Wait ~10s after creation before using the role.',
   iamAttachPolicy:      'Attach a managed IAM policy to a role.',
   iamDetachPolicy:      'Detach a managed policy from an IAM role. Required before deleting the role.',
   iamDeleteRole:        'Delete an IAM role. Detach all policies first with iamDetachPolicy.',
@@ -414,7 +442,9 @@ const allSchemas = {
   s3Delete:             { schema: s3DeleteArgs,             handler: handleS3Delete },
   s3SyncUpload:         { schema: s3SyncUploadArgs,         handler: handleS3SyncUpload },
   s3SetWebsite:         { schema: s3SetWebsiteArgs,         handler: handleS3SetWebsite },
+  s3DisableBlockPublic: { schema: s3DisableBlockPublicArgs,  handler: handleS3DisableBlockPublic },
   s3SetPublicRead:      { schema: s3SetPublicReadArgs,      handler: handleS3SetPublicRead },
+  stsGetCallerIdentity: { schema: stsGetCallerIdentityArgs, handler: handleStsGetCallerIdentity },
   lambdaList:           { schema: lambdaListArgs,           handler: handleLambdaList },
   lambdaCreate:         { schema: lambdaCreateArgs,         handler: handleLambdaCreate },
   lambdaUpdate:         { schema: lambdaUpdateArgs,         handler: handleLambdaUpdate },

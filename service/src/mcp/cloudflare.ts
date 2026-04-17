@@ -16,6 +16,7 @@ export const info: McpServerInfo = {
   description: 'Cloudflare REST API tools: tokens, zones, Pages, cache purge, and Pages deploy.',
   tools: [
     { name: 'whoami',           description: 'Verify the token and show the authorized user / account context.' },
+    { name: 'zonesList',        description: 'List DNS zones on the account.' },
     { name: 'purgeCache',       description: 'Purge cache for a zone. Either a URL list (preferred) or everything.' },
     { name: 'pagesList',        description: 'List Cloudflare Pages projects on the account.' },
     { name: 'pagesDeployments', description: 'List recent deployments for a Pages project.' },
@@ -23,7 +24,8 @@ export const info: McpServerInfo = {
     { name: 'pagesDeploy',      description: 'Deploy a local directory to Cloudflare Pages. Creates the project on first use.' },
     { name: 'r2CreateBucket',    description: 'Create a new R2 bucket.' },
     { name: 'r2DeleteBucket',   description: 'Delete an R2 bucket.' },
-    { name: 'r2List',           description: 'List R2 buckets or objects within a bucket.' },
+    { name: 'r2ListBuckets',    description: 'List R2 buckets on the account.' },
+    { name: 'r2ListObjects',    description: 'List objects in an R2 bucket.' },
     { name: 'r2Upload',         description: 'Upload a workspace file to an R2 bucket.' },
     { name: 'r2Download',       description: 'Download an R2 object to the workspace.' },
     { name: 'r2Delete',         description: 'Delete an object from an R2 bucket.' },
@@ -43,6 +45,7 @@ type CloudflareCtx = ConnCtx
 // ── Schemas ──
 
 const whoamiArgs           = z.object({})
+const zonesListArgs        = z.object({ account_id: z.string().optional() })
 const purgeCacheArgs       = z.object({
   zone_id:          z.string().describe('Zone id.'),
   files:            z.array(z.string()).optional().describe('URLs to purge. Mutually exclusive with purge_everything.'),
@@ -74,9 +77,10 @@ const r2DeleteBucketArgs = z.object({
   bucket:     z.string().describe('Bucket name to delete. Must be empty.'),
   account_id: z.string().optional(),
 })
-const r2ListArgs = z.object({
-  bucket:     z.string().optional().describe('Bucket name. Omit to list buckets.'),
-  prefix:     z.string().optional().describe('Object prefix filter (when listing objects in a bucket).'),
+const r2ListBucketsArgs = z.object({ account_id: z.string().optional() })
+const r2ListObjectsArgs = z.object({
+  bucket:     z.string().describe('Bucket name.'),
+  prefix:     z.string().optional().describe('Object prefix filter.'),
   account_id: z.string().optional(),
 })
 const r2UploadArgs = z.object({
@@ -184,6 +188,13 @@ async function handleWhoami(ctx: CloudflareCtx, args: z.infer<typeof whoamiArgs>
   return { ok: true, result: parseCfResponse(r.stdout) }
 }
 
+async function handleZonesList(ctx: CloudflareCtx, args: z.infer<typeof zonesListArgs>) {
+  const acct = resolveAccountId(ctx, args.account_id)
+  const r = await runCf(ctx, 'zonesList', args, curl('GET', `/zones?account.id=${encodeURIComponent(acct)}`))
+  if (r.exitCode !== 0) return { ok: false, error: r.stderr || r.stdout }
+  return { ok: true, zones: parseCfResponse(r.stdout) }
+}
+
 async function handlePurgeCache(ctx: CloudflareCtx, args: z.infer<typeof purgeCacheArgs>) {
   const body = args.purge_everything ? { purge_everything: true } : { files: args.files ?? [] }
   const r = await runCf(ctx, 'purgeCache', args, curl('POST', `/zones/${encodeURIComponent(args.zone_id)}/purge_cache`, body))
@@ -269,11 +280,12 @@ async function handleR2CreateBucket(ctx: CloudflareCtx, args: z.infer<typeof r2C
 async function handleR2DeleteBucket(ctx: CloudflareCtx, args: z.infer<typeof r2DeleteBucketArgs>) {
   return runWrangler(ctx, 'r2DeleteBucket', args, `r2 bucket delete ${JSON.stringify(args.bucket)}`)
 }
-async function handleR2List(ctx: CloudflareCtx, args: z.infer<typeof r2ListArgs>) {
-  const cmd = args.bucket
-    ? `r2 object list ${JSON.stringify(args.bucket)}${args.prefix ? ` --prefix ${JSON.stringify(args.prefix)}` : ''}`
-    : 'r2 bucket list'
-  return runWrangler(ctx, 'r2List', args, cmd)
+async function handleR2ListBuckets(ctx: CloudflareCtx, args: z.infer<typeof r2ListBucketsArgs>) {
+  return runWrangler(ctx, 'r2ListBuckets', args, 'r2 bucket list')
+}
+async function handleR2ListObjects(ctx: CloudflareCtx, args: z.infer<typeof r2ListObjectsArgs>) {
+  const prefix = args.prefix ? ` --prefix ${JSON.stringify(args.prefix)}` : ''
+  return runWrangler(ctx, 'r2ListObjects', args, `r2 object list ${JSON.stringify(args.bucket)}${prefix}`)
 }
 async function handleR2Upload(ctx: CloudflareCtx, args: z.infer<typeof r2UploadArgs>) {
   return runWrangler(ctx, 'r2Upload', args, `r2 object put ${JSON.stringify(args.bucket + '/' + args.key)} --file=${JSON.stringify('/work/' + args.file)}`)
@@ -294,7 +306,10 @@ async function handleD1Query(ctx: CloudflareCtx, args: z.infer<typeof d1QueryArg
   return runWrangler(ctx, 'd1Query', args, `d1 execute ${JSON.stringify(args.database)} --command ${JSON.stringify(args.sql)}`)
 }
 async function handleKvCreate(ctx: CloudflareCtx, args: z.infer<typeof kvCreateArgs>) {
-  return runWrangler(ctx, 'kvCreate', args, `kv namespace create ${JSON.stringify(args.title)}`)
+  const r: any = await runWrangler(ctx, 'kvCreate', args, `kv namespace create ${JSON.stringify(args.title)}`)
+  if (!r.ok) return r
+  const idMatch = (r.stdout ?? '').match(/id\s*=\s*"([^"]+)"/)
+  return { ...r, namespace_id: idMatch?.[1] ?? null }
 }
 async function handleKvList(ctx: CloudflareCtx, args: z.infer<typeof kvListArgs>) {
   return runWrangler(ctx, 'kvList', args, 'kv namespace list')
@@ -311,22 +326,24 @@ async function handleKvPut(ctx: CloudflareCtx, args: z.infer<typeof kvPutArgs>) 
 
 const DESC = {
   whoami:           'Verify the token and show the authorized user / account context.',
-  purgeCache:       'Purge cache for a zone. Pass a `files` URL list (preferred) or `purge_everything: true`.',
+  zonesList:        'List DNS zones on the account. Returns zone id, name, and status. Use the zone id for purgeCache.',
+  purgeCache:       'Purge cache for a zone. Pass a `files` URL list (preferred) or `purge_everything: true`. Get the zone_id from zonesList first.',
   pagesList:        'List Cloudflare Pages projects on the account.',
   pagesDeployments: 'List recent deployments for a Pages project.',
   pagesRemove:      'Delete a Cloudflare Pages project. Irreversible — removes all deployments and releases the *.pages.dev subdomain.',
   pagesDeploy:      'Deploy a local directory to Cloudflare Pages. Creates the project on first use. `dir` is relative to /work and must contain the built site (e.g. "site/dist").',
   r2CreateBucket:   'Create a new R2 bucket on the account.',
   r2DeleteBucket:   'Delete an R2 bucket. The bucket must be empty.',
-  r2List:           'List R2 buckets on the account, or list objects in a specific bucket (with optional prefix filter).',
+  r2ListBuckets:    'List R2 buckets on the account.',
+  r2ListObjects:    'List objects in an R2 bucket with optional prefix filter.',
   r2Upload:         'Upload a workspace file to an R2 bucket. `file` is relative to /work.',
   r2Download:       'Download an R2 object to the workspace. `file` is relative to /work.',
   r2Delete:         'Delete an object from an R2 bucket.',
   d1Create:         'Create a new D1 SQLite database on the account.',
   d1List:           'List D1 databases on the account.',
   d1Query:          'Execute a SQL statement on a D1 database. Returns rows for SELECT, or change count for mutations.',
-  kvCreate:         'Create a new KV namespace on the account.',
-  kvList:           'List KV namespaces on the account.',
+  kvCreate:         'Create a new KV namespace. Returns namespace_id — save it for kvGet/kvPut/kvDelete calls.',
+  kvList:           'List KV namespaces on the account. Returns namespace ids and titles.',
   kvGet:            'Get a value from a KV namespace by key.',
   kvPut:            'Set a key-value pair in a KV namespace.',
   kvDelete:         'Delete a key from a KV namespace.',
@@ -338,6 +355,7 @@ export function buildSdk(ctx: CloudflareCtx, allowed?: string[] | '*' | null) {
   const tu = (extra: unknown): CloudflareCtx => ({ ...ctx, toolUseId: toolUseId(extra) })
   const all = [
     sdkTool('whoami',           DESC.whoami,           whoamiArgs.shape,           async (a, x) => asText(await handleWhoami(tu(x), a))),
+    sdkTool('zonesList',        DESC.zonesList,        zonesListArgs.shape,        async (a, x) => asText(await handleZonesList(tu(x), a))),
     sdkTool('purgeCache',       DESC.purgeCache,       purgeCacheArgs.shape,       async (a, x) => asText(await handlePurgeCache(tu(x), a))),
     sdkTool('pagesList',        DESC.pagesList,        pagesListArgs.shape,        async (a, x) => asText(await handlePagesList(tu(x), a))),
     sdkTool('pagesDeployments', DESC.pagesDeployments, pagesDeploymentsArgs.shape, async (a, x) => asText(await handlePagesDeployments(tu(x), a))),
@@ -345,7 +363,8 @@ export function buildSdk(ctx: CloudflareCtx, allowed?: string[] | '*' | null) {
     sdkTool('pagesDeploy',      DESC.pagesDeploy,      pagesDeployArgs.shape,      async (a, x) => asText(await handlePagesDeploy(tu(x), a))),
     sdkTool('r2CreateBucket',   DESC.r2CreateBucket,   r2CreateBucketArgs.shape,   async (a, x) => asText(await handleR2CreateBucket(tu(x), a))),
     sdkTool('r2DeleteBucket',   DESC.r2DeleteBucket,   r2DeleteBucketArgs.shape,   async (a, x) => asText(await handleR2DeleteBucket(tu(x), a))),
-    sdkTool('r2List',           DESC.r2List,           r2ListArgs.shape,           async (a, x) => asText(await handleR2List(tu(x), a))),
+    sdkTool('r2ListBuckets',    DESC.r2ListBuckets,    r2ListBucketsArgs.shape,    async (a, x) => asText(await handleR2ListBuckets(tu(x), a))),
+    sdkTool('r2ListObjects',    DESC.r2ListObjects,    r2ListObjectsArgs.shape,    async (a, x) => asText(await handleR2ListObjects(tu(x), a))),
     sdkTool('r2Upload',         DESC.r2Upload,         r2UploadArgs.shape,         async (a, x) => asText(await handleR2Upload(tu(x), a))),
     sdkTool('r2Download',       DESC.r2Download,       r2DownloadArgs.shape,       async (a, x) => asText(await handleR2Download(tu(x), a))),
     sdkTool('r2Delete',         DESC.r2Delete,         r2DeleteArgs.shape,         async (a, x) => asText(await handleR2Delete(tu(x), a))),
@@ -369,6 +388,10 @@ export function buildAi(ctx: CloudflareCtx) {
     [`${prefix}-whoami`]: tool({
       description: DESC.whoami,           inputSchema: whoamiArgs,
       execute:     (a: z.infer<typeof whoamiArgs>) => handleWhoami(ctx, a),
+    }),
+    [`${prefix}-zonesList`]: tool({
+      description: DESC.zonesList,        inputSchema: zonesListArgs,
+      execute:     (a: z.infer<typeof zonesListArgs>) => handleZonesList(ctx, a),
     }),
     [`${prefix}-purgeCache`]: tool({
       description: DESC.purgeCache,       inputSchema: purgeCacheArgs,
@@ -398,9 +421,13 @@ export function buildAi(ctx: CloudflareCtx) {
       description: DESC.r2DeleteBucket,   inputSchema: r2DeleteBucketArgs,
       execute:     (a: z.infer<typeof r2DeleteBucketArgs>) => handleR2DeleteBucket(ctx, a),
     }),
-    [`${prefix}-r2List`]: tool({
-      description: DESC.r2List,           inputSchema: r2ListArgs,
-      execute:     (a: z.infer<typeof r2ListArgs>) => handleR2List(ctx, a),
+    [`${prefix}-r2ListBuckets`]: tool({
+      description: DESC.r2ListBuckets,    inputSchema: r2ListBucketsArgs,
+      execute:     (a: z.infer<typeof r2ListBucketsArgs>) => handleR2ListBuckets(ctx, a),
+    }),
+    [`${prefix}-r2ListObjects`]: tool({
+      description: DESC.r2ListObjects,    inputSchema: r2ListObjectsArgs,
+      execute:     (a: z.infer<typeof r2ListObjectsArgs>) => handleR2ListObjects(ctx, a),
     }),
     [`${prefix}-r2Upload`]: tool({
       description: DESC.r2Upload,         inputSchema: r2UploadArgs,
