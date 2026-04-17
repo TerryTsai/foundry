@@ -64,7 +64,7 @@ const pagesRemoveArgs      = z.object({
 })
 const pagesDeployArgs      = z.object({
   project_name: z.string().describe('Pages project name (slug). Created if missing.'),
-  dir:          z.string().describe('Directory to deploy, relative to /work. Must contain the built site (e.g. "site/dist").'),
+  dir:          z.string().describe('Static output directory relative to /work (e.g. "public"). Functions in /work/functions/ are included automatically.'),
   branch:       z.string().optional().describe('Deploy branch; default "main".'),
   account_id:   z.string().optional(),
 })
@@ -235,33 +235,33 @@ async function handlePagesRemove(ctx: CloudflareCtx, args: z.infer<typeof pagesR
   return { ok: true, result: parseCfResponse(r.stdout) }
 }
 
-// Wrangler deploy. Isolated workspace — /work not mounted, dir copied
-// into /input/dist; wrangler's ephemeral cache dies with the container.
-// `pages project create` runs first so missing projects are created
-// non-interactively (wrangler errors if absent rather than auto-creating).
+// Deploy to Cloudflare Pages. /work is mounted rw so wrangler sees the
+// full project tree (static assets, functions/, wrangler.toml). The
+// `dir` arg is the path to the static output directory relative to /work.
 async function handlePagesDeploy(ctx: CloudflareCtx, args: z.infer<typeof pagesDeployArgs>) {
   const acct = resolveAccountId(ctx, args.account_id)
   const branch = args.branch ?? 'main'
+  const dir = `/work/${args.dir}`
   const command = [
     'wrangler pages project create',
     JSON.stringify(args.project_name),
     '--production-branch', JSON.stringify(branch),
     '|| true',
     '&&',
-    'wrangler pages deploy /input/dist',
+    `wrangler pages deploy ${JSON.stringify(dir)}`,
     '--project-name', JSON.stringify(args.project_name),
     '--branch',       JSON.stringify(branch),
     '--commit-dirty=true',
   ].join(' ')
   const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace,
     command, 'pagesDeploy', args, {
-      network:     true,
+      network: true,
+      mount:   'rw',
       env: {
         CLOUDFLARE_API_TOKEN:  ctx.secrets.api_token ?? '',
         CLOUDFLARE_ACCOUNT_ID: acct,
       },
-      artifactsIn: [{ src: args.dir, dest: 'dist' }],
-      toolUseId:   ctx.toolUseId,
+      toolUseId: ctx.toolUseId,
     })
   if (r.exitCode !== 0) return { ok: false, error: r.stderr || r.stdout }
   const deployMatch = r.stdout.match(/https:\/\/[a-z0-9]+\.[a-z0-9-]+\.pages\.dev/i)
@@ -347,7 +347,7 @@ const DESC = {
   pagesList:        'List Cloudflare Pages projects on the account.',
   pagesDeployments: 'List recent deployments for a Pages project.',
   pagesRemove:      'Delete a Cloudflare Pages project. Irreversible — removes all deployments and releases the *.pages.dev subdomain.',
-  pagesDeploy:      'Deploy a local directory to Cloudflare Pages. Creates the project on first use. `dir` is relative to /work and must contain the built site (e.g. "site/dist").',
+  pagesDeploy:      'Deploy to Cloudflare Pages. Creates the project on first use. `dir` is the static output directory relative to /work (e.g. "public"). If the project has a functions/ directory at /work/functions/, Pages Functions are deployed automatically alongside the static assets.',
   r2CreateBucket:   'Create a new R2 bucket on the account.',
   r2DeleteBucket:   'Delete an R2 bucket. The bucket must be empty.',
   r2ListBuckets:    'List R2 buckets on the account.',
