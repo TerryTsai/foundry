@@ -9,11 +9,8 @@ import { query } from '@anthropic-ai/claude-agent-sdk'
 import { readFileSync } from 'fs'
 import { join } from 'path'
 import { homedir } from 'os'
-import { eq } from 'drizzle-orm'
-
 import { type Db } from '../../database.js'
 import * as database from '../../database.js'
-import * as schema from '../../tables.js'
 import type { Connection } from '../../tables.js'
 import { now, mustExist } from '../../util.js'
 
@@ -160,7 +157,7 @@ function buildMcpServers(ctx: SessionContext): Record<string, ReturnType<typeof 
     mcpServers.browser = browserServer.buildSdk({ db, config, sessionId, workspace: workDir }, selection?.browser)
   }
 
-  const conns = database.connectionAll(db, [eq(schema.connection.account_id, agentDef.account_id)])
+  const conns = database.connectionByAccount(db, agentDef.account_id)
   for (const conn of conns) {
     const mod = byConnectionKind[conn.kind as keyof typeof byConnectionKind]
     if (!mod) continue

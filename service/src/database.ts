@@ -81,6 +81,10 @@ export function projectAll(d: Db, conditions?: SQL[]): Project[] {
   return q.all() as Project[]
 }
 
+export function projectsActive(d: Db): Project[] {
+  return d.select().from(schema.project).where(eq(schema.project.status, 'active')).all() as Project[]
+}
+
 export function projectInsert(d: Db, data: Record<string, unknown>): Project {
   const id = ulid()
   d.insert(schema.project).values({ ...data, id } as any).run()
@@ -167,6 +171,10 @@ export function connectionGet(d: Db, id: string): Connection | undefined {
 export function connectionAll(d: Db, conditions?: SQL[]): Connection[] {
   const q = conditions?.length ? d.select().from(schema.connection).where(and(...conditions)) : d.select().from(schema.connection)
   return q.all() as Connection[]
+}
+
+export function connectionByAccount(d: Db, accountId: string): Connection[] {
+  return d.select().from(schema.connection).where(eq(schema.connection.account_id, accountId)).all() as Connection[]
 }
 
 export function connectionInsert(d: Db, data: Record<string, unknown>): Connection {
@@ -355,6 +363,21 @@ const sessionWithAgentColumns = {
   tokens_out: sql<number | null>`SUM(${schema.activity.tokens})`.as('tokens_out'),
   step_count: sql<number | null>`NULLIF(COUNT(DISTINCT ${schema.activity.turn_id}), 0)`.as('step_count'),
   tool_calls: sql<number | null>`NULLIF((SELECT COUNT(*) FROM execution WHERE execution.session_id = session.id), 0)`.as('tool_calls'),
+}
+
+export function sessionRunningForTicket(d: Db, ticketId: string): Session[] {
+  return d.select().from(schema.session).where(and(
+    eq(schema.session.ticket_id, ticketId),
+    eq(schema.session.status, 'running'),
+  )).all() as Session[]
+}
+
+export function sessionRunning(d: Db): Session[] {
+  return d.select().from(schema.session).where(eq(schema.session.status, 'running')).all() as Session[]
+}
+
+export function sessionsByTicketRaw(d: Db, ticketId: string): Session[] {
+  return d.select().from(schema.session).where(eq(schema.session.ticket_id, ticketId)).orderBy(schema.session.started_at).all() as Session[]
 }
 
 export function sessionGet(d: Db, id: string): Session | undefined {

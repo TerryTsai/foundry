@@ -17,7 +17,7 @@ import * as validate from '../validate.js'
 // runtime uses when mounting the Agent-SDK server.
 export function agentMcpList(db: Db, accountId: string): McpServerInfo[] {
   const out: McpServerInfo[] = [...mcpRegistry]
-  const conns = database.connectionAll(db, [eq(schema.connection.account_id, accountId)])
+  const conns = database.connectionByAccount(db, accountId)
   for (const conn of conns) {
     const mod = byConnectionKind[conn.kind as keyof typeof byConnectionKind]
     const provider = providers.providerGet(conn.kind)

@@ -3,12 +3,10 @@
 // rows. Tokens ride on the first activity of the step.
 
 import { generateText, stepCountIs, type ModelMessage, type ToolSet } from 'ai'
-import { eq } from 'drizzle-orm'
 import { ulid } from 'ulid'
 
 import { type Db } from '../../database.js'
 import * as database from '../../database.js'
-import * as schema from '../../tables.js'
 import type { Connection } from '../../tables.js'
 import { now } from '../../util.js'
 
@@ -51,7 +49,7 @@ function buildTools(ctx: SessionContext): ToolSet {
   }
   // Connection-backed tools. Flat namespace <kind>-<name>-<tool>; no
   // server concept in the AI SDK ToolSet, so everything merges in.
-  const conns = database.connectionAll(db, [eq(schema.connection.account_id, agentDef.account_id)])
+  const conns = database.connectionByAccount(db, agentDef.account_id)
   for (const conn of conns) {
     const mod = byConnectionKind[conn.kind as keyof typeof byConnectionKind]
     if (!mod) continue

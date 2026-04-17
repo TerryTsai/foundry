@@ -6,11 +6,8 @@
 // waiting longest gets the next slot. Prevents starvation across
 // producers and verifiers.
 
-import { eq } from 'drizzle-orm'
-
 import { type Db } from '../database.js'
 import * as database from '../database.js'
-import * as schema from '../tables.js'
 import type { Agent as AgentDef, Ticket } from '../tables.js'
 import { now } from '../util.js'
 import { ticketList } from './tickets.js'
@@ -30,10 +27,7 @@ function lastEventTime(db: Db, ticketId: string): string {
 }
 
 function hasRunningSession(db: Db, ticketId: string): boolean {
-  return database.sessionAll(db, [
-    eq(schema.session.ticket_id, ticketId),
-    eq(schema.session.status, 'running'),
-  ]).length > 0
+  return database.sessionRunningForTicket(db, ticketId).length > 0
 }
 
 function transition(db: Db, ticketId: string, from: string, to: string, causedBy: string, data?: Record<string, unknown>): boolean {
@@ -96,7 +90,7 @@ function evaluateWaiting(db: Db, ticket: Ticket, agents: AgentDef[], slots: { re
   const verdicts = database.verdictByTicket(db, ticket.id)
 
   // Find the latest producer session to determine the current round.
-  const sessions = database.sessionAll(db, [eq(schema.session.ticket_id, ticket.id)])
+  const sessions = database.sessionsByTicketRaw(db, ticket.id)
   const producerSessions = sessions.filter(s => {
     // A producer session is one run by the ticket's assigned agent
     return s.agent_id === ticket.agent_id
@@ -184,7 +178,7 @@ function evaluateWaiting(db: Db, ticket: Ticket, agents: AgentDef[], slots: { re
 // ── Sweep ──
 
 export async function reconcilerTick(db: Db): Promise<void> {
-  for (const proj of database.projectAll(db, [eq(schema.project.status, 'active')])) {
+  for (const proj of database.projectsActive(db)) {
     const allAgents = agentList(db, { accountId: proj.owner_id })
 
     const running = ticketList(db, { projectId: proj.id, status: 'running' })
@@ -224,7 +218,7 @@ export function reconcilerStopAll(): void {
 }
 
 export function shutdownDrain(db: Db): void {
-  const running = database.sessionAll(db, [eq(schema.session.status, 'running')])
+  const running = database.sessionRunning(db)
   for (const s of running) {
     database.sessionUpdate(db, s.id, {
       status: 'failed', error: 'deploy-restart', ended_at: now(),
