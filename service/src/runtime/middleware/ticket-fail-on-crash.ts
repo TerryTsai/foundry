@@ -1,9 +1,9 @@
-// Producer-only: if the agent loop throws, resolve the ticket as
-// 'failed' so it doesn't sit in `claimed` forever. Verifier sessions
-// must NOT use this — their crash goes through synthetic-fail-verdict
-// instead, and the orchestrator continues the dance.
+// Producer-only: if the agent loop throws, mark the ticket as failed
+// so it doesn't sit in `running` forever. The reconciler will see the
+// terminal state and move on.
 
-import { ticketResolve } from '../../domain/tickets.js'
+import * as database from '../../database.js'
+import { now } from '../../util.js'
 import type { Middleware } from '../compose.js'
 
 export const withTicketFailOnCrash: Middleware = (next) => async (ctx) => {
@@ -11,8 +11,12 @@ export const withTicketFailOnCrash: Middleware = (next) => async (ctx) => {
   catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     try {
-      ticketResolve(ctx.db, ctx.ticket.id, 'failed', {
-        notes: msg, agentName: ctx.agent.name, sessionId: ctx.session.id,
+      database.ticketUpdate(ctx.db, ctx.ticket.id, { status: 'failed', updated_at: now() })
+      database.eventInsert(ctx.db, {
+        entity_type: 'ticket', entity_id: ctx.ticket.id,
+        kind: 'status_changed',
+        data: JSON.stringify({ from: 'running', to: 'failed', reason: msg }),
+        caused_by: 'runtime', caused_by_id: ctx.session.id,
       })
     } catch { /* don't mask the original */ }
     throw err

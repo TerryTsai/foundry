@@ -7,11 +7,11 @@ import { analytics } from './domain/analytics.js'
 import { connectionList, connectionGet, connectionCreate, connectionUpdate, connectionRemove } from './domain/connections.js'
 import {
   ticketList, ticketGet, ticketCreate, ticketUpdate,
-  ticketClaim, ticketResolve, ticketReopen, ticketDependencyChain,
+  ticketCancel, ticketDependencyChain,
   commentList, commentCreate, tagList, tagAdd, tagRemove, verdictList,
 } from './domain/tickets.js'
 import { agentMcpList, agentList, agentGet, agentCreate, agentUpdate, agentRemove } from './domain/agents.js'
-import { sessionGet, sessionStatus, sessionKill, sessionActivities, sessionByTicket, sessionListAll, sessionStart } from './domain/sessions.js'
+import { sessionGet, sessionStatus, sessionKill, sessionActivities, sessionByTicket, sessionListAll } from './domain/sessions.js'
 import { executionList, executionGet, executionBySession, executionCreate, executionKill, executionStream } from './domain/executions.js'
 import { ticketUsage, agentUsage, sessionUsage } from './domain/usage.js'
 import * as validate from './validate.js'
@@ -144,9 +144,7 @@ export function ticketRoutes(db: Db) {
   r.post  ('/',            parse(validate.ticketCreate),        run(req => ticketCreate(db, req.data)),                          send(201))
   r.get   ('/:id',                                              run(req => ticketGet(db, req.params.id)),                        send())
   r.put   ('/:id',         parse(validate.ticketUpdate),        run(req => ticketUpdate(db, req.params.id, req.data)),           send())
-  r.post  ('/:id/claim',                                        run(req => ticketClaim(db, req.params.id)),                      send())
-  r.post  ('/:id/resolve', parse(validate.ticketResolve),       run(req => ticketResolve(db, req.params.id, req.data.outcome, { notes: req.data.notes })), send())
-  r.post  ('/:id/reopen',                                       run(req => ticketReopen(db, req.params.id)),                     send())
+  r.post  ('/:id/cancel',                                        run(req => ticketCancel(db, req.params.id)),                     send())
   r.get   ('/:id/chain',                                        run(req => ticketDependencyChain(db, req.params.id)),            send())
   r.get   ('/:id/verdict',                                      run(req => verdictList(db, req.params.id)),                      send())
   r.get   ('/:id/comment',                                      run(req => commentList(db, req.params.id)),                      send())
@@ -173,7 +171,6 @@ export function agentRoutes(db: Db, config: Config) {
   r.get   ('/:id/usage',                                                        run(req => agentUsage(db, req.params.id)),                                       send())
   r.put   ('/:id',                      parse(validate.agentUpdate),            run(req => agentUpdate(db, accountId(req), req.params.id, req.data)),             send())
   r.delete('/:id',                                                              run(req => agentRemove(db, accountId(req), req.params.id)),                       send())
-  r.post  ('/:id/session',              parse(validate.sessionStart),           run(req => sessionStart(db, config, req.params.id, req.data.ticket_id)),         send(201))
   r.get   ('/:id/session/:sid',                                                 run(req => sessionGet(db, req.params.sid)),                                      send())
   r.get   ('/:id/session/:sid/status',                                          run(req => sessionStatus(db, req.params.sid)),                                   send())
   r.delete('/:id/session/:sid',                                                 run(req => sessionKill(db, req.params.sid)),                                     send())

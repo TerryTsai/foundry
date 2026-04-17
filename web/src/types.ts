@@ -52,14 +52,12 @@ export interface Ticket {
   agent_id: string | null
   title: string
   description: string
-  status: 'opened' | 'claimed' | 'resolved'
-  outcome: 'finished' | 'failed' | 'cancelled' | null
+  status: 'created' | 'waiting' | 'running' | 'finished' | 'failed' | 'cancelled'
   priority: number
   depends_on: string | null
   created_by: string
   created_at: string
   updated_at: string
-  claimed_at: string | null
 }
 
 export interface Tag {
@@ -231,7 +229,6 @@ export interface Session {
   duration_ms: number | null
   step_count: number | null
   tool_calls: number | null
-  finish_reason: string | null
   system_prompt: string | null
   started_at: string
   ended_at: string | null

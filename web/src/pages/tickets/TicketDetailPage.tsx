@@ -195,14 +195,9 @@ export function TicketDetailPage() {
     revalidate()
   }
 
-  async function handleReopen() {
-    await ticketApi.reopen(ticket.id)
-    navigate(`/p/${projectId}/tickets`)
-  }
-
   async function handleCancel() {
     if (!confirm('Cancel this ticket?')) return
-    await ticketApi.resolve(ticket.id, 'cancelled')
+    await ticketApi.cancel(ticket.id)
     navigate(`/p/${projectId}/tickets`)
   }
 
@@ -213,9 +208,9 @@ export function TicketDetailPage() {
   return (
     <DetailShell
       type="ticket" id={ticket.id} title={ticket.title}
-      status={ticket.status === 'resolved' ? (ticket.outcome ?? 'resolved') : ticket.status}
+      status={ticket.status}
       subtitle={!editing ? ticket.description : undefined}
-      actions={!editing && ticket.status === 'opened' && verdicts.length === 0 ? (
+      actions={!editing && ticket.status === 'created' && verdicts.length === 0 ? (
         <button onClick={() => setEditing(true)}
           className="text-xs text-zinc-400 dark:text-zinc-500 active:text-zinc-900 dark:active:text-zinc-100 shrink-0">
           edit
@@ -226,7 +221,6 @@ export function TicketDetailPage() {
         { label: 'creator',  value: fmtActor(ticket.created_by) },
         { label: 'created',  value: ts(ticket.created_at) },
         { label: 'priority', value: ticket.priority > 0 ? String(ticket.priority) : null },
-        { label: 'claimed',  value: ticket.claimed_at ? ts(ticket.claimed_at) : null },
         { label: 'updated',  value: ticket.updated_at !== ticket.created_at ? ts(ticket.updated_at) : null },
         { label: 'sessions',   value: usage.session_count > 0 ? String(usage.session_count) : null },
         { label: 'tokens in',  value: usage.tokens_in  > 0 ? usage.tokens_in.toLocaleString()  : null },
@@ -257,13 +251,8 @@ export function TicketDetailPage() {
 
       <CommentsSection projectId={projectId} ticketId={ticket.id} comments={comments} onRefresh={refreshComments} />
 
-      {!editing && ticket.status === 'resolved' && (
-        <div className="pt-2">
-          <ActionButton label="reopen" variant="secondary" onClick={handleReopen} className="w-full" />
-        </div>
-      )}
 
-      {!editing && ticket.status !== 'resolved' && (
+      {!editing && ticket.status !== 'finished' && ticket.status !== 'cancelled' && (
         <div className="pt-2">
           <ActionButton label="cancel ticket" variant="destructive" onClick={handleCancel} className="w-full" />
         </div>

@@ -10,7 +10,7 @@ import {
   agentRoutes, sessionRoutes, executionRoutes, analyticsRoutes,
 } from './router.js'
 import { errors, requireAuth } from './middleware.js'
-import { schedulerRecover, schedulerGlobalStart, schedulerStopAll, shutdownDrain } from './domain/scheduler.js'
+import { reconcilerGlobalStart, reconcilerStopAll, shutdownDrain } from './domain/reconciler.js'
 
 const db  = createDatabase(config.dbPath)
 const app = express()
@@ -65,14 +65,14 @@ app.use(errors)
 
 app.listen(config.port, () => {
   console.log(`foundry service listening on port ${config.port}`)
-  schedulerRecover(db).catch(console.error)
-  schedulerGlobalStart(db)
+  ;(globalThis as any).__foundryConfig = config
+  reconcilerGlobalStart(db)
 })
 
 // ── Graceful shutdown on deploy restart ──
 process.on('SIGTERM', () => {
   console.log('SIGTERM received, draining…')
-  schedulerStopAll()
+  reconcilerStopAll()
   shutdownDrain(db)
   try { execSync('podman kill --all', { timeout: 5000, stdio: 'ignore' }) } catch {}
   console.log('drain complete, exiting')

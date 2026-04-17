@@ -1,7 +1,6 @@
-// Session bookkeeping: row updates + ticket comments. Posts "Session
-// started" before the loop, then on completion writes the session row's
-// terminal state (status, duration, cost) and a human-readable comment.
-// On throw, records status=failed and re-raises.
+// Session bookkeeping: row updates + ticket comments + event emission.
+// Posts "Session started" before the loop, then on completion writes the
+// session row's terminal state and a human-readable comment.
 
 import * as database from '../../database.js'
 import { now } from '../../util.js'
@@ -25,10 +24,15 @@ export const withSessionBookkeeping: Middleware = (next) => async (ctx) => {
     const status = r.cancelled ? 'cancelled' : 'finished'
     database.sessionUpdate(ctx.db, ctx.session.id, {
       status,
-      finish_reason: r.cancelled ? 'cancelled' : r.finishReason,
-      cost_usd:      r.costUsd,
-      duration_ms:   Date.now() - ctx.startedAt,
-      ended_at:      now(),
+      cost_usd:    r.costUsd,
+      duration_ms: Date.now() - ctx.startedAt,
+      ended_at:    now(),
+    })
+    database.eventInsert(ctx.db, {
+      entity_type: 'session', entity_id: ctx.session.id,
+      kind: 'status_changed',
+      data: JSON.stringify({ from: 'running', to: status }),
+      caused_by: 'runtime',
     })
     comment(ctx, r.cancelled ? 'Session cancelled' : 'Session finished')
     return ctx
@@ -39,6 +43,12 @@ export const withSessionBookkeeping: Middleware = (next) => async (ctx) => {
       error:       msg,
       duration_ms: Date.now() - ctx.startedAt,
       ended_at:    now(),
+    })
+    database.eventInsert(ctx.db, {
+      entity_type: 'session', entity_id: ctx.session.id,
+      kind: 'status_changed',
+      data: JSON.stringify({ from: 'running', to: 'failed', error: msg }),
+      caused_by: 'runtime',
     })
     comment(ctx, 'Session crashed')
     throw err

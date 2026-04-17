@@ -29,7 +29,7 @@ export const info: McpServerInfo = {
     { name: 'ticketGet',     description: 'Fetch a ticket by id.' },
     { name: 'ticketCreate',  description: 'Create a new ticket in the current project.' },
     { name: 'ticketComment', description: 'Post a comment on a ticket.' },
-    { name: 'ticketReopen',  description: 'Reopen a resolved ticket so the scheduler dispatches it again.' },
+    { name: 'ticketCancel',  description: 'Cancel a ticket.' },
     { name: 'verdictReport', description: 'Verifier-only: report pass/fail for the producer\'s work on this ticket.' },
     { name: 'ticketTagAdd',    description: 'Add a tag to a ticket.' },
     { name: 'ticketTagRemove', description: 'Remove a tag from a ticket.' },
@@ -55,8 +55,7 @@ export interface FoundryCtx {
 // ── Schemas ──
 
 const ticketListArgs = z.object({
-  status:   z.enum(['opened', 'claimed', 'resolved']).optional().describe('Filter by ticket state.'),
-  outcome:  z.enum(['finished', 'failed', 'cancelled']).optional().describe('Filter resolved tickets by outcome.'),
+  status:   z.enum(['created', 'waiting', 'running', 'finished', 'failed', 'cancelled']).optional().describe('Filter by ticket state.'),
   agent_id: z.string().optional().describe('Filter by assigned agent id.'),
   tag:      z.string().optional().describe('Filter by tag.'),
 })
@@ -70,7 +69,7 @@ const ticketCreateArgs = z.object({
   description: z.string().describe('Full description, markdown allowed.'),
   agent_id:    z.string().optional().describe('Optional: assign to a specific agent by id. Use agentsList first to discover ids.'),
   priority:    z.number().int().optional().describe('Optional priority (default 0).'),
-  depends_on:  z.string().optional().describe('Optional: id of a ticket this one depends on. Scheduler will not dispatch this ticket until the dependency is resolved with outcome=finished.'),
+  depends_on:  z.string().optional().describe('Optional: id of a ticket this one depends on. Will not dispatch until the dependency is finished.'),
 })
 
 const verdictReportArgs = z.object({
@@ -83,8 +82,8 @@ const ticketCommentArgs = z.object({
   body:      z.string().describe('Comment body, markdown allowed.'),
 })
 
-const ticketReopenArgs = z.object({
-  ticket_id: z.string().describe('Ticket id to reopen. Must currently be in done or failed state.'),
+const ticketCancelArgs = z.object({
+  ticket_id: z.string().describe('Ticket id to cancel.'),
 })
 
 const ticketTagAddArgs = z.object({
@@ -157,7 +156,6 @@ async function apiDelete(ctx: FoundryCtx, toolName: string, toolInput: unknown, 
 async function handleTicketList(ctx: FoundryCtx, args: z.infer<typeof ticketListArgs>) {
   const qs = new URLSearchParams({ projectId: ctx.projectId })
   if (args.status)   qs.set('status',  args.status)
-  if (args.outcome)  qs.set('outcome', args.outcome)
   if (args.agent_id) qs.set('agentId', args.agent_id)
   if (args.tag)      qs.set('tag',     args.tag)
   return apiGet(ctx, 'ticketList', args, `/ticket?${qs}`)
@@ -207,8 +205,8 @@ async function handleTicketComment(ctx: FoundryCtx, args: z.infer<typeof ticketC
   return apiPost(ctx, 'ticketComment', args, `/ticket/${targetTicket}/comment`, payload)
 }
 
-async function handleTicketReopen(ctx: FoundryCtx, args: z.infer<typeof ticketReopenArgs>) {
-  return apiPost(ctx, 'ticketReopen', args, `/ticket/${args.ticket_id}/reopen`, '')
+async function handleTicketCancel(ctx: FoundryCtx, args: z.infer<typeof ticketCancelArgs>) {
+  return apiPost(ctx, 'ticketCancel', args, `/ticket/${args.ticket_id}/cancel`, '')
 }
 
 async function handleTicketTagAdd(ctx: FoundryCtx, args: z.infer<typeof ticketTagAddArgs>) {
@@ -245,11 +243,11 @@ async function handleThink(ctx: FoundryCtx, args: z.infer<typeof thinkArgs>, tuI
 }
 
 const DESC = {
-  ticketList:      'List tickets in the current project. Optionally filter by status (opened/claimed/resolved), outcome (finished/failed/cancelled), assigned agent, or tag.',
-  ticketGet:       'Fetch a ticket by id including its title, body, status, outcome, dependency, and tags.',
-  ticketCreate:    'Create a new ticket in the current project. Use `depends_on` to sequence work — the new ticket won\'t dispatch until the dependency is resolved with outcome=finished. Use tags for grouping (no parent/child hierarchy).',
+  ticketList:      'List tickets in the current project. Filter by status (created/waiting/running/finished/failed/cancelled), agent, or tag.',
+  ticketGet:       'Fetch a ticket by id including its title, body, status, dependency, and tags.',
+  ticketCreate:    'Create a new ticket in the current project. Use `depends_on` to sequence work — the new ticket won\'t dispatch until the dependency is finished. Use tags for grouping.',
   ticketComment:   'Post a comment on a ticket. Used for status updates, questions, or communicating with the Founder.',
-  ticketReopen:    'Reopen a resolved ticket so the scheduler dispatches it again. Use this for explicit founder-style re-entry; verifier rejections reopen automatically through the verifier dance.',
+  ticketCancel:    'Cancel a ticket. Works on any non-terminal ticket.',
   verdictReport:   'Verifier-only. After reviewing the ticket payload + comments, call this exactly once with pass=true if the work meets acceptance criteria, or pass=false with a reason. Producer agents must NOT call this.',
   ticketTagAdd:    'Add a tag to a ticket.',
   ticketTagRemove: 'Remove a tag from a ticket.',
@@ -272,7 +270,7 @@ export function buildSdk(ctx: FoundryCtx, allowed?: string[] | '*' | null) {
     sdkTool('ticketGet',     DESC.ticketGet,     ticketGetArgs.shape,     async (a, x) => asText(await handleTicketGet(tu(x), a))),
     sdkTool('ticketCreate',  DESC.ticketCreate,  ticketCreateArgs.shape,  async (a, x) => asText(await handleTicketCreate(tu(x), a))),
     sdkTool('ticketComment', DESC.ticketComment, ticketCommentArgs.shape, async (a, x) => asText(await handleTicketComment(tu(x), a))),
-    sdkTool('ticketReopen',  DESC.ticketReopen,  ticketReopenArgs.shape,  async (a, x) => asText(await handleTicketReopen(tu(x), a))),
+    sdkTool('ticketCancel',  DESC.ticketCancel,  ticketCancelArgs.shape,  async (a, x) => asText(await handleTicketCancel(tu(x), a))),
     sdkTool('verdictReport', DESC.verdictReport, verdictReportArgs.shape, async (a, x) => asText(await handleVerdictReport(tu(x), a))),
     sdkTool('ticketTagAdd',    DESC.ticketTagAdd,    ticketTagAddArgs.shape,    async (a, x) => asText(await handleTicketTagAdd(tu(x), a))),
     sdkTool('ticketTagRemove', DESC.ticketTagRemove, ticketTagRemoveArgs.shape, async (a, x) => asText(await handleTicketTagRemove(tu(x), a))),
@@ -307,10 +305,10 @@ export function buildAi(ctx: FoundryCtx) {
       inputSchema: ticketCommentArgs,
       execute:     (args: z.infer<typeof ticketCommentArgs>) => handleTicketComment(ctx, args),
     }),
-    ticketReopen: tool({
-      description: DESC.ticketReopen,
-      inputSchema: ticketReopenArgs,
-      execute:     (args: z.infer<typeof ticketReopenArgs>) => handleTicketReopen(ctx, args),
+    ticketCancel: tool({
+      description: DESC.ticketCancel,
+      inputSchema: ticketCancelArgs,
+      execute:     (args: z.infer<typeof ticketCancelArgs>) => handleTicketCancel(ctx, args),
     }),
     verdictReport: tool({
       description: DESC.verdictReport,

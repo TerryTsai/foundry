@@ -11,9 +11,7 @@ import { PageShell } from './PageShell.js'
 
 // ── Filter helpers (same logic as old TicketListPage) ──────────────────────
 
-// State labels — `resolved` is split into outcome chips so the founder can
-// filter "did it ship" vs "did it fail" without expanding two filter rows.
-const STATUSES = ['opened', 'claimed', 'finished', 'failed', 'cancelled']
+const STATUSES = ['created', 'waiting', 'running', 'finished', 'failed', 'cancelled']
 const DATE_OPTIONS = ['today', 'yesterday', 'this week', 'this month']
 
 function matchesDateFilter(iso: string, selected: Set<string>): boolean {
@@ -80,19 +78,14 @@ export function TicketsSplitLayout() {
   const statuses      = getParam('status')
   const agentFilter   = getParam('agent')
   const createdFilter = getParam('created')
-  const claimedFilter = getParam('claimed')
-
   const setStatuses      = makeSetter('status')
   const setAgentFilter   = makeSetter('agent')
   const setCreatedFilter = makeSetter('created')
-  const setClaimedFilter = makeSetter('claimed')
 
   // Inbox toggle. Default on (absent param = inbox). Narrows to tickets that
-  // need founder action: unassigned-opened, or resolved with non-finished
-  // outcome. Any explicit filter (status, agent, etc.) disables inbox so
-  // advanced filtering reads what it's given.
+  // need founder action: unassigned-created, or failed/cancelled.
   const inboxOn = searchParams.get('view') !== 'all'
-  const anyExplicitFilter = statuses.size + agentFilter.size + createdFilter.size + claimedFilter.size > 0
+  const anyExplicitFilter = statuses.size + agentFilter.size + createdFilter.size > 0
   const inboxActive = inboxOn && !anyExplicitFilter
   function toggleInbox() {
     setSearchParams((prev: URLSearchParams) => {
@@ -141,23 +134,15 @@ export function TicketsSplitLayout() {
     // Inbox narrows to tickets that need founder action. Skipped whenever
     // any explicit filter chip is set, so advanced filtering is unshackled.
     if (inboxActive) {
-      const unassignedOpen = t.status === 'opened' && !t.agent_id
-      const needsDecision  = t.status === 'resolved' && t.outcome !== 'finished'
+      const unassignedOpen = t.status === 'created' && !t.agent_id
+      const needsDecision  = t.status === 'failed' || t.status === 'cancelled'
       if (!unassignedOpen && !needsDecision) return false
     }
-    // Filter chip → display label. `opened`/`claimed` match the state
-    // directly. `finished`/`failed`/`cancelled` are outcomes of `resolved`.
     if (statuses.size > 0) {
-      const label = t.status === 'resolved' ? (t.outcome ?? 'resolved') : t.status
-      if (!statuses.has(label)) return false
+      if (!statuses.has(t.status)) return false
     }
     if (agentFilter.size > 0 && !agentFilter.has(agentName(t))) return false
     if (createdFilter.size > 0 && !matchesDateFilter(t.created_at, createdFilter)) return false
-    if (claimedFilter.size > 0) {
-      if (claimedFilter.has('unclaimed') && !t.claimed_at) return true
-      if (!t.claimed_at) return claimedFilter.has('unclaimed')
-      if (!matchesDateFilter(t.claimed_at, claimedFilter)) return false
-    }
     return true
   }).slice().sort((a, b) => b.created_at.localeCompare(a.created_at))
 
@@ -181,7 +166,6 @@ export function TicketsSplitLayout() {
         <MultiSelect label="Agent" options={uniqueAgentNames}                 selected={agentFilter}    onChange={setAgentFilter} />
       )}
       <MultiSelect label="Created" options={DATE_OPTIONS}                     selected={createdFilter}  onChange={setCreatedFilter} />
-      <MultiSelect label="Claimed" options={['unclaimed', ...DATE_OPTIONS]}   selected={claimedFilter}  onChange={setClaimedFilter} />
       {projectTags.length > 0 && (
         <MultiSelect label="Tag" options={projectTags} selected={tagFilter} onChange={setTagFilter} />
       )}
@@ -208,7 +192,7 @@ export function TicketsSplitLayout() {
               <ListRow
                 title={t.title}
                 subtitle={date}
-                status={t.status === 'resolved' ? (t.outcome ?? 'resolved') : t.status}
+                status={t.status}
                 active={t.id === ticketId}
                 hideChevron={hideChevron}
               />

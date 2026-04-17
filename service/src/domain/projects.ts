@@ -7,7 +7,7 @@ import * as schema from '../tables.js'
 import { mustExist, assertStatus, pick, now, timestamps } from '../util.js'
 import { notFound } from '../errors.js'
 import * as validate from '../validate.js'
-import { schedulerDispatch } from './scheduler.js'
+import { reconcilerTick } from './reconciler.js'
 
 // Ownership-aware fetch: 404 (not 403) on mismatch so other accounts can't
 // probe for valid project ids.
@@ -48,8 +48,8 @@ export function projectUpdate(db: Db, accountId: string, id: string, input: z.in
 
 export function projectRun(db: Db, accountId: string, id: string): { ok: true } {
   const row = assertStatus(projectGetOwned(db, id, accountId), 'active', 'project is not active')
-  schedulerDispatch(db, row.id).catch((err: unknown) =>
-    console.error(`dispatch error for project ${row.id}:`, err))
+  reconcilerTick(db).catch((err: unknown) =>
+    console.error(`reconciler error:`, err))
   return { ok: true }
 }
 

@@ -96,12 +96,11 @@ export const analyticsApi = {
 
 // Tickets
 export const ticketApi = {
-  list: (params?: { projectId?: string; agentId?: string; status?: string; outcome?: string; tag?: string }) => {
+  list: (params?: { projectId?: string; agentId?: string; status?: string; tag?: string }) => {
     const qs = new URLSearchParams()
     if (params?.projectId) qs.set('projectId', params.projectId)
     if (params?.agentId)   qs.set('agentId',   params.agentId)
     if (params?.status)    qs.set('status',    params.status)
-    if (params?.outcome)   qs.set('outcome',   params.outcome)
     if (params?.tag)       qs.set('tag',       params.tag)
     return get<Ticket[]>(`/ticket${qs.toString() ? `?${qs}` : ''}`)
   },
@@ -111,9 +110,7 @@ export const ticketApi = {
     post<Ticket>('/ticket', data),
   update: (id: string, data: { title?: string; description?: string; agent_id?: string; priority?: number }) =>
     put<Ticket>(`/ticket/${id}`, data),
-  resolve: (id: string, outcome: 'finished' | 'failed' | 'cancelled', notes?: string) =>
-    post<Ticket>(`/ticket/${id}/resolve`, { outcome, notes }),
-  reopen:  (id: string) => post<Ticket>(`/ticket/${id}/reopen`),
+  cancel: (id: string) => post<Ticket>(`/ticket/${id}/cancel`),
   usage: (id: string) => get<UsageRollup>(`/ticket/${id}/usage`),
   tags: (ticketId: string) => get<Tag[]>(`/ticket/${ticketId}/tag`),
   addTag: (ticketId: string, tag: string) => post<Tag>(`/ticket/${ticketId}/tag`, { tag }),

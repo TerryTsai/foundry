@@ -74,22 +74,22 @@ export type NewConnection = typeof connection.$inferInsert
 // ════════════════════════════════════════════════════════════════════════════
 
 // State machine:
-//   opened ──claim──▶ claimed ──resolve(outcome)──▶ resolved[outcome]
-//                                                  └─ reopen ─▶ opened
-// Outcomes: finished | failed | cancelled — stored in `outcome` only when
-// state = resolved. "blocked" is derived: a ticket is dispatchable iff
-// state = opened AND (depends_on IS NULL OR depends_on.outcome = 'finished').
+//   created ──▶ waiting ──▶ running ──▶ finished
+//                  ▲           │         failed
+//                  └───────────┘         cancelled
+//
+// Statuses: created | waiting | running | finished | failed | cancelled
+// "blocked" is derived: a ticket is dispatchable iff status = created AND
+// (depends_on IS NULL OR depends_on.status = 'finished').
 export const ticket = sqliteTable('ticket', {
   id:          text('id').primaryKey(),
   project_id:  text('project_id').notNull(),
-  agent_id:    text('agent_id'),                 // pins a specific agent version
+  agent_id:    text('agent_id'),
   title:       text('title').notNull(),
   description: text('description').notNull(),
-  status:      text('status').notNull().default('opened'),
-  outcome:     text('outcome'),                  // finished|failed|cancelled when status=resolved
+  status:      text('status').notNull().default('created'),
   priority:    integer('priority').notNull().default(0),
-  depends_on:  text('depends_on'),               // single FK to another ticket (sequencing only)
-  claimed_at:  text('claimed_at'),
+  depends_on:  text('depends_on'),
   created_by:  text('created_by').notNull(),
   created_at:  text('created_at').notNull(),
   updated_at:  text('updated_at').notNull(),
@@ -163,7 +163,6 @@ export const session = sqliteTable('session', {
   error:         text('error'),
   cost_usd:      real('cost_usd'),
   duration_ms:   integer('duration_ms'),
-  finish_reason: text('finish_reason'),
   started_at:    text('started_at').notNull(),
   ended_at:      text('ended_at'),
 })
@@ -247,3 +246,20 @@ export const verdict = sqliteTable('verdict', {
 
 export type Verdict = typeof verdict.$inferSelect
 export type NewVerdict = typeof verdict.$inferInsert
+
+// ════════════════════════════════════════════════════════════════════════════
+// EVENT — append-only audit log for all state transitions
+// ════════════════════════════════════════════════════════════════════════════
+
+export const event = sqliteTable('event', {
+  id:           text('id').primaryKey(),
+  entity_type:  text('entity_type').notNull(),    // ticket | session | execution
+  entity_id:    text('entity_id').notNull(),
+  kind:         text('kind').notNull(),            // created, status_changed, etc.
+  data:         text('data').notNull().default('{}'),
+  caused_by:    text('caused_by').notNull(),       // founder | agent | reconciler | runtime
+  caused_by_id: text('caused_by_id'),
+  created_at:   text('created_at').notNull(),
+})
+
+export type Event = typeof event.$inferSelect

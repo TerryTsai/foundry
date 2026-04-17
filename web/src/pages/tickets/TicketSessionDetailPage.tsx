@@ -229,7 +229,6 @@ export function TicketSessionDetailPage() {
       infoRows={[
         { label: 'model',       value: session.model },
         { label: 'duration',    value: duration },
-        { label: 'reason',      value: session.finish_reason },
         { label: 'steps',       value: session.step_count !== null ? String(session.step_count) : null },
         { label: 'tokens in',   value: session.tokens_in  !== null ? session.tokens_in.toLocaleString()  : null },
         { label: 'tokens out',  value: session.tokens_out !== null ? session.tokens_out.toLocaleString() : null },

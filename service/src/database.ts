@@ -3,7 +3,7 @@ import { drizzle } from 'drizzle-orm/better-sqlite3'
 import { eq, and, sql, type SQL } from 'drizzle-orm'
 import { ulid } from 'ulid'
 import * as schema from './tables.js'
-import type { Account, Activity, Agent, AuthSession, Comment, Connection, Execution, Project, Session, Tag, Ticket, Verdict } from './tables.js'
+import type { Account, Activity, Agent, AuthSession, Comment, Connection, Event, Execution, Project, Session, Tag, Ticket, Verdict } from './tables.js'
 
 export type Db = ReturnType<typeof drizzle<typeof schema>>
 
@@ -50,6 +50,19 @@ export function createDatabase(path: string): Db {
 
     CREATE INDEX IF NOT EXISTS idx_verdict_ticket_id      ON verdict(ticket_id);
     CREATE INDEX IF NOT EXISTS idx_verdict_session_id     ON verdict(session_id);
+
+    CREATE TABLE IF NOT EXISTS event (
+      id           TEXT PRIMARY KEY,
+      entity_type  TEXT NOT NULL,
+      entity_id    TEXT NOT NULL,
+      kind         TEXT NOT NULL,
+      data         TEXT NOT NULL DEFAULT '{}',
+      caused_by    TEXT NOT NULL,
+      caused_by_id TEXT,
+      created_at   TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_event_entity    ON event(entity_type, entity_id);
+    CREATE INDEX IF NOT EXISTS idx_event_entity_id ON event(entity_id);
   `)
 
   return drizzle(sqlite, { schema })
@@ -199,13 +212,13 @@ export function ticketUpdate(d: Db, id: string, data: Record<string, unknown>): 
   return d.select().from(schema.ticket).where(eq(schema.ticket.id, id)).get() as Ticket
 }
 
-// Conditional claim — only flips status if ticket is still open/reopened.
-// Returns true on success, false if another dispatcher already claimed it.
-// Single SQL UPDATE, so it's atomic even under concurrent schedulerDispatch calls.
-export function ticketClaimIfOpen(d: Db, id: string, claimedAt: string): boolean {
+// Atomic status transition — only succeeds if ticket is in the expected state.
+// Returns true on success, false if another reconciler tick beat us.
+export function ticketTransition(d: Db, id: string, from: string, to: string): boolean {
+  const now = new Date().toISOString()
   const r = d.update(schema.ticket)
-    .set({ status: 'claimed', claimed_at: claimedAt, updated_at: claimedAt })
-    .where(and(eq(schema.ticket.id, id), eq(schema.ticket.status, 'opened')))
+    .set({ status: to, updated_at: now })
+    .where(and(eq(schema.ticket.id, id), eq(schema.ticket.status, from)))
     .run()
   return r.changes > 0
 }
@@ -254,13 +267,11 @@ export function ticketsByTag(d: Db, tag: string, conditions?: SQL[]): Ticket[] {
     title:       schema.ticket.title,
     description: schema.ticket.description,
     status:      schema.ticket.status,
-    outcome:     schema.ticket.outcome,
     priority:    schema.ticket.priority,
     depends_on:  schema.ticket.depends_on,
     created_by:  schema.ticket.created_by,
     created_at:  schema.ticket.created_at,
     updated_at:  schema.ticket.updated_at,
-    claimed_at:  schema.ticket.claimed_at,
   }).from(schema.tag)
     .innerJoin(schema.ticket, eq(schema.tag.ticket_id, schema.ticket.id))
     .where(and(...where))
@@ -338,7 +349,6 @@ const sessionWithAgentColumns = {
   error:         schema.session.error,
   cost_usd:      schema.session.cost_usd,
   duration_ms:   schema.session.duration_ms,
-  finish_reason: schema.session.finish_reason,
   started_at:    schema.session.started_at,
   ended_at:      schema.session.ended_at,
   tokens_in:  sql<number | null>`SUM(${schema.activity.tokens_in})`.as('tokens_in'),
@@ -514,4 +524,38 @@ export function verdictBySession(d: Db, sessionId: string): Verdict | undefined 
     .where(eq(schema.verdict.session_id, sessionId))
     .orderBy(schema.verdict.created_at)
     .get() as Verdict | undefined
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// EVENT
+// ════════════════════════════════════════════════════════════════════════════
+
+export function eventInsert(d: Db, data: {
+  entity_type: string; entity_id: string; kind: string
+  data?: string; caused_by: string; caused_by_id?: string | null
+}): Event {
+  const id = ulid()
+  const created_at = new Date().toISOString()
+  d.insert(schema.event).values({
+    id, entity_type: data.entity_type, entity_id: data.entity_id,
+    kind: data.kind, data: data.data ?? '{}',
+    caused_by: data.caused_by, caused_by_id: data.caused_by_id ?? null,
+    created_at,
+  }).run()
+  return d.select().from(schema.event).where(eq(schema.event.id, id)).get() as Event
+}
+
+export function eventByEntity(d: Db, entityType: string, entityId: string): Event[] {
+  return d.select().from(schema.event)
+    .where(and(eq(schema.event.entity_type, entityType), eq(schema.event.entity_id, entityId)))
+    .orderBy(schema.event.created_at)
+    .all() as Event[]
+}
+
+export function eventLatest(d: Db, entityType: string, entityId: string): Event | undefined {
+  return d.select().from(schema.event)
+    .where(and(eq(schema.event.entity_type, entityType), eq(schema.event.entity_id, entityId)))
+    .orderBy(sql`created_at DESC`)
+    .limit(1)
+    .get() as Event | undefined
 }

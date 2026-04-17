@@ -1,19 +1,17 @@
-import { eq, and, ne } from 'drizzle-orm'
 import type { z } from 'zod'
 
 import { type Db } from '../database.js'
 import * as database from '../database.js'
 import * as schema from '../tables.js'
 import type { Ticket, Tag, Comment, Verdict } from '../tables.js'
-import { mustExist, assertStatus, pick, now, timestamps } from '../util.js'
+import { mustExist, pick, now, timestamps } from '../util.js'
 import { conflict } from '../errors.js'
 import * as validate from '../validate.js'
-
-export type Outcome = 'finished' | 'failed' | 'cancelled'
+import { eq } from 'drizzle-orm'
 
 export interface DependencyChainEntry {
   id: string; title: string; description: string
-  agent_id: string | null; status: string; outcome: string | null
+  agent_id: string | null; status: string
 }
 
 export function ticketList(db: Db, filters: z.infer<typeof validate.ticketList>): Ticket[] {
@@ -21,7 +19,6 @@ export function ticketList(db: Db, filters: z.infer<typeof validate.ticketList>)
     filters.projectId ? eq(schema.ticket.project_id, filters.projectId) : null,
     filters.agentId   ? eq(schema.ticket.agent_id,   filters.agentId)   : null,
     filters.status    ? eq(schema.ticket.status,     filters.status)    : null,
-    filters.outcome   ? eq(schema.ticket.outcome,    filters.outcome)   : null,
   ].filter(Boolean) as any[]
   if (filters.tag) return database.ticketsByTag(db, filters.tag, conditions)
   return database.ticketAll(db, conditions)
@@ -34,21 +31,24 @@ export function ticketGet(db: Db, id: string): Ticket {
 export function ticketCreate(db: Db, input: z.infer<typeof validate.ticketCreate>): Ticket {
   const { project_id, agent_id, title, description, priority, depends_on, created_by } = input
   if (depends_on) mustExist(database.ticketGet(db, depends_on), 'depends_on ticket not found')
-  return database.ticketInsert(db, {
+  const row = database.ticketInsert(db, {
     project_id,
-    agent_id:    agent_id ?? null,
+    agent_id:   agent_id ?? null,
     title, description, priority,
-    status:      'opened',
-    outcome:     null,
-    depends_on:  depends_on ?? null,
-    created_by, ...timestamps(), claimed_at: null,
+    status:     'created',
+    depends_on: depends_on ?? null,
+    created_by, ...timestamps(),
   })
+  database.eventInsert(db, {
+    entity_type: 'ticket', entity_id: row.id,
+    kind: 'created', caused_by: created_by,
+  })
+  return row
 }
 
 export function ticketUpdate(db: Db, id: string, input: z.infer<typeof validate.ticketUpdate>): Ticket {
-  assertStatus(mustExist(database.ticketGet(db, id)), 'opened', 'ticket can only be edited while opened')
-  // Title and description are frozen once work has started. Scope change
-  // = fork the ticket; edits would hide planning churn.
+  const t = mustExist(database.ticketGet(db, id))
+  if (t.status !== 'created') throw conflict('ticket can only be edited while in created state')
   if (input.title !== undefined || input.description !== undefined) {
     const sessions = database.sessionByTicket(db, id)
     if (sessions.length > 0) throw conflict('title and description are frozen once work has started — fork this ticket for scope changes')
@@ -56,46 +56,21 @@ export function ticketUpdate(db: Db, id: string, input: z.infer<typeof validate.
   return database.ticketUpdate(db, id, { ...pick(input, 'title', 'description', 'agent_id', 'priority'), updated_at: now() })
 }
 
-// Atomic claim. Returns the claimed row on success, null if another
-// dispatcher won the race.
-export function ticketClaim(db: Db, id: string): Ticket | null {
-  const claimed = database.ticketClaimIfOpen(db, id, now())
-  if (!claimed) return null
+export function ticketCancel(db: Db, id: string): Ticket {
+  const t = mustExist(database.ticketGet(db, id))
+  if (t.status === 'finished' || t.status === 'cancelled') {
+    throw conflict('ticket is already terminal')
+  }
+  database.ticketUpdate(db, id, { status: 'cancelled', updated_at: now() })
+  database.eventInsert(db, {
+    entity_type: 'ticket', entity_id: id,
+    kind: 'status_changed',
+    data: JSON.stringify({ from: t.status, to: 'cancelled' }),
+    caused_by: 'founder',
+  })
   return mustExist(database.ticketGet(db, id))
 }
 
-// Resolve a claimed ticket with one of three outcomes.
-//   finished  — work succeeded; verifier dance (if any) decides terminal vs reopen
-//   failed    — work hit a wall the producer can't get past
-//   cancelled — work deliberately abandoned (founder action, not agent self-call)
-//
-// The runner is responsible for orchestrating the verifier dance after a
-// resolve(finished) when the producer's agent has verifiers. This function
-// just commits the state transition + comment.
-export function ticketResolve(
-  db: Db, id: string, outcome: Outcome,
-  opts?: { notes?: string; agentName?: string; sessionId?: string },
-): Ticket {
-  assertStatus(mustExist(database.ticketGet(db, id)), 'claimed')
-  const author = opts?.agentName ?? 'system'
-  const label  = outcome === 'finished' ? 'Session finished' : outcome === 'failed' ? 'Session failed' : 'Session cancelled'
-  const body   = opts?.notes ? `${label}\n${opts.notes}` : label
-  const row = database.ticketUpdate(db, id, { status: 'resolved', outcome, updated_at: now() })
-  database.commentInsert(db, { ticket_id: id, session_id: opts?.sessionId ?? null, author, body, created_at: now() })
-  return row
-}
-
-export function ticketReopen(db: Db, id: string): Ticket {
-  const t = mustExist(database.ticketGet(db, id))
-  if (t.status !== 'resolved') throw conflict('only resolved tickets can be reopened')
-  // Verified work is accepted into the project. Changing or removing it
-  // is new scope — fork a new ticket instead of reopening.
-  const verdicts = database.verdictByTicket(db, id)
-  if (verdicts.some(v => v.pass)) throw conflict('verified tickets cannot be reopened — fork a new ticket for scope changes')
-  return database.ticketUpdate(db, id, { status: 'opened', outcome: null, claimed_at: null, updated_at: now() })
-}
-
-// Walk the dependency chain (was: parent chain). Follows depends_on backwards.
 export function ticketDependencyChain(db: Db, id: string): DependencyChainEntry[] {
   const chain: Ticket[] = []
   let current: Ticket | undefined = mustExist(database.ticketGet(db, id))
@@ -109,15 +84,12 @@ export function ticketDependencyChain(db: Db, id: string): DependencyChainEntry[
   }
   return chain.map(t => ({
     id: t.id, title: t.title, description: t.description,
-    agent_id: t.agent_id, status: t.status, outcome: t.outcome,
+    agent_id: t.agent_id, status: t.status,
   }))
 }
 
-// Returns a formatted block of everything said on this ticket outside the
-// current session. Feedback section is marked authoritative since human
-// follow-ups frequently override the original ticket body.
 export function ticketPriorHistory(db: Db, ticketId: string, sessionId: string, agentName: string): string {
-  const NOISE = new Set(['Session started', 'Session started (SDK)', 'Session finished', 'Session failed', 'Session cancelled'])
+  const NOISE = new Set(['Session started', 'Session started (SDK)', 'Session finished', 'Session failed', 'Session cancelled', 'Session crashed'])
   const comments = database.commentByTicket(db, ticketId)
     .filter(c => c.session_id !== sessionId && !NOISE.has(c.body))
   if (comments.length === 0) return ''
@@ -178,7 +150,3 @@ export function tagAdd(db: Db, ticketId: string, tag: string): Tag {
 export function tagRemove(db: Db, ticketId: string, tag: string): void {
   database.ticketTagRemove(db, ticketId, tag)
 }
-
-// Suppress unused-import complaints during the migration; `and` and `ne`
-// are used by callers (scheduler) via re-export of drizzle ops elsewhere.
-void and; void ne

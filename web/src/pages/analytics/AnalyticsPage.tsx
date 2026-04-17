@@ -380,7 +380,7 @@ function TicketThroughput({ summary }: { summary: Analytics['summary'] }) {
   const failed = summary.tickets_failed
 
   const rows: Array<{ label: string; count: number; cls: string }> = [
-    { label: 'opened',   count: open,   cls: 'bg-sky-500/50' },
+    { label: 'active',   count: open,   cls: 'bg-sky-500/50' },
     { label: 'finished', count: done,   cls: 'bg-emerald-500/50' },
     { label: 'failed',   count: failed, cls: 'bg-rose-500/60' },
   ]

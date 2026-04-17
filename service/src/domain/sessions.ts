@@ -1,9 +1,7 @@
 import { type Db } from '../database.js'
 import * as database from '../database.js'
 import type { Activity, Session } from '../tables.js'
-import type { Config } from '../config.js'
 import { mustExist, assertStatus, now } from '../util.js'
-import { ticketClaim, ticketGet } from './tickets.js'
 
 export function sessionGet(db: Db, id: string) {
   return mustExist(database.sessionGetAggregated(db, id))
@@ -16,12 +14,15 @@ export function sessionStatus(db: Db, id: string): { status: string } {
 export function sessionKill(db: Db, id: string): { ok: true } {
   assertStatus(mustExist(database.sessionGet(db, id)), 'running', 'session is not running')
   database.sessionUpdate(db, id, { status: 'cancelled', error: 'killed', ended_at: now() })
+  database.eventInsert(db, {
+    entity_type: 'session', entity_id: id,
+    kind: 'status_changed',
+    data: JSON.stringify({ from: 'running', to: 'cancelled', reason: 'killed' }),
+    caused_by: 'founder',
+  })
   return { ok: true }
 }
 
-// One activity row per discrete event. Runtime populates these at stream
-// time; domain layer offers the list view plus an enforced-correctness
-// insert helper.
 export function sessionActivities(db: Db, sessionId: string): Activity[] {
   mustExist(database.sessionGet(db, sessionId))
   return database.activityBySession(db, sessionId)
@@ -63,40 +64,4 @@ export function sessionByTicket(db: Db, ticketId: string) {
 
 export function sessionListAll(db: Db) {
   return database.sessionListWithAgent(db)
-}
-
-// Posted when a session begins so the founder has visibility into in-flight
-// work rather than a silent gap until completion. Paired with the
-// ticketComplete / ticketFail comments that fire at session end.
-export function sessionStartedComment(db: Db, ticketId: string, agentName: string, sessionId: string): void {
-  database.commentInsert(db, {
-    ticket_id:  ticketId,
-    session_id: sessionId,
-    author:     agentName,
-    body:       'Session started',
-    created_at: now(),
-  })
-}
-
-export async function sessionStart(db: Db, config: Config, agentDefId: string, ticketId: string): Promise<Session> {
-  const agentDef = mustExist(database.agentGet(db, agentDefId), 'agent not found')
-  mustExist(ticketClaim(db, ticketId), 'ticket is not claimable (already claimed, done, or failed)')
-  // Backfill ticket.agent_id on the first session so the ticket reflects who's
-  // working it. Don't overwrite if the founder pre-assigned it — that's a
-  // routing preference the scheduler should preserve.
-  const existing = ticketGet(db, ticketId)
-  if (!existing.agent_id) {
-    database.ticketUpdate(db, ticketId, { agent_id: agentDefId, updated_at: now() })
-  }
-  const t = ticketGet(db, ticketId)
-
-  const row = database.sessionInsert(db, {
-    ticket_id: ticketId, agent_id: agentDefId,
-    status: 'running', started_at: now(),
-  })
-  const { runAgentSession } = await import('../runtime/ticket-run.js')
-  runAgentSession(db, config, row.id, agentDef, t).catch((err: unknown) =>
-    console.error(`session ${row.id} crashed:`, err))
-
-  return row
 }

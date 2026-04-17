@@ -68,8 +68,7 @@ export const connectionUpdate = z.object({
 export const ticketList = z.object({
   projectId: z.string().optional(),
   agentId:   z.string().optional(),
-  status:    z.enum(['opened', 'claimed', 'resolved']).optional(),
-  outcome:   z.enum(['finished', 'failed', 'cancelled']).optional(),
+  status:    z.enum(['created', 'waiting', 'running', 'finished', 'failed', 'cancelled']).optional(),
   tag:       z.string().optional(),
 })
 
@@ -94,10 +93,6 @@ export const ticketUpdate = z.object({
   priority:    z.number().int().optional(),
 })
 
-export const ticketResolve = z.object({
-  outcome: z.enum(['finished', 'failed', 'cancelled']),
-  notes:   z.string().optional(),
-})
 
 export const commentCreate = z.object({
   author: z.string(),
