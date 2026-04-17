@@ -30,9 +30,11 @@ export const info: McpServerInfo = {
     { name: 'r2Download',       description: 'Download an R2 object to the workspace.' },
     { name: 'r2Delete',         description: 'Delete an object from an R2 bucket.' },
     { name: 'd1Create',         description: 'Create a new D1 database.' },
+    { name: 'd1Delete',         description: 'Delete a D1 database.' },
     { name: 'd1List',           description: 'List D1 databases on the account.' },
     { name: 'd1Query',          description: 'Execute a SQL statement on a D1 database.' },
     { name: 'kvCreate',         description: 'Create a new KV namespace.' },
+    { name: 'kvDeleteNamespace', description: 'Delete a KV namespace entirely.' },
     { name: 'kvList',           description: 'List KV namespaces on the account.' },
     { name: 'kvGet',            description: 'Get a value from a KV namespace.' },
     { name: 'kvPut',            description: 'Set a value in a KV namespace.' },
@@ -105,6 +107,10 @@ const d1CreateArgs = z.object({
   name:       z.string().describe('Database name.'),
   account_id: z.string().optional(),
 })
+const d1DeleteArgs = z.object({
+  name:       z.string().describe('Database name to delete.'),
+  account_id: z.string().optional(),
+})
 const d1ListArgs = z.object({ account_id: z.string().optional() })
 const d1QueryArgs = z.object({
   database:   z.string().describe('D1 database name.'),
@@ -112,6 +118,10 @@ const d1QueryArgs = z.object({
   account_id: z.string().optional(),
 })
 // ── KV ──
+const kvDeleteNamespaceArgs = z.object({
+  namespace_id: z.string().describe('KV namespace id to delete.'),
+  account_id:   z.string().optional(),
+})
 const kvCreateArgs = z.object({
   title:      z.string().describe('KV namespace title.'),
   account_id: z.string().optional(),
@@ -299,11 +309,17 @@ async function handleR2Delete(ctx: CloudflareCtx, args: z.infer<typeof r2DeleteA
 async function handleD1Create(ctx: CloudflareCtx, args: z.infer<typeof d1CreateArgs>) {
   return runWrangler(ctx, 'd1Create', args, `d1 create ${JSON.stringify(args.name)}`)
 }
+async function handleD1Delete(ctx: CloudflareCtx, args: z.infer<typeof d1DeleteArgs>) {
+  return runWrangler(ctx, 'd1Delete', args, `d1 delete ${JSON.stringify(args.name)} -y`)
+}
 async function handleD1List(ctx: CloudflareCtx, args: z.infer<typeof d1ListArgs>) {
   return runWrangler(ctx, 'd1List', args, 'd1 list')
 }
 async function handleD1Query(ctx: CloudflareCtx, args: z.infer<typeof d1QueryArgs>) {
   return runWrangler(ctx, 'd1Query', args, `d1 execute ${JSON.stringify(args.database)} --command ${JSON.stringify(args.sql)}`)
+}
+async function handleKvDeleteNamespace(ctx: CloudflareCtx, args: z.infer<typeof kvDeleteNamespaceArgs>) {
+  return runWrangler(ctx, 'kvDeleteNamespace', args, `kv namespace delete --namespace-id=${JSON.stringify(args.namespace_id)}`)
 }
 async function handleKvCreate(ctx: CloudflareCtx, args: z.infer<typeof kvCreateArgs>) {
   const r: any = await runWrangler(ctx, 'kvCreate', args, `kv namespace create ${JSON.stringify(args.title)}`)
@@ -340,9 +356,11 @@ const DESC = {
   r2Download:       'Download an R2 object to the workspace. `file` is relative to /work.',
   r2Delete:         'Delete an object from an R2 bucket.',
   d1Create:         'Create a new D1 SQLite database on the account.',
+  d1Delete:         'Delete a D1 database. Irreversible — all data is lost.',
   d1List:           'List D1 databases on the account.',
   d1Query:          'Execute a SQL statement on a D1 database. Returns rows for SELECT, or change count for mutations.',
   kvCreate:         'Create a new KV namespace. Returns namespace_id — save it for kvGet/kvPut/kvDelete calls.',
+  kvDeleteNamespace: 'Delete a KV namespace entirely. Irreversible — all keys are lost.',
   kvList:           'List KV namespaces on the account. Returns namespace ids and titles.',
   kvGet:            'Get a value from a KV namespace by key.',
   kvPut:            'Set a key-value pair in a KV namespace.',
@@ -369,8 +387,10 @@ export function buildSdk(ctx: CloudflareCtx, allowed?: string[] | '*' | null) {
     sdkTool('r2Download',       DESC.r2Download,       r2DownloadArgs.shape,       async (a, x) => asText(await handleR2Download(tu(x), a))),
     sdkTool('r2Delete',         DESC.r2Delete,         r2DeleteArgs.shape,         async (a, x) => asText(await handleR2Delete(tu(x), a))),
     sdkTool('d1Create',         DESC.d1Create,         d1CreateArgs.shape,         async (a, x) => asText(await handleD1Create(tu(x), a))),
+    sdkTool('d1Delete',         DESC.d1Delete,         d1DeleteArgs.shape,         async (a, x) => asText(await handleD1Delete(tu(x), a))),
     sdkTool('d1List',           DESC.d1List,           d1ListArgs.shape,           async (a, x) => asText(await handleD1List(tu(x), a))),
     sdkTool('d1Query',          DESC.d1Query,          d1QueryArgs.shape,          async (a, x) => asText(await handleD1Query(tu(x), a))),
+    sdkTool('kvDeleteNamespace', DESC.kvDeleteNamespace, kvDeleteNamespaceArgs.shape, async (a, x) => asText(await handleKvDeleteNamespace(tu(x), a))),
     sdkTool('kvCreate',         DESC.kvCreate,         kvCreateArgs.shape,         async (a, x) => asText(await handleKvCreate(tu(x), a))),
     sdkTool('kvList',           DESC.kvList,           kvListArgs.shape,           async (a, x) => asText(await handleKvList(tu(x), a))),
     sdkTool('kvGet',            DESC.kvGet,            kvGetArgs.shape,            async (a, x) => asText(await handleKvGet(tu(x), a))),
@@ -445,6 +465,10 @@ export function buildAi(ctx: CloudflareCtx) {
       description: DESC.d1Create,         inputSchema: d1CreateArgs,
       execute:     (a: z.infer<typeof d1CreateArgs>) => handleD1Create(ctx, a),
     }),
+    [`${prefix}-d1Delete`]: tool({
+      description: DESC.d1Delete,         inputSchema: d1DeleteArgs,
+      execute:     (a: z.infer<typeof d1DeleteArgs>) => handleD1Delete(ctx, a),
+    }),
     [`${prefix}-d1List`]: tool({
       description: DESC.d1List,           inputSchema: d1ListArgs,
       execute:     (a: z.infer<typeof d1ListArgs>) => handleD1List(ctx, a),
@@ -452,6 +476,10 @@ export function buildAi(ctx: CloudflareCtx) {
     [`${prefix}-d1Query`]: tool({
       description: DESC.d1Query,          inputSchema: d1QueryArgs,
       execute:     (a: z.infer<typeof d1QueryArgs>) => handleD1Query(ctx, a),
+    }),
+    [`${prefix}-kvDeleteNamespace`]: tool({
+      description: DESC.kvDeleteNamespace, inputSchema: kvDeleteNamespaceArgs,
+      execute:     (a: z.infer<typeof kvDeleteNamespaceArgs>) => handleKvDeleteNamespace(ctx, a),
     }),
     [`${prefix}-kvCreate`]: tool({
       description: DESC.kvCreate,         inputSchema: kvCreateArgs,

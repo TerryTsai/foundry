@@ -23,6 +23,7 @@ export const info: McpServerInfo = {
     { name: 's3Upload',             description: 'Upload a workspace file to S3.' },
     { name: 's3Download',           description: 'Download an S3 object to the workspace.' },
     { name: 's3Delete',             description: 'Delete an S3 object.' },
+    { name: 's3EmptyBucket',        description: 'Delete all objects in an S3 bucket (required before bucket deletion).' },
     { name: 's3SyncUpload',         description: 'Sync a workspace directory to an S3 bucket prefix.' },
     { name: 's3SetWebsite',         description: 'Enable static website hosting on an S3 bucket.' },
     { name: 's3DisableBlockPublic', description: 'Disable Block Public Access on an S3 bucket (required before setting a public policy).' },
@@ -47,11 +48,14 @@ export const info: McpServerInfo = {
     // IAM
     { name: 'iamCreateRole',        description: 'Create an IAM role with a trust policy.' },
     { name: 'iamAttachPolicy',      description: 'Attach a managed policy to a role.' },
+    { name: 'iamListRolePolicies',  description: 'List managed policies attached to a role.' },
     { name: 'iamDetachPolicy',      description: 'Detach a managed policy from a role.' },
     { name: 'iamDeleteRole',        description: 'Delete an IAM role (detach policies first).' },
     // CloudFront
     { name: 'cloudfrontCreate',     description: 'Create a CloudFront distribution for an S3 origin.' },
     { name: 'cloudfrontList',       description: 'List CloudFront distributions.' },
+    { name: 'cloudfrontDisable',    description: 'Disable a CloudFront distribution (required before deletion).' },
+    { name: 'cloudfrontDelete',     description: 'Delete a disabled CloudFront distribution.' },
     { name: 'cloudfrontInvalidate', description: 'Invalidate CloudFront cache paths.' },
   ],
 }
@@ -134,6 +138,10 @@ const s3SetPublicReadArgs = z.object({
   bucket: z.string().describe('Bucket name.'),
   region: z.string().optional(),
 })
+const s3EmptyBucketArgs = z.object({
+  bucket: z.string().describe('Bucket name to empty.'),
+  region: z.string().optional(),
+})
 const stsGetCallerIdentityArgs = z.object({ region: z.string().optional() })
 
 async function handleS3CreateBucket(ctx: AwsCtx, args: z.infer<typeof s3CreateBucketArgs>) {
@@ -167,6 +175,9 @@ async function handleS3SetWebsite(ctx: AwsCtx, args: z.infer<typeof s3SetWebsite
   const errorDoc = args.error ? `,ErrorDocument={Key=${JSON.stringify(args.error)}}` : ''
   return runAws(ctx, 's3SetWebsite', args,
     `s3api put-bucket-website --bucket ${JSON.stringify(args.bucket)} --website-configuration IndexDocument={Suffix=${JSON.stringify(args.index)}}${errorDoc}`)
+}
+async function handleS3EmptyBucket(ctx: AwsCtx, args: z.infer<typeof s3EmptyBucketArgs>) {
+  return runAws(ctx, 's3EmptyBucket', args, `s3 rm s3://${args.bucket} --recursive`)
 }
 async function handleS3DisableBlockPublic(ctx: AwsCtx, args: z.infer<typeof s3DisableBlockPublicArgs>) {
   return runAws(ctx, 's3DisableBlockPublic', args,
@@ -338,6 +349,16 @@ async function handleIamAttachPolicy(ctx: AwsCtx, args: z.infer<typeof iamAttach
   return runAws(ctx, 'iamAttachPolicy', args,
     `iam attach-role-policy --role-name ${JSON.stringify(args.role_name)} --policy-arn ${JSON.stringify(args.policy_arn)}`)
 }
+const iamListRolePoliciesArgs = z.object({
+  role_name: z.string().describe('Role name.'),
+  region:    z.string().optional(),
+})
+
+async function handleIamListRolePolicies(ctx: AwsCtx, args: z.infer<typeof iamListRolePoliciesArgs>) {
+  return runAws(ctx, 'iamListRolePolicies', args,
+    `iam list-attached-role-policies --role-name ${JSON.stringify(args.role_name)}`)
+}
+
 const iamDetachPolicyArgs = z.object({
   role_name:  z.string().describe('Role name.'),
   policy_arn: z.string().describe('Managed policy ARN to detach.'),
@@ -362,6 +383,14 @@ const cloudfrontCreateArgs = z.object({
   region:      z.string().optional(),
 })
 const cloudfrontListArgs = z.object({ region: z.string().optional() })
+const cloudfrontDisableArgs = z.object({
+  distribution_id: z.string().describe('Distribution id.'),
+  region:          z.string().optional(),
+})
+const cloudfrontDeleteArgs = z.object({
+  distribution_id: z.string().describe('Distribution id. Must be disabled first.'),
+  region:          z.string().optional(),
+})
 const cloudfrontInvalidateArgs = z.object({
   distribution_id: z.string().describe('Distribution id.'),
   paths:           z.array(z.string()).describe('Paths to invalidate (e.g. ["/*"]).'),
@@ -390,6 +419,29 @@ async function handleCloudfrontCreate(ctx: AwsCtx, args: z.infer<typeof cloudfro
 async function handleCloudfrontList(ctx: AwsCtx, args: z.infer<typeof cloudfrontListArgs>) {
   return runAws(ctx, 'cloudfrontList', args, 'cloudfront list-distributions')
 }
+async function handleCloudfrontDisable(ctx: AwsCtx, args: z.infer<typeof cloudfrontDisableArgs>) {
+  // Get current config, set Enabled=false, update. CloudFront requires the full config + ETag.
+  const getCmd = `cloudfront get-distribution-config --id ${args.distribution_id}`
+  const r: any = await runAws(ctx, 'cloudfrontDisable', args, getCmd)
+  if (!r.ok) return r
+  const etag = r.result?.ETag
+  const config = r.result?.DistributionConfig
+  if (!etag || !config) return { ok: false, error: 'could not read distribution config' }
+  config.Enabled = false
+  const updConfig = JSON.stringify(JSON.stringify(config))
+  return runAws(ctx, 'cloudfrontDisable', args,
+    `cloudfront update-distribution --id ${args.distribution_id} --if-match ${etag} --distribution-config ${updConfig}`)
+}
+async function handleCloudfrontDelete(ctx: AwsCtx, args: z.infer<typeof cloudfrontDeleteArgs>) {
+  // Need the ETag of the current (disabled) distribution.
+  const r: any = await runAws(ctx, 'cloudfrontDelete', args,
+    `cloudfront get-distribution --id ${args.distribution_id}`)
+  if (!r.ok) return r
+  const etag = r.result?.ETag
+  if (!etag) return { ok: false, error: 'could not read distribution ETag' }
+  return runAws(ctx, 'cloudfrontDelete', args,
+    `cloudfront delete-distribution --id ${args.distribution_id} --if-match ${etag}`)
+}
 async function handleCloudfrontInvalidate(ctx: AwsCtx, args: z.infer<typeof cloudfrontInvalidateArgs>) {
   const paths = JSON.stringify(JSON.stringify({ Paths: { Quantity: args.paths.length, Items: args.paths }, CallerReference: Date.now().toString() }))
   return runAws(ctx, 'cloudfrontInvalidate', args,
@@ -407,6 +459,7 @@ const DESC: Record<string, string> = {
   s3Delete:             'Delete an object from S3.',
   s3SyncUpload:         'Sync a workspace directory to an S3 bucket. Optionally delete remote files not present locally.',
   s3SetWebsite:         'Enable static website hosting on an S3 bucket.',
+  s3EmptyBucket:        'Delete all objects in an S3 bucket recursively. Required before s3DeleteBucket — buckets must be empty.',
   s3DisableBlockPublic: 'Disable Block Public Access on an S3 bucket. Required before s3SetPublicRead — new buckets block public access by default.',
   s3SetPublicRead:      'Apply a public-read bucket policy for static website hosting. Call s3DisableBlockPublic first.',
   stsGetCallerIdentity: 'Get the AWS account ID, user ARN, and user ID for the current credentials.',
@@ -424,10 +477,13 @@ const DESC: Record<string, string> = {
   lambdaAddPermission:  'Grant a service permission to invoke a Lambda. Pass api_id and the source ARN is constructed automatically. Required before wiring API Gateway routes.',
   iamCreateRole:        'Create an IAM role. Pass a service principal (e.g. "lambda.amazonaws.com") — trust policy is constructed automatically. Wait ~10s after creation before using the role.',
   iamAttachPolicy:      'Attach a managed IAM policy to a role.',
+  iamListRolePolicies:  'List managed policies attached to an IAM role. Use before iamDetachPolicy to discover what to detach.',
   iamDetachPolicy:      'Detach a managed policy from an IAM role. Required before deleting the role.',
   iamDeleteRole:        'Delete an IAM role. Detach all policies first with iamDetachPolicy.',
   cloudfrontCreate:     'Create a CloudFront distribution fronting an S3 origin. HTTPS redirect enabled.',
   cloudfrontList:       'List CloudFront distributions.',
+  cloudfrontDisable:    'Disable a CloudFront distribution. Required before deletion — fetches config, sets Enabled=false, updates. Wait a few minutes for propagation before deleting.',
+  cloudfrontDelete:     'Delete a disabled CloudFront distribution. Must be disabled first with cloudfrontDisable and fully propagated (Status=Deployed).',
   cloudfrontInvalidate: 'Invalidate CloudFront cache for the given paths.',
 }
 
@@ -442,6 +498,7 @@ const allSchemas = {
   s3Delete:             { schema: s3DeleteArgs,             handler: handleS3Delete },
   s3SyncUpload:         { schema: s3SyncUploadArgs,         handler: handleS3SyncUpload },
   s3SetWebsite:         { schema: s3SetWebsiteArgs,         handler: handleS3SetWebsite },
+  s3EmptyBucket:        { schema: s3EmptyBucketArgs,         handler: handleS3EmptyBucket },
   s3DisableBlockPublic: { schema: s3DisableBlockPublicArgs,  handler: handleS3DisableBlockPublic },
   s3SetPublicRead:      { schema: s3SetPublicReadArgs,      handler: handleS3SetPublicRead },
   stsGetCallerIdentity: { schema: stsGetCallerIdentityArgs, handler: handleStsGetCallerIdentity },
@@ -459,10 +516,13 @@ const allSchemas = {
   lambdaAddPermission:  { schema: lambdaAddPermissionArgs,  handler: handleLambdaAddPermission },
   iamCreateRole:        { schema: iamCreateRoleArgs,        handler: handleIamCreateRole },
   iamAttachPolicy:      { schema: iamAttachPolicyArgs,      handler: handleIamAttachPolicy },
+  iamListRolePolicies:  { schema: iamListRolePoliciesArgs,  handler: handleIamListRolePolicies },
   iamDetachPolicy:      { schema: iamDetachPolicyArgs,      handler: handleIamDetachPolicy },
   iamDeleteRole:        { schema: iamDeleteRoleArgs,        handler: handleIamDeleteRole },
   cloudfrontCreate:     { schema: cloudfrontCreateArgs,      handler: handleCloudfrontCreate },
   cloudfrontList:       { schema: cloudfrontListArgs,        handler: handleCloudfrontList },
+  cloudfrontDisable:    { schema: cloudfrontDisableArgs,     handler: handleCloudfrontDisable },
+  cloudfrontDelete:     { schema: cloudfrontDeleteArgs,      handler: handleCloudfrontDelete },
   cloudfrontInvalidate: { schema: cloudfrontInvalidateArgs,  handler: handleCloudfrontInvalidate },
 } as const
 
