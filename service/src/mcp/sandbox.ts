@@ -34,7 +34,7 @@ export const info: McpServerInfo = {
   description: 'Isolated Linux environment with a persistent session workspace: files, commands, search.',
   tools: [
     { name: 'run',    description: 'Run a single shell command in the sandbox.' },
-    { name: 'exec',   description: 'Run an arbitrary shell command (admin escape hatch, not included by default).' },
+    { name: 'runScript', description: 'Run a multi-line script in the sandbox (sh, python, or node).' },
     { name: 'read',   description: 'Read a file from the workspace, with optional offset/limit pagination.' },
     { name: 'write',  description: 'Create or overwrite a file in the workspace.' },
     { name: 'patch',  description: 'Apply a targeted string replacement to a file.' },
@@ -109,8 +109,26 @@ async function handleRun(ctx: SandboxCtx, args: z.infer<typeof validate.toolExec
   return handleShell(ctx, 'run', args)
 }
 
-async function handleExec(ctx: SandboxCtx, args: z.infer<typeof validate.toolExec>) {
-  return handleShell(ctx, 'exec', args)
+const runScriptSchema = z.object({
+  script:      z.string().describe('Script body (multi-line). Written to a temp file and executed.'),
+  interpreter: z.enum(['sh', 'python', 'node']).default('sh').describe('Interpreter to use.'),
+  cwd:         z.string().optional().describe('Working directory inside the container (default /work).'),
+  network:     z.boolean().optional().describe('Enable network access (default false).'),
+})
+
+async function handleRunScript(ctx: SandboxCtx, args: z.infer<typeof runScriptSchema>) {
+  const ext = { sh: 'sh', python: 'py', node: 'js' }[args.interpreter]
+  const scriptPath = writeTmp(ctx.workspace, args.script, ext)
+  const interp = { sh: 'sh', python: 'python3', node: 'node' }[args.interpreter]
+  const command = args.cwd
+    ? `cd ${esc(args.cwd)} && ${interp} /work/${scriptPath}`
+    : `${interp} /work/${scriptPath}`
+  try {
+    const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace, command, 'runScript', args, { network: args.network ?? false, toolUseId: ctx.toolUseId })
+    return { ...bounded(ctx.workspace, r.stdout), stderr: r.stderr, exitCode: r.exitCode }
+  } catch (err) {
+    return { content: '', stderr: '', exitCode: -1, error: err instanceof Error ? err.message : String(err) }
+  }
 }
 
 async function handleRead(ctx: SandboxCtx, args: z.infer<typeof validate.toolRead>) {
@@ -229,9 +247,9 @@ const DESC = {
     'Network is disabled by default; pass network:true for outbound access. ' +
     'Prefer one command per call for clean audit trails — avoid chaining with && or ;. ' +
     'Large stdout is written to a file; use the read tool to paginate.',
-  exec:
-    'Run an arbitrary shell command in the session sandbox (admin escape hatch). Same environment as `run` but intended for complex multi-command pipelines, shell scripting, and administrative tasks. ' +
-    'Not included by default — enable per-agent for roles that need unstructured shell access.',
+  runScript:
+    'Run a multi-line script in the sandbox. Provide the script body and choose an interpreter (sh, python, or node). The script is written to a temp file and executed — no shell quoting or && chaining needed. ' +
+    'Same sandbox environment as `run`. Network disabled by default; pass network:true for outbound access.',
   read:   'Read the contents of a file from the workspace. Use offset and limit to paginate. Large output is written to a file you can read with offset/limit. Reads against an empty workspace return "not found" — populate /work first.',
   write:  'Create or overwrite a file in the workspace. Parent directories are created as needed. .git/ and .foundry/ paths are protected.',
   patch:  'Apply a targeted edit to a file by replacing an exact string match. Fails if the old_string is not found or appears more than once. .git/ and .foundry/ paths are protected.',
@@ -246,7 +264,7 @@ export function buildSdk(ctx: SandboxCtx, allowed?: string[] | '*' | null) {
   const tu = (x: unknown): SandboxCtx => ({ ...ctx, toolUseId: toolUseId(x) })
   const all = [
     sdkTool('run',    DESC.run,    validate.toolExec.shape,   async (a, x) => asText(await handleRun(tu(x), a))),
-    sdkTool('exec',   DESC.exec,   validate.toolExec.shape,   async (a, x) => asText(await handleExec(tu(x), a))),
+    sdkTool('runScript', DESC.runScript, runScriptSchema.shape, async (a, x) => asText(await handleRunScript(tu(x), a))),
     sdkTool('read',   DESC.read,   validate.toolRead.shape,   async (a, x) => asText(await handleRead(tu(x), a))),
     sdkTool('write',  DESC.write,  validate.toolWrite.shape,  async (a, x) => asText(await handleWrite(tu(x), a))),
     sdkTool('patch',  DESC.patch,  validate.toolPatch.shape,  async (a, x) => asText(await handlePatch(tu(x), a))),
@@ -266,11 +284,11 @@ export function buildAi(ctx: SandboxCtx) {
       outputSchema: boundedOutput.extend({ stderr: z.string(), exitCode: z.number() }),
       execute:      (args: z.infer<typeof validate.toolExec>) => handleRun(ctx, args),
     }),
-    exec: tool({
-      description:  DESC.exec,
-      inputSchema:  validate.toolExec,
+    runScript: tool({
+      description:  DESC.runScript,
+      inputSchema:  runScriptSchema,
       outputSchema: boundedOutput.extend({ stderr: z.string(), exitCode: z.number() }),
-      execute:      (args: z.infer<typeof validate.toolExec>) => handleExec(ctx, args),
+      execute:      (args: z.infer<typeof runScriptSchema>) => handleRunScript(ctx, args),
     }),
     read: tool({
       description:  DESC.read,
