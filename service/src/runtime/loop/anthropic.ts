@@ -12,6 +12,7 @@ import { homedir } from 'os'
 import { type Db } from '../../database.js'
 import * as database from '../../database.js'
 import type { Connection } from '../../tables.js'
+import { parseConn } from '../../mcp/shared.js'
 import { now, mustExist } from '../../util.js'
 
 import type { SessionContext, LoopResult } from '../compose.js'
@@ -24,13 +25,6 @@ import { parseToolSelection, byConnectionKind } from '../../mcp/registry.js'
 
 type Block = { type: string; id?: string; text?: string; thinking?: string; name?: string; input?: unknown; signature?: string }
 
-function parseConn(conn: Connection): { secrets: Record<string, string>; connConfig: Record<string, unknown> } {
-  let secrets:    Record<string, string>  = {}
-  let connConfig: Record<string, unknown> = {}
-  try { secrets    = JSON.parse(conn.secrets) as Record<string, string>  } catch { /* malformed */ }
-  try { connConfig = JSON.parse(conn.config)  as Record<string, unknown> } catch { /* malformed */ }
-  return { secrets, connConfig }
-}
 
 // Read the SDK's on-disk credentials first (Claude Code refreshes them).
 // Fall back to the stored connection secret. Keep the DB in sync when the

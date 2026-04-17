@@ -142,8 +142,6 @@ export const agentUpdate = z.object({
   verifiers:        z.array(z.string()).nullable().optional(),
 })
 
-export const sessionStart   = z.object({ ticket_id: z.string() })
-
 export const executionCreate = z.object({
   command:    z.string().min(1),
   session_id: z.string().optional(),
@@ -208,15 +206,4 @@ export const toolScrape = z.object({
   url: z.string().describe('URL of web page to scrape'),
 })
 
-export const toolThink = z.object({
-  thought: z.string().describe('Your reasoning, analysis, or planning notes'),
-})
-
-export const toolTicket = z.object({
-  action:   z.enum(['create', 'read', 'list']).describe('Action to perform'),
-  id:       z.string().optional().describe('Ticket ID (required for read)'),
-  title:    z.string().optional().describe('Ticket title (required for create)'),
-  body:     z.string().optional().describe('Ticket body (required for create)'),
-  agent_id: z.string().optional().describe('Agent ID to assign the ticket to (for create). Use the agents tool to get agent IDs.'),
-})
 

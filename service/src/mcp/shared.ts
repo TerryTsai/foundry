@@ -20,6 +20,16 @@ export interface ConnCtx {
   toolUseId?:     string
 }
 
+import type { Connection } from '../tables.js'
+
+export function parseConn(conn: Connection): { secrets: Record<string, string>; connConfig: Record<string, unknown> } {
+  let secrets:    Record<string, string>  = {}
+  let connConfig: Record<string, unknown> = {}
+  try { secrets    = JSON.parse(conn.secrets) as Record<string, string>  } catch {}
+  try { connConfig = JSON.parse(conn.config)  as Record<string, unknown> } catch {}
+  return { secrets, connConfig }
+}
+
 import { z } from 'zod'
 import { writeFileSync, mkdirSync } from 'fs'
 import { join } from 'path'

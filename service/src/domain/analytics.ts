@@ -140,8 +140,7 @@ export function analytics(db: Db, accountId: string, opts: { days: number; proje
     ORDER BY tickets DESC
   `)
 
-  // Per-(agent, tool) breakdown — surfaces "wrong agent using wrong tool"
-  // anomalies (e.g. PM calling gitClone, Backend calling ticketReopen).
+  // Per-(agent, tool) breakdown — surfaces tool misuse across roles.
   const tools = db.all<ToolRow>(sql`
     SELECT
       a.id   AS agent_id,

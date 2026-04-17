@@ -11,9 +11,6 @@ export const assertStatus = <T extends { status: string }>(row: T, expected: str
   return row
 }
 
-export const slugify = (name: string): string =>
-  name.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
-
 export const pick = (obj: Record<string, unknown>, ...keys: string[]): Record<string, unknown> =>
   Object.fromEntries(keys.filter(k => obj[k] !== undefined).map(k => [k, obj[k]]))
 
@@ -33,7 +30,3 @@ export const succeeds = async (fn: () => Promise<unknown>): Promise<boolean> => 
   try { await fn(); return true } catch { return false }
 }
 
-export function fmtPercent(n: number): string {
-  if (!Number.isFinite(n) || n < 0 || n > 1) return '—'
-  return `${(n * 100).toFixed(1)}%`
-}
