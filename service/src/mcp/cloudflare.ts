@@ -63,8 +63,8 @@ const pagesRemoveArgs      = z.object({
   account_id:   z.string().optional(),
 })
 const pagesDeployArgs      = z.object({
-  project_name: z.string().describe('Pages project name (slug). Created if missing.'),
-  dir:          z.string().describe('Static output directory relative to /work (e.g. "public"). Functions in /work/functions/ are included automatically.'),
+  project_name: z.string().regex(/^[a-z0-9][a-z0-9-]*$/, 'Project name must be lowercase alphanumeric with hyphens').describe('Pages project slug (lowercase, hyphens ok). Created if missing.'),
+  dir:          z.string().describe('Static output directory relative to /work (e.g. "public", "dist"). Must contain at least one file (e.g. index.html). Server-side handlers go in /work/functions/ and are deployed automatically.'),
   branch:       z.string().optional().describe('Deploy branch; default "main".'),
   account_id:   z.string().optional(),
 })
@@ -242,7 +242,14 @@ async function handlePagesDeploy(ctx: CloudflareCtx, args: z.infer<typeof pagesD
   const acct = resolveAccountId(ctx, args.account_id)
   const branch = args.branch ?? 'main'
   const dir = `/work/${args.dir}`
+  // Pre-flight: ensure dir exists and has files; patch wrangler.toml if needed.
+  const preflight = [
+    `if [ ! -d ${JSON.stringify(dir)} ]; then echo "ERR: directory ${args.dir} does not exist in /work" >&2; exit 1; fi`,
+    `if [ -z "$(ls -A ${JSON.stringify(dir)} 2>/dev/null)" ]; then echo "ERR: directory ${args.dir} is empty — add at least an index.html" >&2; exit 1; fi`,
+    `if [ -f /work/wrangler.toml ] && ! grep -q pages_build_output_dir /work/wrangler.toml; then echo 'pages_build_output_dir = "${args.dir}"' >> /work/wrangler.toml; fi`,
+  ].join('\n')
   const command = [
+    preflight,
     'wrangler pages project create',
     JSON.stringify(args.project_name),
     '--production-branch', JSON.stringify(branch),
@@ -252,7 +259,7 @@ async function handlePagesDeploy(ctx: CloudflareCtx, args: z.infer<typeof pagesD
     '--project-name', JSON.stringify(args.project_name),
     '--branch',       JSON.stringify(branch),
     '--commit-dirty=true',
-  ].join(' ')
+  ].join('\n')
   const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace,
     command, 'pagesDeploy', args, {
       network: true,

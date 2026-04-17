@@ -239,8 +239,14 @@ async function handleLambdaCreate(ctx: AwsCtx, args: z.infer<typeof lambdaCreate
   const code = args.zip.startsWith('s3://')
     ? (() => { const [b, ...k] = args.zip.slice(5).split('/'); return `S3Bucket=${b},S3Key=${k.join('/')}`; })()
     : `ZipFile=fileb:///work/${args.zip}`
-  return runAws(ctx, 'lambdaCreate', args,
-    `lambda create-function --function-name ${JSON.stringify(args.name)} --runtime ${args.runtime} --handler ${args.handler} --role ${JSON.stringify(args.role)} --code ${code}`)
+  // IAM role propagation takes ~10s. Retry once on InvalidParameterValueException.
+  const cmd = `lambda create-function --function-name ${JSON.stringify(args.name)} --runtime ${args.runtime} --handler ${args.handler} --role ${JSON.stringify(args.role)} --code ${code}`
+  const r: any = await runAws(ctx, 'lambdaCreate', args, cmd)
+  if (!r.ok && r.error?.includes('InvalidParameterValueException') && r.error?.includes('role')) {
+    await new Promise(resolve => setTimeout(resolve, 12000))
+    return runAws(ctx, 'lambdaCreate', args, cmd)
+  }
+  return r
 }
 async function handleLambdaUpdate(ctx: AwsCtx, args: z.infer<typeof lambdaUpdateArgs>) {
   const code = args.zip.startsWith('s3://')
@@ -287,7 +293,7 @@ const apiGatewayDeleteArgs = z.object({
 })
 const apiGatewayAddRouteArgs = z.object({
   api_id:     z.string().describe('API Gateway id.'),
-  route:      z.string().describe('Route key (e.g. "GET /items", "POST /items", "ANY /{proxy+}").'),
+  route:      z.string().regex(/^(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS|ANY)\s+\//, 'Route must be "METHOD /path" (e.g. "GET /items", "ANY /{proxy+}")').describe('Route key (e.g. "GET /items", "ANY /{proxy+}").'),
   lambda_arn: z.string().describe('Lambda function ARN to integrate.'),
   region:     z.string().optional(),
 })
@@ -464,7 +470,7 @@ const DESC: Record<string, string> = {
   s3SetPublicRead:      'Apply a public-read bucket policy for static website hosting. Call s3DisableBlockPublic first.',
   stsGetCallerIdentity: 'Get the AWS account ID, user ARN, and user ID for the current credentials.',
   lambdaList:           'List Lambda functions in the account.',
-  lambdaCreate:         'Create a Lambda function. Requires an IAM role ARN (create with iamCreateRole first, then wait ~10s for propagation). Provide a zip from workspace or S3.',
+  lambdaCreate:         'Create a Lambda function. Requires an IAM role ARN (create with iamCreateRole first). If the role was just created, the tool auto-retries after propagation delay. Provide a zip from workspace or S3.',
   lambdaUpdate:         'Update a Lambda function\'s code from a zip.',
   lambdaDelete:         'Delete a Lambda function.',
   lambdaInvoke:         'Invoke a Lambda function with optional JSON payload.',
@@ -475,7 +481,7 @@ const DESC: Record<string, string> = {
   apiGatewayAddRoute:   'Add a route to an API Gateway with a Lambda integration. Creates the integration and route in one call. The Lambda must have an invoke permission for API Gateway — call lambdaAddPermission first.',
   apiGatewayDeploy:     'Create/update a stage on an API Gateway with auto-deploy enabled.',
   lambdaAddPermission:  'Grant a service permission to invoke a Lambda. Pass api_id and the source ARN is constructed automatically. Required before wiring API Gateway routes.',
-  iamCreateRole:        'Create an IAM role. Pass a service principal (e.g. "lambda.amazonaws.com") — trust policy is constructed automatically. Wait ~10s after creation before using the role.',
+  iamCreateRole:        'Create an IAM role. Pass a service principal (e.g. "lambda.amazonaws.com") — trust policy is constructed automatically.',
   iamAttachPolicy:      'Attach a managed IAM policy to a role.',
   iamListRolePolicies:  'List managed policies attached to an IAM role. Use before iamDetachPolicy to discover what to detach.',
   iamDetachPolicy:      'Detach a managed policy from an IAM role. Required before deleting the role.',
