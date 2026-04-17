@@ -1,6 +1,7 @@
-// AWS connection tools. Typed per-operation instead of a generic CLI
-// pass-through. Each tool constructs a fixed AWS CLI command from typed
-// args. Credentials ride in env, never in the logged command.
+// AWS connection tools. Typed per-operation — each constructs a fixed
+// AWS CLI command from typed args. Credentials ride in env, never in
+// the logged command. Covers S3, Lambda, API Gateway, IAM, and
+// CloudFront — enough to deploy a fully working public-facing site.
 
 import { createSdkMcpServer, tool as sdkTool } from '@anthropic-ai/claude-agent-sdk'
 import { tool } from 'ai'
@@ -13,41 +14,43 @@ export const info: McpServerInfo = {
   id:          'aws',
   name:        'AWS',
   category:    'infra',
-  description: 'AWS S3 object storage: list, upload, download, delete.',
+  description: 'AWS tools for deploying sites: S3, Lambda, API Gateway, IAM, CloudFront.',
   tools: [
-    { name: 's3List',     description: 'List S3 buckets or objects within a bucket.' },
-    { name: 's3Upload',   description: 'Upload a workspace file to S3.' },
-    { name: 's3Download', description: 'Download an S3 object to the workspace.' },
-    { name: 's3Delete',   description: 'Delete an S3 object.' },
+    // S3
+    { name: 's3CreateBucket',       description: 'Create an S3 bucket.' },
+    { name: 's3DeleteBucket',       description: 'Delete an empty S3 bucket.' },
+    { name: 's3List',               description: 'List S3 buckets or objects within a bucket.' },
+    { name: 's3Upload',             description: 'Upload a workspace file to S3.' },
+    { name: 's3Download',           description: 'Download an S3 object to the workspace.' },
+    { name: 's3Delete',             description: 'Delete an S3 object.' },
+    { name: 's3SyncUpload',         description: 'Sync a workspace directory to an S3 bucket prefix.' },
+    { name: 's3SetWebsite',         description: 'Enable static website hosting on an S3 bucket.' },
+    { name: 's3SetPublicRead',      description: 'Set a public-read bucket policy for website hosting.' },
+    // Lambda
+    { name: 'lambdaList',           description: 'List Lambda functions.' },
+    { name: 'lambdaCreate',         description: 'Create a Lambda function from a zip in S3 or workspace.' },
+    { name: 'lambdaUpdate',         description: 'Update a Lambda function\'s code from a zip.' },
+    { name: 'lambdaDelete',         description: 'Delete a Lambda function.' },
+    { name: 'lambdaInvoke',         description: 'Invoke a Lambda function.' },
+    { name: 'lambdaSetEnv',         description: 'Set environment variables on a Lambda function.' },
+    // API Gateway
+    { name: 'apiGatewayCreate',     description: 'Create an HTTP API Gateway.' },
+    { name: 'apiGatewayList',       description: 'List API Gateways.' },
+    { name: 'apiGatewayDelete',     description: 'Delete an API Gateway.' },
+    { name: 'apiGatewayAddRoute',   description: 'Add a route + Lambda integration to an API Gateway.' },
+    { name: 'apiGatewayDeploy',     description: 'Deploy an API Gateway stage.' },
+    // IAM
+    { name: 'iamCreateRole',        description: 'Create an IAM role with a trust policy.' },
+    { name: 'iamAttachPolicy',      description: 'Attach a managed policy to a role.' },
+    { name: 'iamDeleteRole',        description: 'Delete an IAM role.' },
+    // CloudFront
+    { name: 'cloudfrontCreate',     description: 'Create a CloudFront distribution for an S3 origin.' },
+    { name: 'cloudfrontList',       description: 'List CloudFront distributions.' },
+    { name: 'cloudfrontInvalidate', description: 'Invalidate CloudFront cache paths.' },
   ],
 }
 
 type AwsCtx = ConnCtx
-
-// ── Schemas ──
-
-const s3ListArgs = z.object({
-  bucket: z.string().optional().describe('Bucket name. Omit to list all buckets.'),
-  prefix: z.string().optional().describe('Object prefix filter.'),
-  region: z.string().optional().describe('Override region.'),
-})
-const s3UploadArgs = z.object({
-  bucket: z.string().describe('Bucket name.'),
-  key:    z.string().describe('Object key (path in bucket).'),
-  file:   z.string().describe('Workspace file path to upload (relative to /work).'),
-  region: z.string().optional(),
-})
-const s3DownloadArgs = z.object({
-  bucket: z.string().describe('Bucket name.'),
-  key:    z.string().describe('Object key.'),
-  file:   z.string().describe('Workspace path to save to (relative to /work).'),
-  region: z.string().optional(),
-})
-const s3DeleteArgs = z.object({
-  bucket: z.string().describe('Bucket name.'),
-  key:    z.string().describe('Object key to delete.'),
-  region: z.string().optional(),
-})
 
 // ── Runner ──
 
@@ -69,8 +72,64 @@ async function runAws(ctx: AwsCtx, toolName: string, args: unknown, command: str
   try { return { ok: true, result: JSON.parse(r.stdout) } } catch { return { ok: true, stdout: r.stdout } }
 }
 
-// ── Handlers ──
+// ── S3 schemas + handlers ──
 
+const s3CreateBucketArgs = z.object({
+  bucket: z.string().describe('Bucket name.'),
+  region: z.string().optional(),
+})
+const s3DeleteBucketArgs = z.object({
+  bucket: z.string().describe('Bucket name. Must be empty.'),
+  region: z.string().optional(),
+})
+const s3ListArgs = z.object({
+  bucket: z.string().optional().describe('Bucket name. Omit to list all buckets.'),
+  prefix: z.string().optional().describe('Object prefix filter.'),
+  region: z.string().optional(),
+})
+const s3UploadArgs = z.object({
+  bucket: z.string().describe('Bucket name.'),
+  key:    z.string().describe('Object key.'),
+  file:   z.string().describe('Workspace file (relative to /work).'),
+  region: z.string().optional(),
+})
+const s3DownloadArgs = z.object({
+  bucket: z.string().describe('Bucket name.'),
+  key:    z.string().describe('Object key.'),
+  file:   z.string().describe('Workspace path to save to (relative to /work).'),
+  region: z.string().optional(),
+})
+const s3DeleteArgs = z.object({
+  bucket: z.string().describe('Bucket name.'),
+  key:    z.string().describe('Object key.'),
+  region: z.string().optional(),
+})
+const s3SyncUploadArgs = z.object({
+  bucket: z.string().describe('Bucket name.'),
+  dir:    z.string().describe('Workspace directory to sync (relative to /work).'),
+  prefix: z.string().optional().describe('S3 key prefix. Default: bucket root.'),
+  delete: z.boolean().optional().describe('Delete remote files not in local dir. Default false.'),
+  region: z.string().optional(),
+})
+const s3SetWebsiteArgs = z.object({
+  bucket:   z.string().describe('Bucket name.'),
+  index:    z.string().default('index.html').describe('Index document.'),
+  error:    z.string().optional().describe('Error document.'),
+  region:   z.string().optional(),
+})
+const s3SetPublicReadArgs = z.object({
+  bucket: z.string().describe('Bucket name.'),
+  region: z.string().optional(),
+})
+
+async function handleS3CreateBucket(ctx: AwsCtx, args: z.infer<typeof s3CreateBucketArgs>) {
+  const region = args.region?.trim() ?? (typeof ctx.connConfig.region === 'string' ? ctx.connConfig.region.trim() : 'us-east-1')
+  const locConstraint = region === 'us-east-1' ? '' : ` --create-bucket-configuration LocationConstraint=${JSON.stringify(region)}`
+  return runAws(ctx, 's3CreateBucket', args, `s3api create-bucket --bucket ${JSON.stringify(args.bucket)}${locConstraint}`)
+}
+async function handleS3DeleteBucket(ctx: AwsCtx, args: z.infer<typeof s3DeleteBucketArgs>) {
+  return runAws(ctx, 's3DeleteBucket', args, `s3api delete-bucket --bucket ${JSON.stringify(args.bucket)}`)
+}
 async function handleS3List(ctx: AwsCtx, args: z.infer<typeof s3ListArgs>) {
   if (!args.bucket) return runAws(ctx, 's3List', args, 's3api list-buckets')
   const prefix = args.prefix ? ` --prefix ${JSON.stringify(args.prefix)}` : ''
@@ -85,43 +144,281 @@ async function handleS3Download(ctx: AwsCtx, args: z.infer<typeof s3DownloadArgs
 async function handleS3Delete(ctx: AwsCtx, args: z.infer<typeof s3DeleteArgs>) {
   return runAws(ctx, 's3Delete', args, `s3 rm s3://${args.bucket}/${args.key}`)
 }
-
-const DESC = {
-  s3List:     'List S3 buckets on the account, or list objects in a specific bucket (with optional prefix filter).',
-  s3Upload:   'Upload a workspace file to S3. `file` is relative to /work.',
-  s3Download: 'Download an S3 object to the workspace. `file` is relative to /work.',
-  s3Delete:   'Delete an object from an S3 bucket.',
+async function handleS3SyncUpload(ctx: AwsCtx, args: z.infer<typeof s3SyncUploadArgs>) {
+  const dest = args.prefix ? `s3://${args.bucket}/${args.prefix}` : `s3://${args.bucket}`
+  const del = args.delete ? ' --delete' : ''
+  return runAws(ctx, 's3SyncUpload', args, `s3 sync ${JSON.stringify('/work/' + args.dir)} ${dest}${del}`)
 }
+async function handleS3SetWebsite(ctx: AwsCtx, args: z.infer<typeof s3SetWebsiteArgs>) {
+  const errorDoc = args.error ? `,ErrorDocument={Key=${JSON.stringify(args.error)}}` : ''
+  return runAws(ctx, 's3SetWebsite', args,
+    `s3api put-bucket-website --bucket ${JSON.stringify(args.bucket)} --website-configuration IndexDocument={Suffix=${JSON.stringify(args.index)}}${errorDoc}`)
+}
+async function handleS3SetPublicRead(ctx: AwsCtx, args: z.infer<typeof s3SetPublicReadArgs>) {
+  const policy = JSON.stringify(JSON.stringify({
+    Version: '2012-10-17',
+    Statement: [{ Sid: 'PublicRead', Effect: 'Allow', Principal: '*', Action: 's3:GetObject', Resource: `arn:aws:s3:::${args.bucket}/*` }],
+  }))
+  return runAws(ctx, 's3SetPublicRead', args, `s3api put-bucket-policy --bucket ${JSON.stringify(args.bucket)} --policy ${policy}`)
+}
+
+// ── Lambda schemas + handlers ──
+
+const lambdaListArgs = z.object({ region: z.string().optional() })
+const lambdaCreateArgs = z.object({
+  name:    z.string().describe('Function name.'),
+  runtime: z.string().describe('Runtime (e.g. nodejs20.x, python3.12).'),
+  handler: z.string().describe('Handler (e.g. index.handler).'),
+  role:    z.string().describe('IAM role ARN for execution.'),
+  zip:     z.string().describe('Path to zip file (relative to /work) or S3 URI (s3://bucket/key).'),
+  region:  z.string().optional(),
+})
+const lambdaUpdateArgs = z.object({
+  name:   z.string().describe('Function name.'),
+  zip:    z.string().describe('Path to zip file (relative to /work) or S3 URI.'),
+  region: z.string().optional(),
+})
+const lambdaDeleteArgs = z.object({
+  name:   z.string().describe('Function name.'),
+  region: z.string().optional(),
+})
+const lambdaInvokeArgs = z.object({
+  name:    z.string().describe('Function name.'),
+  payload: z.string().optional().describe('JSON payload string.'),
+  region:  z.string().optional(),
+})
+const lambdaSetEnvArgs = z.object({
+  name:      z.string().describe('Function name.'),
+  variables: z.record(z.string(), z.string()).describe('Key-value map of environment variables.'),
+  region:    z.string().optional(),
+})
+
+async function handleLambdaList(ctx: AwsCtx, args: z.infer<typeof lambdaListArgs>) {
+  return runAws(ctx, 'lambdaList', args, 'lambda list-functions')
+}
+async function handleLambdaCreate(ctx: AwsCtx, args: z.infer<typeof lambdaCreateArgs>) {
+  const code = args.zip.startsWith('s3://')
+    ? (() => { const [b, ...k] = args.zip.slice(5).split('/'); return `S3Bucket=${b},S3Key=${k.join('/')}`; })()
+    : `ZipFile=fileb:///work/${args.zip}`
+  return runAws(ctx, 'lambdaCreate', args,
+    `lambda create-function --function-name ${JSON.stringify(args.name)} --runtime ${args.runtime} --handler ${args.handler} --role ${JSON.stringify(args.role)} --code ${code}`)
+}
+async function handleLambdaUpdate(ctx: AwsCtx, args: z.infer<typeof lambdaUpdateArgs>) {
+  const code = args.zip.startsWith('s3://')
+    ? (() => { const [b, ...k] = args.zip.slice(5).split('/'); return `--s3-bucket ${b} --s3-key ${k.join('/')}`; })()
+    : `--zip-file fileb:///work/${args.zip}`
+  return runAws(ctx, 'lambdaUpdate', args, `lambda update-function-code --function-name ${JSON.stringify(args.name)} ${code}`)
+}
+async function handleLambdaDelete(ctx: AwsCtx, args: z.infer<typeof lambdaDeleteArgs>) {
+  return runAws(ctx, 'lambdaDelete', args, `lambda delete-function --function-name ${JSON.stringify(args.name)}`)
+}
+async function handleLambdaInvoke(ctx: AwsCtx, args: z.infer<typeof lambdaInvokeArgs>) {
+  const payload = args.payload ? ` --payload ${JSON.stringify(args.payload)}` : ''
+  return runAws(ctx, 'lambdaInvoke', args, `lambda invoke --function-name ${JSON.stringify(args.name)}${payload} /tmp/lambda-out.json && cat /tmp/lambda-out.json`)
+}
+async function handleLambdaSetEnv(ctx: AwsCtx, args: z.infer<typeof lambdaSetEnvArgs>) {
+  const vars = JSON.stringify(JSON.stringify({ Variables: args.variables }))
+  return runAws(ctx, 'lambdaSetEnv', args, `lambda update-function-configuration --function-name ${JSON.stringify(args.name)} --environment ${vars}`)
+}
+
+// ── API Gateway schemas + handlers ──
+
+const apiGatewayCreateArgs = z.object({
+  name:        z.string().describe('API name.'),
+  description: z.string().optional().describe('API description.'),
+  region:      z.string().optional(),
+})
+const apiGatewayListArgs = z.object({ region: z.string().optional() })
+const apiGatewayDeleteArgs = z.object({
+  api_id: z.string().describe('API Gateway id.'),
+  region: z.string().optional(),
+})
+const apiGatewayAddRouteArgs = z.object({
+  api_id:     z.string().describe('API Gateway id.'),
+  route:      z.string().describe('Route key (e.g. "GET /items", "POST /items", "ANY /{proxy+}").'),
+  lambda_arn: z.string().describe('Lambda function ARN to integrate.'),
+  region:     z.string().optional(),
+})
+const apiGatewayDeployArgs = z.object({
+  api_id:     z.string().describe('API Gateway id.'),
+  stage_name: z.string().default('$default').describe('Stage name. Default "$default" (auto-deploy).'),
+  region:     z.string().optional(),
+})
+
+async function handleApiGatewayCreate(ctx: AwsCtx, args: z.infer<typeof apiGatewayCreateArgs>) {
+  const desc = args.description ? ` --description ${JSON.stringify(args.description)}` : ''
+  return runAws(ctx, 'apiGatewayCreate', args, `apigatewayv2 create-api --name ${JSON.stringify(args.name)} --protocol-type HTTP${desc}`)
+}
+async function handleApiGatewayList(ctx: AwsCtx, args: z.infer<typeof apiGatewayListArgs>) {
+  return runAws(ctx, 'apiGatewayList', args, 'apigatewayv2 get-apis')
+}
+async function handleApiGatewayDelete(ctx: AwsCtx, args: z.infer<typeof apiGatewayDeleteArgs>) {
+  return runAws(ctx, 'apiGatewayDelete', args, `apigatewayv2 delete-api --api-id ${args.api_id}`)
+}
+async function handleApiGatewayAddRoute(ctx: AwsCtx, args: z.infer<typeof apiGatewayAddRouteArgs>) {
+  const integCmd = `apigatewayv2 create-integration --api-id ${args.api_id} --integration-type AWS_PROXY --integration-uri ${JSON.stringify(args.lambda_arn)} --payload-format-version 2.0`
+  const routeCmd = (integId: string) => `apigatewayv2 create-route --api-id ${args.api_id} --route-key ${JSON.stringify(args.route)} --target integrations/${integId}`
+  const r: any = await runAws(ctx, 'apiGatewayAddRoute', args, integCmd)
+  if (!r.ok) return r
+  const integId = r.result?.IntegrationId
+  if (!integId) return { ok: false, error: 'integration created but no IntegrationId returned' }
+  return runAws(ctx, 'apiGatewayAddRoute', args, routeCmd(integId))
+}
+async function handleApiGatewayDeploy(ctx: AwsCtx, args: z.infer<typeof apiGatewayDeployArgs>) {
+  return runAws(ctx, 'apiGatewayDeploy', args, `apigatewayv2 create-stage --api-id ${args.api_id} --stage-name ${JSON.stringify(args.stage_name)} --auto-deploy`)
+}
+
+// ── IAM schemas + handlers ──
+
+const iamCreateRoleArgs = z.object({
+  name:         z.string().describe('Role name.'),
+  trust_policy: z.string().describe('Trust policy JSON (who can assume this role).'),
+  region:       z.string().optional(),
+})
+const iamAttachPolicyArgs = z.object({
+  role_name:  z.string().describe('Role name.'),
+  policy_arn: z.string().describe('Managed policy ARN to attach.'),
+  region:     z.string().optional(),
+})
+const iamDeleteRoleArgs = z.object({
+  name:   z.string().describe('Role name.'),
+  region: z.string().optional(),
+})
+
+async function handleIamCreateRole(ctx: AwsCtx, args: z.infer<typeof iamCreateRoleArgs>) {
+  return runAws(ctx, 'iamCreateRole', args,
+    `iam create-role --role-name ${JSON.stringify(args.name)} --assume-role-policy-document ${JSON.stringify(args.trust_policy)}`)
+}
+async function handleIamAttachPolicy(ctx: AwsCtx, args: z.infer<typeof iamAttachPolicyArgs>) {
+  return runAws(ctx, 'iamAttachPolicy', args,
+    `iam attach-role-policy --role-name ${JSON.stringify(args.role_name)} --policy-arn ${JSON.stringify(args.policy_arn)}`)
+}
+async function handleIamDeleteRole(ctx: AwsCtx, args: z.infer<typeof iamDeleteRoleArgs>) {
+  return runAws(ctx, 'iamDeleteRole', args, `iam delete-role --role-name ${JSON.stringify(args.name)}`)
+}
+
+// ── CloudFront schemas + handlers ──
+
+const cloudfrontCreateArgs = z.object({
+  origin:      z.string().describe('Origin domain (e.g. my-bucket.s3.us-east-1.amazonaws.com).'),
+  comment:     z.string().optional().describe('Distribution comment.'),
+  default_root: z.string().default('index.html').describe('Default root object.'),
+  region:      z.string().optional(),
+})
+const cloudfrontListArgs = z.object({ region: z.string().optional() })
+const cloudfrontInvalidateArgs = z.object({
+  distribution_id: z.string().describe('Distribution id.'),
+  paths:           z.array(z.string()).describe('Paths to invalidate (e.g. ["/*"]).'),
+  region:          z.string().optional(),
+})
+
+async function handleCloudfrontCreate(ctx: AwsCtx, args: z.infer<typeof cloudfrontCreateArgs>) {
+  const config = JSON.stringify(JSON.stringify({
+    CallerReference: Date.now().toString(),
+    Comment: args.comment ?? '',
+    DefaultRootObject: args.default_root,
+    Origins: { Quantity: 1, Items: [{ Id: 's3', DomainName: args.origin, S3OriginConfig: { OriginAccessIdentity: '' } }] },
+    DefaultCacheBehavior: {
+      TargetOriginId: 's3', ViewerProtocolPolicy: 'redirect-to-https',
+      ForwardedValues: { QueryString: false, Cookies: { Forward: 'none' } },
+      MinTTL: 0,
+    },
+    Enabled: true,
+  }))
+  return runAws(ctx, 'cloudfrontCreate', args, `cloudfront create-distribution --distribution-config ${config}`)
+}
+async function handleCloudfrontList(ctx: AwsCtx, args: z.infer<typeof cloudfrontListArgs>) {
+  return runAws(ctx, 'cloudfrontList', args, 'cloudfront list-distributions')
+}
+async function handleCloudfrontInvalidate(ctx: AwsCtx, args: z.infer<typeof cloudfrontInvalidateArgs>) {
+  const paths = JSON.stringify(JSON.stringify({ Paths: { Quantity: args.paths.length, Items: args.paths }, CallerReference: Date.now().toString() }))
+  return runAws(ctx, 'cloudfrontInvalidate', args,
+    `cloudfront create-invalidation --distribution-id ${args.distribution_id} --invalidation-batch ${paths}`)
+}
+
+// ── Descriptions ──
+
+const DESC: Record<string, string> = {
+  s3CreateBucket:       'Create a new S3 bucket.',
+  s3DeleteBucket:       'Delete an empty S3 bucket.',
+  s3List:               'List S3 buckets, or objects in a bucket with optional prefix filter.',
+  s3Upload:             'Upload a workspace file to S3. `file` is relative to /work.',
+  s3Download:           'Download an S3 object to the workspace. `file` is relative to /work.',
+  s3Delete:             'Delete an object from S3.',
+  s3SyncUpload:         'Sync a workspace directory to an S3 bucket. Optionally delete remote files not present locally.',
+  s3SetWebsite:         'Enable static website hosting on an S3 bucket.',
+  s3SetPublicRead:      'Apply a public-read bucket policy for static website hosting.',
+  lambdaList:           'List Lambda functions in the account.',
+  lambdaCreate:         'Create a Lambda function. Provide a zip from workspace or S3.',
+  lambdaUpdate:         'Update a Lambda function\'s code from a zip.',
+  lambdaDelete:         'Delete a Lambda function.',
+  lambdaInvoke:         'Invoke a Lambda function with optional JSON payload.',
+  lambdaSetEnv:         'Set environment variables on a Lambda function.',
+  apiGatewayCreate:     'Create an HTTP API Gateway.',
+  apiGatewayList:       'List API Gateways in the account.',
+  apiGatewayDelete:     'Delete an API Gateway.',
+  apiGatewayAddRoute:   'Add a route to an API Gateway with a Lambda integration. Creates the integration and route in one call.',
+  apiGatewayDeploy:     'Create/update a stage on an API Gateway with auto-deploy enabled.',
+  iamCreateRole:        'Create an IAM role with a trust policy document.',
+  iamAttachPolicy:      'Attach a managed IAM policy to a role.',
+  iamDeleteRole:        'Delete an IAM role (must detach policies first).',
+  cloudfrontCreate:     'Create a CloudFront distribution fronting an S3 origin. HTTPS redirect enabled.',
+  cloudfrontList:       'List CloudFront distributions.',
+  cloudfrontInvalidate: 'Invalidate CloudFront cache for the given paths.',
+}
+
+// ── SDK adapters ──
+
+const allSchemas = {
+  s3CreateBucket:       { schema: s3CreateBucketArgs,       handler: handleS3CreateBucket },
+  s3DeleteBucket:       { schema: s3DeleteBucketArgs,       handler: handleS3DeleteBucket },
+  s3List:               { schema: s3ListArgs,               handler: handleS3List },
+  s3Upload:             { schema: s3UploadArgs,             handler: handleS3Upload },
+  s3Download:           { schema: s3DownloadArgs,           handler: handleS3Download },
+  s3Delete:             { schema: s3DeleteArgs,             handler: handleS3Delete },
+  s3SyncUpload:         { schema: s3SyncUploadArgs,         handler: handleS3SyncUpload },
+  s3SetWebsite:         { schema: s3SetWebsiteArgs,         handler: handleS3SetWebsite },
+  s3SetPublicRead:      { schema: s3SetPublicReadArgs,      handler: handleS3SetPublicRead },
+  lambdaList:           { schema: lambdaListArgs,           handler: handleLambdaList },
+  lambdaCreate:         { schema: lambdaCreateArgs,         handler: handleLambdaCreate },
+  lambdaUpdate:         { schema: lambdaUpdateArgs,         handler: handleLambdaUpdate },
+  lambdaDelete:         { schema: lambdaDeleteArgs,         handler: handleLambdaDelete },
+  lambdaInvoke:         { schema: lambdaInvokeArgs,         handler: handleLambdaInvoke },
+  lambdaSetEnv:         { schema: lambdaSetEnvArgs,         handler: handleLambdaSetEnv },
+  apiGatewayCreate:     { schema: apiGatewayCreateArgs,     handler: handleApiGatewayCreate },
+  apiGatewayList:       { schema: apiGatewayListArgs,       handler: handleApiGatewayList },
+  apiGatewayDelete:     { schema: apiGatewayDeleteArgs,     handler: handleApiGatewayDelete },
+  apiGatewayAddRoute:   { schema: apiGatewayAddRouteArgs,   handler: handleApiGatewayAddRoute },
+  apiGatewayDeploy:     { schema: apiGatewayDeployArgs,     handler: handleApiGatewayDeploy },
+  iamCreateRole:        { schema: iamCreateRoleArgs,        handler: handleIamCreateRole },
+  iamAttachPolicy:      { schema: iamAttachPolicyArgs,      handler: handleIamAttachPolicy },
+  iamDeleteRole:        { schema: iamDeleteRoleArgs,        handler: handleIamDeleteRole },
+  cloudfrontCreate:     { schema: cloudfrontCreateArgs,      handler: handleCloudfrontCreate },
+  cloudfrontList:       { schema: cloudfrontListArgs,        handler: handleCloudfrontList },
+  cloudfrontInvalidate: { schema: cloudfrontInvalidateArgs,  handler: handleCloudfrontInvalidate },
+} as const
+
+type ToolName = keyof typeof allSchemas
 
 export function buildSdk(ctx: AwsCtx, allowed?: string[] | '*' | null) {
   const tu = (extra: unknown): AwsCtx => ({ ...ctx, toolUseId: toolUseId(extra) })
-  const all = [
-    sdkTool('s3List',     DESC.s3List,     s3ListArgs.shape,     async (a, x) => asText(await handleS3List(tu(x), a))),
-    sdkTool('s3Upload',   DESC.s3Upload,   s3UploadArgs.shape,   async (a, x) => asText(await handleS3Upload(tu(x), a))),
-    sdkTool('s3Download', DESC.s3Download, s3DownloadArgs.shape, async (a, x) => asText(await handleS3Download(tu(x), a))),
-    sdkTool('s3Delete',   DESC.s3Delete,   s3DeleteArgs.shape,   async (a, x) => asText(await handleS3Delete(tu(x), a))),
-  ]
+  const all = (Object.keys(allSchemas) as ToolName[]).map(name => {
+    const { schema, handler } = allSchemas[name]
+    return sdkTool(name, DESC[name], schema.shape, async (a: any, x: unknown) => asText(await handler(tu(x), a)))
+  })
   return createSdkMcpServer({ name: `aws:${ctx.connectionName}`, tools: filterTools(all, allowed) })
 }
 
 export function buildAi(ctx: AwsCtx) {
   const prefix = `aws-${ctx.connectionName}`
-  return {
-    [`${prefix}-s3List`]: tool({
-      description: DESC.s3List, inputSchema: s3ListArgs,
-      execute: (a: z.infer<typeof s3ListArgs>) => handleS3List(ctx, a),
-    }),
-    [`${prefix}-s3Upload`]: tool({
-      description: DESC.s3Upload, inputSchema: s3UploadArgs,
-      execute: (a: z.infer<typeof s3UploadArgs>) => handleS3Upload(ctx, a),
-    }),
-    [`${prefix}-s3Download`]: tool({
-      description: DESC.s3Download, inputSchema: s3DownloadArgs,
-      execute: (a: z.infer<typeof s3DownloadArgs>) => handleS3Download(ctx, a),
-    }),
-    [`${prefix}-s3Delete`]: tool({
-      description: DESC.s3Delete, inputSchema: s3DeleteArgs,
-      execute: (a: z.infer<typeof s3DeleteArgs>) => handleS3Delete(ctx, a),
-    }),
+  const tools: Record<string, any> = {}
+  for (const name of Object.keys(allSchemas) as ToolName[]) {
+    const { schema, handler } = allSchemas[name]
+    tools[`${prefix}-${name}`] = tool({
+      description: DESC[name],
+      inputSchema: schema,
+      execute: (a: any) => handler(ctx, a),
+    })
   }
+  return tools
 }
