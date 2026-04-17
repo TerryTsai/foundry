@@ -39,10 +39,13 @@ export const info: McpServerInfo = {
     { name: 'apiGatewayDelete',     description: 'Delete an API Gateway.' },
     { name: 'apiGatewayAddRoute',   description: 'Add a route + Lambda integration to an API Gateway.' },
     { name: 'apiGatewayDeploy',     description: 'Deploy an API Gateway stage.' },
+    // Lambda permissions
+    { name: 'lambdaAddPermission',  description: 'Grant another service (e.g. API Gateway) permission to invoke a Lambda.' },
     // IAM
     { name: 'iamCreateRole',        description: 'Create an IAM role with a trust policy.' },
     { name: 'iamAttachPolicy',      description: 'Attach a managed policy to a role.' },
-    { name: 'iamDeleteRole',        description: 'Delete an IAM role.' },
+    { name: 'iamDetachPolicy',      description: 'Detach a managed policy from a role.' },
+    { name: 'iamDeleteRole',        description: 'Delete an IAM role (detach policies first).' },
     // CloudFront
     { name: 'cloudfrontCreate',     description: 'Create a CloudFront distribution for an S3 origin.' },
     { name: 'cloudfrontList',       description: 'List CloudFront distributions.' },
@@ -74,8 +77,11 @@ async function runAws(ctx: AwsCtx, toolName: string, args: unknown, command: str
 
 // ── S3 schemas + handlers ──
 
+const bucketNamePattern = z.string().regex(/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/, 'Bucket name: 3-63 chars, lowercase letters/numbers/hyphens/dots, no consecutive dots')
+const functionNamePattern = z.string().regex(/^[a-zA-Z0-9_-]{1,64}$/, 'Function name: 1-64 chars, alphanumeric/hyphens/underscores')
+
 const s3CreateBucketArgs = z.object({
-  bucket: z.string().describe('Bucket name.'),
+  bucket: bucketNamePattern.describe('Bucket name (lowercase, 3-63 chars).'),
   region: z.string().optional(),
 })
 const s3DeleteBucketArgs = z.object({
@@ -166,7 +172,7 @@ async function handleS3SetPublicRead(ctx: AwsCtx, args: z.infer<typeof s3SetPubl
 
 const lambdaListArgs = z.object({ region: z.string().optional() })
 const lambdaCreateArgs = z.object({
-  name:    z.string().describe('Function name.'),
+  name:    functionNamePattern.describe('Function name (alphanumeric/hyphens/underscores, max 64 chars).'),
   runtime: z.string().describe('Runtime (e.g. nodejs20.x, python3.12).'),
   handler: z.string().describe('Handler (e.g. index.handler).'),
   role:    z.string().describe('IAM role ARN for execution.'),
@@ -184,8 +190,16 @@ const lambdaDeleteArgs = z.object({
 })
 const lambdaInvokeArgs = z.object({
   name:    z.string().describe('Function name.'),
-  payload: z.string().optional().describe('JSON payload string.'),
+  payload: z.record(z.string(), z.unknown()).optional().describe('JSON payload object. Stringified automatically.'),
   region:  z.string().optional(),
+})
+const lambdaAddPermissionArgs = z.object({
+  function_name: z.string().describe('Lambda function name or ARN.'),
+  statement_id:  z.string().describe('Unique statement id (e.g. "apigateway-invoke").'),
+  action:        z.string().default('lambda:InvokeFunction').describe('Action to allow.'),
+  principal:     z.string().describe('Service principal (e.g. "apigateway.amazonaws.com").'),
+  source_arn:    z.string().optional().describe('Source ARN to restrict (e.g. API Gateway execution ARN).'),
+  region:        z.string().optional(),
 })
 const lambdaSetEnvArgs = z.object({
   name:      z.string().describe('Function name.'),
@@ -213,8 +227,13 @@ async function handleLambdaDelete(ctx: AwsCtx, args: z.infer<typeof lambdaDelete
   return runAws(ctx, 'lambdaDelete', args, `lambda delete-function --function-name ${JSON.stringify(args.name)}`)
 }
 async function handleLambdaInvoke(ctx: AwsCtx, args: z.infer<typeof lambdaInvokeArgs>) {
-  const payload = args.payload ? ` --payload ${JSON.stringify(args.payload)}` : ''
+  const payload = args.payload ? ` --payload ${JSON.stringify(JSON.stringify(args.payload))}` : ''
   return runAws(ctx, 'lambdaInvoke', args, `lambda invoke --function-name ${JSON.stringify(args.name)}${payload} /tmp/lambda-out.json && cat /tmp/lambda-out.json`)
+}
+async function handleLambdaAddPermission(ctx: AwsCtx, args: z.infer<typeof lambdaAddPermissionArgs>) {
+  const srcArn = args.source_arn ? ` --source-arn ${JSON.stringify(args.source_arn)}` : ''
+  return runAws(ctx, 'lambdaAddPermission', args,
+    `lambda add-permission --function-name ${JSON.stringify(args.function_name)} --statement-id ${JSON.stringify(args.statement_id)} --action ${args.action} --principal ${args.principal}${srcArn}`)
 }
 async function handleLambdaSetEnv(ctx: AwsCtx, args: z.infer<typeof lambdaSetEnvArgs>) {
   const vars = JSON.stringify(JSON.stringify({ Variables: args.variables }))
@@ -293,6 +312,16 @@ async function handleIamAttachPolicy(ctx: AwsCtx, args: z.infer<typeof iamAttach
   return runAws(ctx, 'iamAttachPolicy', args,
     `iam attach-role-policy --role-name ${JSON.stringify(args.role_name)} --policy-arn ${JSON.stringify(args.policy_arn)}`)
 }
+const iamDetachPolicyArgs = z.object({
+  role_name:  z.string().describe('Role name.'),
+  policy_arn: z.string().describe('Managed policy ARN to detach.'),
+  region:     z.string().optional(),
+})
+
+async function handleIamDetachPolicy(ctx: AwsCtx, args: z.infer<typeof iamDetachPolicyArgs>) {
+  return runAws(ctx, 'iamDetachPolicy', args,
+    `iam detach-role-policy --role-name ${JSON.stringify(args.role_name)} --policy-arn ${JSON.stringify(args.policy_arn)}`)
+}
 async function handleIamDeleteRole(ctx: AwsCtx, args: z.infer<typeof iamDeleteRoleArgs>) {
   return runAws(ctx, 'iamDeleteRole', args, `iam delete-role --role-name ${JSON.stringify(args.name)}`)
 }
@@ -300,7 +329,8 @@ async function handleIamDeleteRole(ctx: AwsCtx, args: z.infer<typeof iamDeleteRo
 // ── CloudFront schemas + handlers ──
 
 const cloudfrontCreateArgs = z.object({
-  origin:      z.string().describe('Origin domain (e.g. my-bucket.s3.us-east-1.amazonaws.com).'),
+  bucket:      z.string().describe('S3 bucket name. Origin domain is computed automatically.'),
+  bucket_region: z.string().optional().describe('Bucket region (default: connection region or us-east-1). Used to construct the S3 endpoint.'),
   comment:     z.string().optional().describe('Distribution comment.'),
   default_root: z.string().default('index.html').describe('Default root object.'),
   region:      z.string().optional(),
@@ -313,11 +343,15 @@ const cloudfrontInvalidateArgs = z.object({
 })
 
 async function handleCloudfrontCreate(ctx: AwsCtx, args: z.infer<typeof cloudfrontCreateArgs>) {
+  const bucketRegion = args.bucket_region?.trim()
+    ?? (typeof ctx.connConfig.region === 'string' ? ctx.connConfig.region.trim() : null)
+    ?? 'us-east-1'
+  const origin = `${args.bucket}.s3.${bucketRegion}.amazonaws.com`
   const config = JSON.stringify(JSON.stringify({
     CallerReference: Date.now().toString(),
     Comment: args.comment ?? '',
     DefaultRootObject: args.default_root,
-    Origins: { Quantity: 1, Items: [{ Id: 's3', DomainName: args.origin, S3OriginConfig: { OriginAccessIdentity: '' } }] },
+    Origins: { Quantity: 1, Items: [{ Id: 's3', DomainName: origin, S3OriginConfig: { OriginAccessIdentity: '' } }] },
     DefaultCacheBehavior: {
       TargetOriginId: 's3', ViewerProtocolPolicy: 'redirect-to-https',
       ForwardedValues: { QueryString: false, Cookies: { Forward: 'none' } },
@@ -349,7 +383,7 @@ const DESC: Record<string, string> = {
   s3SetWebsite:         'Enable static website hosting on an S3 bucket.',
   s3SetPublicRead:      'Apply a public-read bucket policy for static website hosting.',
   lambdaList:           'List Lambda functions in the account.',
-  lambdaCreate:         'Create a Lambda function. Provide a zip from workspace or S3.',
+  lambdaCreate:         'Create a Lambda function. Requires an IAM role ARN (create with iamCreateRole first, then wait ~10s for propagation). Provide a zip from workspace or S3.',
   lambdaUpdate:         'Update a Lambda function\'s code from a zip.',
   lambdaDelete:         'Delete a Lambda function.',
   lambdaInvoke:         'Invoke a Lambda function with optional JSON payload.',
@@ -357,11 +391,13 @@ const DESC: Record<string, string> = {
   apiGatewayCreate:     'Create an HTTP API Gateway.',
   apiGatewayList:       'List API Gateways in the account.',
   apiGatewayDelete:     'Delete an API Gateway.',
-  apiGatewayAddRoute:   'Add a route to an API Gateway with a Lambda integration. Creates the integration and route in one call.',
+  apiGatewayAddRoute:   'Add a route to an API Gateway with a Lambda integration. Creates the integration and route in one call. The Lambda must have an invoke permission for API Gateway — call lambdaAddPermission first.',
   apiGatewayDeploy:     'Create/update a stage on an API Gateway with auto-deploy enabled.',
+  lambdaAddPermission:  'Grant a service (e.g. apigateway.amazonaws.com) permission to invoke a Lambda. Required before wiring API Gateway routes.',
   iamCreateRole:        'Create an IAM role with a trust policy document.',
   iamAttachPolicy:      'Attach a managed IAM policy to a role.',
-  iamDeleteRole:        'Delete an IAM role (must detach policies first).',
+  iamDetachPolicy:      'Detach a managed policy from an IAM role. Required before deleting the role.',
+  iamDeleteRole:        'Delete an IAM role. Detach all policies first with iamDetachPolicy.',
   cloudfrontCreate:     'Create a CloudFront distribution fronting an S3 origin. HTTPS redirect enabled.',
   cloudfrontList:       'List CloudFront distributions.',
   cloudfrontInvalidate: 'Invalidate CloudFront cache for the given paths.',
@@ -390,8 +426,10 @@ const allSchemas = {
   apiGatewayDelete:     { schema: apiGatewayDeleteArgs,     handler: handleApiGatewayDelete },
   apiGatewayAddRoute:   { schema: apiGatewayAddRouteArgs,   handler: handleApiGatewayAddRoute },
   apiGatewayDeploy:     { schema: apiGatewayDeployArgs,     handler: handleApiGatewayDeploy },
+  lambdaAddPermission:  { schema: lambdaAddPermissionArgs,  handler: handleLambdaAddPermission },
   iamCreateRole:        { schema: iamCreateRoleArgs,        handler: handleIamCreateRole },
   iamAttachPolicy:      { schema: iamAttachPolicyArgs,      handler: handleIamAttachPolicy },
+  iamDetachPolicy:      { schema: iamDetachPolicyArgs,      handler: handleIamDetachPolicy },
   iamDeleteRole:        { schema: iamDeleteRoleArgs,        handler: handleIamDeleteRole },
   cloudfrontCreate:     { schema: cloudfrontCreateArgs,      handler: handleCloudfrontCreate },
   cloudfrontList:       { schema: cloudfrontListArgs,        handler: handleCloudfrontList },

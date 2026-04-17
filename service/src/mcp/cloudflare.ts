@@ -44,10 +44,10 @@ type CloudflareCtx = ConnCtx
 
 const whoamiArgs           = z.object({})
 const purgeCacheArgs       = z.object({
-  zone_id:          z.string().describe('Zone id (get via zonesList).'),
-  files:            z.array(z.string()).optional().describe('URLs to purge. Omit with purge_everything=true.'),
-  purge_everything: z.boolean().optional().describe('Purge all cache in the zone.'),
-})
+  zone_id:          z.string().describe('Zone id.'),
+  files:            z.array(z.string()).optional().describe('URLs to purge. Mutually exclusive with purge_everything.'),
+  purge_everything: z.boolean().optional().describe('Purge all cache. Mutually exclusive with files.'),
+}).refine(d => !d.files || !d.purge_everything, 'Provide files OR purge_everything, not both')
 const pagesListArgs        = z.object({ account_id: z.string().optional() })
 const pagesDeploymentsArgs = z.object({
   project_name: z.string().describe('Pages project name (slug).'),
@@ -64,8 +64,10 @@ const pagesDeployArgs      = z.object({
   account_id:   z.string().optional(),
 })
 // ── R2 ──
+const r2BucketName = z.string().regex(/^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/, 'Bucket name: 3-63 chars, lowercase letters/numbers/hyphens')
+
 const r2CreateBucketArgs = z.object({
-  bucket:     z.string().describe('Bucket name to create.'),
+  bucket:     r2BucketName.describe('Bucket name to create (lowercase, 3-63 chars).'),
   account_id: z.string().optional(),
 })
 const r2DeleteBucketArgs = z.object({
@@ -223,7 +225,7 @@ async function handlePagesDeploy(ctx: CloudflareCtx, args: z.infer<typeof pagesD
     'wrangler pages project create',
     JSON.stringify(args.project_name),
     '--production-branch', JSON.stringify(branch),
-    '2>/dev/null || true',
+    '|| true',
     '&&',
     'wrangler pages deploy /input/dist',
     '--project-name', JSON.stringify(args.project_name),
