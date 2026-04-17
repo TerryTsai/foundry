@@ -44,6 +44,13 @@ export interface McpToolInfo {
   description: string
 }
 
+export interface ToolDef {
+  name:        string
+  description: string
+  schema:      import('zod').ZodType
+  handler:     (ctx: any, args: any) => any
+}
+
 // Category buckets used by the agent-tool-selection UI to group rows.
 // Keep the set small — it's the skim-level grouping a founder sees when
 // picking tools for a new agent.

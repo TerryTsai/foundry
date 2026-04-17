@@ -2,12 +2,10 @@
 // bypasses RLS, which is what an agent acting on behalf of the founder
 // needs. Filter syntax mirrors PostgREST: `column=op.value` pairs.
 
-import { createSdkMcpServer, tool as sdkTool } from '@anthropic-ai/claude-agent-sdk'
-import { tool } from 'ai'
 import { z } from 'zod'
 
-import { asText, runCommand, toolUseId, type ConnCtx } from './shared.js'
-import { filterTools, type McpServerInfo } from './registry.js'
+import { runCommand, type ConnCtx } from './shared.js'
+import type { McpServerInfo, ToolDef } from './registry.js'
 
 export const info: McpServerInfo = {
   id:          'supabase',
@@ -116,33 +114,12 @@ async function handlePing(ctx: SupabaseCtx, args: z.infer<typeof pingArgs>) {
   return api(ctx, 'ping', args, 'GET', '/rest/v1/')
 }
 
-const DESC = {
-  tableSelect: 'SELECT rows from a table. Filter syntax is PostgREST: { column: "op.value" } where op is one of eq, neq, gt, gte, lt, lte, like, ilike, in, is. `select` picks columns ("a,b,c"); `order` takes "column.asc" or "column.desc".',
-  tableInsert: 'INSERT one row (object) or many (array). Returns the inserted rows with server-generated columns unless `returning:false`.',
-  tableUpdate: 'UPDATE rows matching `filter`. `filter` is required to prevent accidentally patching the whole table.',
-  tableDelete: 'DELETE rows matching `filter`. `filter` is required.',
-  ping:        'Verify the project URL + service_role key by hitting the REST root.',
-}
+// ── Tools ──
 
-export function buildSdk(ctx: SupabaseCtx, allowed?: string[] | '*' | null) {
-  const tu = (extra: unknown): SupabaseCtx => ({ ...ctx, toolUseId: toolUseId(extra) })
-  const all = [
-    sdkTool('tableSelect', DESC.tableSelect, tableSelectArgs.shape, async (a, x) => asText(await handleTableSelect(tu(x), a))),
-    sdkTool('tableInsert', DESC.tableInsert, tableInsertArgs.shape, async (a, x) => asText(await handleTableInsert(tu(x), a))),
-    sdkTool('tableUpdate', DESC.tableUpdate, tableUpdateArgs.shape, async (a, x) => asText(await handleTableUpdate(tu(x), a))),
-    sdkTool('tableDelete', DESC.tableDelete, tableDeleteArgs.shape, async (a, x) => asText(await handleTableDelete(tu(x), a))),
-    sdkTool('ping',        DESC.ping,        pingArgs.shape,        async (a, x) => asText(await handlePing(tu(x), a))),
-  ]
-  return createSdkMcpServer({ name: `supabase:${ctx.connectionName}`, tools: filterTools(all, allowed) })
-}
-
-export function buildAi(ctx: SupabaseCtx) {
-  const p = `supabase-${ctx.connectionName}`
-  return {
-    [`${p}-tableSelect`]: tool({ description: DESC.tableSelect, inputSchema: tableSelectArgs, execute: a => handleTableSelect(ctx, a) }),
-    [`${p}-tableInsert`]: tool({ description: DESC.tableInsert, inputSchema: tableInsertArgs, execute: a => handleTableInsert(ctx, a) }),
-    [`${p}-tableUpdate`]: tool({ description: DESC.tableUpdate, inputSchema: tableUpdateArgs, execute: a => handleTableUpdate(ctx, a) }),
-    [`${p}-tableDelete`]: tool({ description: DESC.tableDelete, inputSchema: tableDeleteArgs, execute: a => handleTableDelete(ctx, a) }),
-    [`${p}-ping`]:        tool({ description: DESC.ping,        inputSchema: pingArgs,        execute: a => handlePing(ctx, a) }),
-  }
-}
+export const tools: ToolDef[] = [
+  { name: 'tableSelect', description: 'SELECT rows from a table. Filter syntax is PostgREST: { column: "op.value" } where op is one of eq, neq, gt, gte, lt, lte, like, ilike, in, is. `select` picks columns ("a,b,c"); `order` takes "column.asc" or "column.desc".', schema: tableSelectArgs, handler: handleTableSelect },
+  { name: 'tableInsert', description: 'INSERT one row (object) or many (array). Returns the inserted rows with server-generated columns unless `returning:false`.',                                                                                                     schema: tableInsertArgs, handler: handleTableInsert },
+  { name: 'tableUpdate', description: 'UPDATE rows matching `filter`. `filter` is required to prevent accidentally patching the whole table.',                                                                                                                          schema: tableUpdateArgs, handler: handleTableUpdate },
+  { name: 'tableDelete', description: 'DELETE rows matching `filter`. `filter` is required.',                                                                                                                                                                           schema: tableDeleteArgs, handler: handleTableDelete },
+  { name: 'ping',        description: 'Verify the project URL + service_role key by hitting the REST root.',                                                                                                                                                            schema: pingArgs,        handler: handlePing },
+]

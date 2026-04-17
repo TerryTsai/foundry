@@ -1,12 +1,10 @@
 // Crisp — customer chat. Plugin-tier auth (identifier + key) via HTTP
 // Basic. Conversation endpoints are scoped by website_id.
 
-import { createSdkMcpServer, tool as sdkTool } from '@anthropic-ai/claude-agent-sdk'
-import { tool } from 'ai'
 import { z } from 'zod'
 
-import { asText, runCommand, toolUseId, type ConnCtx } from './shared.js'
-import { filterTools, type McpServerInfo } from './registry.js'
+import { runCommand, type ConnCtx } from './shared.js'
+import type { McpServerInfo, ToolDef } from './registry.js'
 
 export const info: McpServerInfo = {
   id:          'crisp',
@@ -90,33 +88,12 @@ async function handlePing(ctx: CrispCtx, args: z.infer<typeof pingArgs>) {
   return api(ctx, 'ping', args, 'GET', `/website/${encodeURIComponent(website(ctx))}`)
 }
 
-const DESC = {
-  conversationList:  'List conversations on the website (paginated, 1-indexed). `search_query` + `search_type` filter by text/email/phone/session_id.',
-  conversationGet:   'Fetch one conversation\'s metadata (participant, last message, state, assigned operator).',
-  conversationSend:  'Post a plain-text operator message into a conversation.',
-  conversationClose: 'Mark a conversation resolved. The visitor can reopen it by replying.',
-  ping:              'Verify identifier + key + website_id by fetching the website record.',
-}
+// ── Tools ──
 
-export function buildSdk(ctx: CrispCtx, allowed?: string[] | '*' | null) {
-  const tu = (extra: unknown): CrispCtx => ({ ...ctx, toolUseId: toolUseId(extra) })
-  const all = [
-    sdkTool('conversationList',  DESC.conversationList,  conversationListArgs.shape,  async (a, x) => asText(await handleConversationList(tu(x), a))),
-    sdkTool('conversationGet',   DESC.conversationGet,   conversationGetArgs.shape,   async (a, x) => asText(await handleConversationGet(tu(x), a))),
-    sdkTool('conversationSend',  DESC.conversationSend,  conversationSendArgs.shape,  async (a, x) => asText(await handleConversationSend(tu(x), a))),
-    sdkTool('conversationClose', DESC.conversationClose, conversationCloseArgs.shape, async (a, x) => asText(await handleConversationClose(tu(x), a))),
-    sdkTool('ping',              DESC.ping,              pingArgs.shape,              async (a, x) => asText(await handlePing(tu(x), a))),
-  ]
-  return createSdkMcpServer({ name: `crisp:${ctx.connectionName}`, tools: filterTools(all, allowed) })
-}
-
-export function buildAi(ctx: CrispCtx) {
-  const p = `crisp-${ctx.connectionName}`
-  return {
-    [`${p}-conversationList`]:  tool({ description: DESC.conversationList,  inputSchema: conversationListArgs,  execute: a => handleConversationList(ctx, a) }),
-    [`${p}-conversationGet`]:   tool({ description: DESC.conversationGet,   inputSchema: conversationGetArgs,   execute: a => handleConversationGet(ctx, a) }),
-    [`${p}-conversationSend`]:  tool({ description: DESC.conversationSend,  inputSchema: conversationSendArgs,  execute: a => handleConversationSend(ctx, a) }),
-    [`${p}-conversationClose`]: tool({ description: DESC.conversationClose, inputSchema: conversationCloseArgs, execute: a => handleConversationClose(ctx, a) }),
-    [`${p}-ping`]:              tool({ description: DESC.ping,              inputSchema: pingArgs,              execute: a => handlePing(ctx, a) }),
-  }
-}
+export const tools: ToolDef[] = [
+  { name: 'conversationList',  description: 'List conversations on the website (paginated, 1-indexed). `search_query` + `search_type` filter by text/email/phone/session_id.', schema: conversationListArgs,  handler: handleConversationList },
+  { name: 'conversationGet',   description: 'Fetch one conversation\'s metadata (participant, last message, state, assigned operator).',                                        schema: conversationGetArgs,   handler: handleConversationGet },
+  { name: 'conversationSend',  description: 'Post a plain-text operator message into a conversation.',                                                                          schema: conversationSendArgs,  handler: handleConversationSend },
+  { name: 'conversationClose', description: 'Mark a conversation resolved. The visitor can reopen it by replying.',                                                             schema: conversationCloseArgs, handler: handleConversationClose },
+  { name: 'ping',              description: 'Verify identifier + key + website_id by fetching the website record.',                                                             schema: pingArgs,              handler: handlePing },
+]

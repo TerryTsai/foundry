@@ -2,17 +2,17 @@
 // call per step; each step's ContentPart[] is projected into activity
 // rows. Tokens ride on the first activity of the step.
 
-import { generateText, stepCountIs, type ModelMessage, type ToolSet } from 'ai'
+import { generateText, stepCountIs, tool, type ModelMessage, type ToolSet } from 'ai'
 import { ulid } from 'ulid'
 
 import { type Db } from '../../database.js'
 import * as database from '../../database.js'
-import type { Connection } from '../../tables.js'
-import { parseConn } from '../../mcp/shared.js'
+import { parseConn, asText } from '../../mcp/shared.js'
 import { now } from '../../util.js'
 
 import { resolveModelWithDefaults } from './model.js'
 import type { SessionContext, LoopResult } from '../compose.js'
+import type { ToolDef } from '../../mcp/registry.js'
 
 import * as foundryServer from '../../mcp/foundry.js'
 import * as githubServer  from '../../mcp/github.js'
@@ -30,30 +30,35 @@ type ContentPart =
   | { type: string; [k: string]: unknown }
 
 
+function toAiTools(defs: ToolDef[], ctx: unknown, prefix?: string): ToolSet {
+  const out: ToolSet = {}
+  for (const t of defs) {
+    const key = prefix ? `${prefix}-${t.name}` : t.name
+    out[key] = tool({ description: t.description, inputSchema: t.schema as any, execute: (a: any) => t.handler(ctx, a) })
+  }
+  return out
+}
+
 function buildTools(ctx: SessionContext): ToolSet {
   const { db, config, workDir } = ctx
   const sessionId  = ctx.session.id
   const agentDef   = ctx.agent
   const ticketData = ctx.ticket
-  const tools: ToolSet = {
-    ...foundryServer.buildAi({ db, config, sessionId, workspace: workDir, projectId: ticketData.project_id, accountId: agentDef.account_id, ticketId: ticketData.id, agentName: agentDef.name }),
-    ...githubServer .buildAi({ db, config, sessionId, workspace: workDir, ticket: ticketData, agentName: agentDef.name }),
-    ...sandboxServer.buildAi({ db, config, sessionId, workspace: workDir }),
-    ...browserServer.buildAi({ db, config, sessionId, workspace: workDir }),
+  const result: ToolSet = {
+    ...toAiTools(foundryServer.tools, { db, config, sessionId, workspace: workDir, projectId: ticketData.project_id, accountId: agentDef.account_id, ticketId: ticketData.id, agentName: agentDef.name }),
+    ...toAiTools(githubServer.tools,  { db, config, sessionId, workspace: workDir, ticket: ticketData, agentName: agentDef.name }),
+    ...toAiTools(sandboxServer.tools, { db, config, sessionId, workspace: workDir }),
+    ...toAiTools(browserServer.tools, { db, config, sessionId, workspace: workDir }),
   }
-  // Connection-backed tools. Flat namespace <kind>-<name>-<tool>; no
-  // server concept in the AI SDK ToolSet, so everything merges in.
   const conns = database.connectionByAccount(db, agentDef.account_id)
   for (const conn of conns) {
     const mod = byConnectionKind[conn.kind as keyof typeof byConnectionKind]
     if (!mod) continue
     const { secrets, connConfig } = parseConn(conn)
-    Object.assign(tools, mod.buildAi({
-      db, config, sessionId, workspace: workDir,
-      secrets, connConfig, connectionName: conn.name,
-    }))
+    const prefix = `${conn.kind}-${conn.name}`
+    Object.assign(result, toAiTools(mod.tools, { db, config, sessionId, workspace: workDir, secrets, connConfig, connectionName: conn.name }, prefix))
   }
-  return tools
+  return result
 }
 
 function contentPartsOf(result: StepResult): ContentPart[] {

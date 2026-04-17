@@ -3,12 +3,10 @@
 // Event capture requires the project API key and is intentionally
 // omitted here — capture is almost always done from the client SDK.
 
-import { createSdkMcpServer, tool as sdkTool } from '@anthropic-ai/claude-agent-sdk'
-import { tool } from 'ai'
 import { z } from 'zod'
 
-import { asText, runCommand, toolUseId, type ConnCtx } from './shared.js'
-import { filterTools, type McpServerInfo } from './registry.js'
+import { runCommand, type ConnCtx } from './shared.js'
+import type { McpServerInfo, ToolDef } from './registry.js'
 
 export const info: McpServerInfo = {
   id:          'posthog',
@@ -71,8 +69,6 @@ async function handleFeatureFlagList(ctx: PosthogCtx, args: z.infer<typeof featu
 }
 
 async function handleFeatureFlagGet(ctx: PosthogCtx, args: z.infer<typeof featureFlagGetArgs>) {
-  // The list endpoint supports ?search= but there's no direct get-by-key.
-  // Filter in-app for the matching key.
   const r = await api(ctx, 'featureFlagGet', args, 'GET', `/api/projects/${encodeURIComponent(projectId(ctx))}/feature_flags/?search=${encodeURIComponent(args.key)}`)
   if (!r.ok) return r
   const flags = (r.result as { results?: Array<{ key: string }> } | undefined)?.results ?? []
@@ -84,30 +80,11 @@ async function handlePing(ctx: PosthogCtx, args: z.infer<typeof pingArgs>) {
   return api(ctx, 'ping', args, 'GET', `/api/projects/${encodeURIComponent(projectId(ctx))}/`)
 }
 
-const DESC = {
-  queryHogQL:      'Run a HogQL query. HogQL is SQL against the events/persons/sessions tables. Returns { results, types, columns }.',
-  featureFlagList: 'List feature flags on the project. Pass `limit` to cap the page size.',
-  featureFlagGet:  'Fetch a feature flag\'s current config by key.',
-  ping:            'Verify the personal API key + project id by fetching the project.',
-}
+// ── Tools ──
 
-export function buildSdk(ctx: PosthogCtx, allowed?: string[] | '*' | null) {
-  const tu = (extra: unknown): PosthogCtx => ({ ...ctx, toolUseId: toolUseId(extra) })
-  const all = [
-    sdkTool('queryHogQL',      DESC.queryHogQL,      queryHogQLArgs.shape,      async (a, x) => asText(await handleQueryHogQL(tu(x), a))),
-    sdkTool('featureFlagList', DESC.featureFlagList, featureFlagListArgs.shape, async (a, x) => asText(await handleFeatureFlagList(tu(x), a))),
-    sdkTool('featureFlagGet',  DESC.featureFlagGet,  featureFlagGetArgs.shape,  async (a, x) => asText(await handleFeatureFlagGet(tu(x), a))),
-    sdkTool('ping',            DESC.ping,            pingArgs.shape,            async (a, x) => asText(await handlePing(tu(x), a))),
-  ]
-  return createSdkMcpServer({ name: `posthog:${ctx.connectionName}`, tools: filterTools(all, allowed) })
-}
-
-export function buildAi(ctx: PosthogCtx) {
-  const p = `posthog-${ctx.connectionName}`
-  return {
-    [`${p}-queryHogQL`]:      tool({ description: DESC.queryHogQL,      inputSchema: queryHogQLArgs,      execute: a => handleQueryHogQL(ctx, a) }),
-    [`${p}-featureFlagList`]: tool({ description: DESC.featureFlagList, inputSchema: featureFlagListArgs, execute: a => handleFeatureFlagList(ctx, a) }),
-    [`${p}-featureFlagGet`]:  tool({ description: DESC.featureFlagGet,  inputSchema: featureFlagGetArgs,  execute: a => handleFeatureFlagGet(ctx, a) }),
-    [`${p}-ping`]:            tool({ description: DESC.ping,            inputSchema: pingArgs,            execute: a => handlePing(ctx, a) }),
-  }
-}
+export const tools: ToolDef[] = [
+  { name: 'queryHogQL',      description: 'Run a HogQL query. HogQL is SQL against the events/persons/sessions tables. Returns { results, types, columns }.',   schema: queryHogQLArgs,      handler: handleQueryHogQL },
+  { name: 'featureFlagList', description: 'List feature flags on the project. Pass `limit` to cap the page size.',                                               schema: featureFlagListArgs, handler: handleFeatureFlagList },
+  { name: 'featureFlagGet',  description: 'Fetch a feature flag\'s current config by key.',                                                                      schema: featureFlagGetArgs,  handler: handleFeatureFlagGet },
+  { name: 'ping',            description: 'Verify the personal API key + project id by fetching the project.',                                                   schema: pingArgs,            handler: handlePing },
+]

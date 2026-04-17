@@ -1,12 +1,10 @@
 // Sentry — error tracking. Uses the org-scoped REST API; auth is a
 // Bearer auth token. Supports listing, fetching, and resolving issues.
 
-import { createSdkMcpServer, tool as sdkTool } from '@anthropic-ai/claude-agent-sdk'
-import { tool } from 'ai'
 import { z } from 'zod'
 
-import { asText, runCommand, toolUseId, type ConnCtx } from './shared.js'
-import { filterTools, type McpServerInfo } from './registry.js'
+import { runCommand, type ConnCtx } from './shared.js'
+import type { McpServerInfo, ToolDef } from './registry.js'
 
 export const info: McpServerInfo = {
   id:          'sentry',
@@ -82,30 +80,11 @@ async function handlePing(ctx: SentryCtx, args: z.infer<typeof pingArgs>) {
   return api(ctx, 'ping', args, 'GET', `/api/0/organizations/${encodeURIComponent(org(ctx))}/`)
 }
 
-const DESC = {
-  listIssues:   'List issues in a project. Use `query` with Sentry search syntax (e.g. "is:unresolved", "issue.category:error age:-24h"). Pagination: pass `cursor` from the prior response\'s Link header to fetch the next page.',
-  getIssue:     'Fetch full details for one issue.',
-  resolveIssue: 'Mark an issue resolved. Useful for auto-triage after a fix deploy.',
-  ping:         'Verify the auth token + organization by fetching the organization.',
-}
+// ── Tools ──
 
-export function buildSdk(ctx: SentryCtx, allowed?: string[] | '*' | null) {
-  const tu = (extra: unknown): SentryCtx => ({ ...ctx, toolUseId: toolUseId(extra) })
-  const all = [
-    sdkTool('listIssues',   DESC.listIssues,   listIssuesArgs.shape,   async (a, x) => asText(await handleListIssues(tu(x), a))),
-    sdkTool('getIssue',     DESC.getIssue,     getIssueArgs.shape,     async (a, x) => asText(await handleGetIssue(tu(x), a))),
-    sdkTool('resolveIssue', DESC.resolveIssue, resolveIssueArgs.shape, async (a, x) => asText(await handleResolveIssue(tu(x), a))),
-    sdkTool('ping',         DESC.ping,         pingArgs.shape,         async (a, x) => asText(await handlePing(tu(x), a))),
-  ]
-  return createSdkMcpServer({ name: `sentry:${ctx.connectionName}`, tools: filterTools(all, allowed) })
-}
-
-export function buildAi(ctx: SentryCtx) {
-  const p = `sentry-${ctx.connectionName}`
-  return {
-    [`${p}-listIssues`]:   tool({ description: DESC.listIssues,   inputSchema: listIssuesArgs,   execute: a => handleListIssues(ctx, a) }),
-    [`${p}-getIssue`]:     tool({ description: DESC.getIssue,     inputSchema: getIssueArgs,     execute: a => handleGetIssue(ctx, a) }),
-    [`${p}-resolveIssue`]: tool({ description: DESC.resolveIssue, inputSchema: resolveIssueArgs, execute: a => handleResolveIssue(ctx, a) }),
-    [`${p}-ping`]:         tool({ description: DESC.ping,         inputSchema: pingArgs,         execute: a => handlePing(ctx, a) }),
-  }
-}
+export const tools: ToolDef[] = [
+  { name: 'listIssues',   description: 'List issues in a project. Use `query` with Sentry search syntax (e.g. "is:unresolved", "issue.category:error age:-24h"). Pagination: pass `cursor` from the prior response\'s Link header to fetch the next page.', schema: listIssuesArgs,   handler: handleListIssues },
+  { name: 'getIssue',     description: 'Fetch full details for one issue.',                                                                                                                                                                                  schema: getIssueArgs,     handler: handleGetIssue },
+  { name: 'resolveIssue', description: 'Mark an issue resolved. Useful for auto-triage after a fix deploy.',                                                                                                                                                 schema: resolveIssueArgs, handler: handleResolveIssue },
+  { name: 'ping',         description: 'Verify the auth token + organization by fetching the organization.',                                                                                                                                                 schema: pingArgs,         handler: handlePing },
+]

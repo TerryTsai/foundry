@@ -22,14 +22,12 @@
 //
 // Workspace lifecycle is minimal: workspaceEmpty() creates a tmpdir,
 // workspaceDestroy() removes it. Both host-side. Everything in between
-// is agent-driven.
+// is agent-driven via tools.
 
 import { mkdtemp, rm } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
 
-import { createSdkMcpServer, tool as sdkTool } from '@anthropic-ai/claude-agent-sdk'
-import { tool } from 'ai'
 import { z } from 'zod'
 
 import type { Db } from '../database.js'
@@ -38,9 +36,9 @@ import type { Config } from '../config.js'
 import type { Ticket } from '../tables.js'
 import { mustExist, toInt } from '../util.js'
 import { installationForRepo, installationToken } from '../connections/github.js'
-import { asText, runCommand, toolUseId } from './shared.js'
+import { runCommand } from './shared.js'
 
-import { filterTools, type McpServerInfo } from './registry.js'
+import type { McpServerInfo, ToolDef } from './registry.js'
 
 export const info: McpServerInfo = {
   id:          'github',
@@ -179,15 +177,6 @@ const gitMergeArgs = z.object({
 })
 
 // ── gitClone: tier-2 sandbox (install token isolated from the agent) ──
-//
-// Resolves the target repo (default = project.repo), mints a fresh
-// installation token on the host, spawns a tier-2 container with the
-// token in env, clones into /work (mounted rw), strips the token from
-// .git/config, sets the Foundry git identity, and creates the per-session
-// branch foundry/<sessionId>. The tier-1 containers that the agent later
-// uses can read the populated /work but the token lived only in the
-// tier-2 env and the initial .git/config — both gone by the time any
-// tier-1 call runs.
 
 async function handleGitClone(ctx: GithubCtx, args: z.infer<typeof gitCloneArgs>) {
   try {
@@ -198,10 +187,6 @@ async function handleGitClone(ctx: GithubCtx, args: z.infer<typeof gitCloneArgs>
     const { token: installToken } = await installationToken(ctx.config, installationId)
     const branch = `foundry/${ctx.sessionId}`
 
-    // Single-shot command: clone (into /work, which is the bind-mounted
-    // session workspace), scrub the embedded token from .git/config,
-    // set identity, create the session branch. All five steps in one
-    // tier-2 container so the token never persists past this call.
     const command = [
       'set -e',
       'export GIT_TERMINAL_PROMPT=0',
@@ -278,11 +263,6 @@ async function handleGitRemove(ctx: GithubCtx, args: z.infer<typeof gitRemoveArg
 }
 
 async function handleGitCommit(ctx: GithubCtx, args: z.infer<typeof gitCommitArgs>) {
-  // Single shell script: preflight + commit + capture HEAD. Runs in one
-  // container, produces one execution row. The commit message comes in
-  // via env (FULL_MSG) so we don't have to shell-escape multi-line text.
-  // A NOTHING_STAGED marker with exit 64 signals "empty index" distinct
-  // from a generic git failure.
   const fullMessage = `${args.message}\n\nSession: ${ctx.sessionId}\nTicket:  ${ctx.ticket.id}\n`
   const command = [
     'set -e',
@@ -303,57 +283,29 @@ async function handleGitCommit(ctx: GithubCtx, args: z.infer<typeof gitCommitArg
   return { ok: true, commit: sha }
 }
 
-// ── gitPullRequest: tier-2 sandbox (push + PR create with secret) ──
-//
-// Single container, single execution row. Does preflight (base branch
-// detection + ahead count), push, and PR create all in one shell script
-// inside a tier-2 container with /work mounted read-only and the install
-// token in env. A NOTHING_TO_PUBLISH marker signals empty-branch distinct
-// from genuine errors. The curl response body is the script's stdout,
-// parsed by the handler to extract the PR URL.
-
 async function handleGitPullRequest(ctx: GithubCtx, args: z.infer<typeof gitPullRequestArgs>) {
   try {
     const { owner, name } = ticketRepo(ctx)
     const branch = `foundry/${ctx.sessionId}`
 
-    // Mint a fresh installation token just before the call. Token lives
-    // for ~1 hour, but we only need seconds of it. Host process holds the
-    // App private key; the sandbox never sees it.
     const installationId = await installationForRepo(ctx.config, owner, name)
     const { token: installToken } = await installationToken(ctx.config, installationId)
 
     const title = (args.title ?? `[${ctx.ticket.id}] ${ctx.ticket.title.trim() || '(no title)'}`).slice(0, 200)
     const body  = args.body ?? defaultPrBody(ctx.sessionId, ctx.ticket)
 
-    // Combined preflight + push + PR-create shell script. All credential
-    // values come from env vars injected by podman; the logged command
-    // string contains only variable references. The shell inside the
-    // container expands them at run time. Any token that leaks into git's
-    // stderr is scrubbed before write by the execution-row scrubber in
-    // mcp/shared.ts.
-    //
-    // Output contract for the handler:
-    //   - exit 64 + "NOTHING_TO_PUBLISH" on stdout → empty branch
-    //   - exit 0 + JSON body + "\n<http_code>" on stdout → PR created
-    //   - anything else → generic failure
     const command = [
       'set -e',
       'cd /work',
       'export GIT_TERMINAL_PROMPT=0',
-      '# Detect the base branch (what origin/HEAD points at, default main).',
       'BASE=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed "s|refs/remotes/origin/||" || echo main)',
-      '# Count commits ahead of the base. If zero, nothing to publish.',
       'AHEAD=$(git rev-list --count "${BASE}..HEAD")',
       'if [ "$AHEAD" -eq 0 ]; then',
       '  echo NOTHING_TO_PUBLISH',
       '  exit 64',
       'fi',
-      '# Rebuild the PR body JSON with the actual detected base branch.',
       'PR_BODY=$(printf \'%s\' "${PR_BODY_JSON}" | jq --arg b "$BASE" \'.base = $b\')',
-      '# Push the session branch.',
       'git push "https://x-access-token:${INSTALL_TOKEN}@github.com/${OWNER}/${REPO}" "HEAD:refs/heads/${BRANCH}" 1>&2',
-      '# Create the PR. Response body on stdout, status code appended on its own line.',
       'printf \'%s\' "$PR_BODY" | curl -sS -w "\\n%{http_code}" -X POST \\',
       '  -H "Authorization: Bearer ${INSTALL_TOKEN}" \\',
       '  -H "Accept: application/vnd.github+json" \\',
@@ -362,9 +314,6 @@ async function handleGitPullRequest(ctx: GithubCtx, args: z.infer<typeof gitPull
       '  "https://api.github.com/repos/${OWNER}/${REPO}/pulls"',
     ].join('\n')
 
-    // PR body is a JSON template with placeholder base; the shell script
-    // rewrites it to the detected BASE before posting. This way we don't
-    // have to round-trip the base branch out of the container first.
     const draft = args.draft ?? false
     const prBodyTemplate = JSON.stringify({ title, head: branch, base: 'main', body, draft })
 
@@ -382,7 +331,6 @@ async function handleGitPullRequest(ctx: GithubCtx, args: z.infer<typeof gitPull
         toolUseId: ctx.toolUseId,
       })
 
-    // Marker exit code: nothing staged beyond the base branch.
     if (r.exitCode === 64 || r.stdout.trim() === 'NOTHING_TO_PUBLISH') {
       return { ok: false, error: 'no commits to publish — call gitCommit first' }
     }
@@ -390,7 +338,6 @@ async function handleGitPullRequest(ctx: GithubCtx, args: z.infer<typeof gitPull
       return { ok: false, error: 'push or PR create failed (see execution row for details)' }
     }
 
-    // Parse stdout: last line = HTTP status, rest = JSON body.
     const lines = r.stdout.trim().split('\n')
     const statusLine = lines[lines.length - 1] ?? ''
     const jsonBody   = lines.slice(0, -1).join('\n')
@@ -422,8 +369,6 @@ async function handleGitPullRequest(ctx: GithubCtx, args: z.infer<typeof gitPull
 }
 
 // ── gitRebase: fetch latest main + rebase session branch ──
-// Tier-2: needs install token to fetch from a private repo. /work
-// mounted rw because rebase rewrites the session branch's commits.
 
 async function handleGitRebase(ctx: GithubCtx, _args: z.infer<typeof gitRebaseArgs>) {
   try {
@@ -462,11 +407,6 @@ async function handleGitRebase(ctx: GithubCtx, _args: z.infer<typeof gitRebaseAr
   }
 }
 
-// ── gitMerge: push + PR + immediate merge (deterministic) ──
-// Unlike gitPullRequest, this tool ALWAYS merges. If there's a conflict,
-// it returns an error — it does not fall back to leaving a PR open.
-// The agent knows exactly what happened: either merged or failed.
-
 async function handleGitMerge(ctx: GithubCtx, args: z.infer<typeof gitMergeArgs>) {
   try {
     const { owner, name } = ticketRepo(ctx)
@@ -478,7 +418,6 @@ async function handleGitMerge(ctx: GithubCtx, args: z.infer<typeof gitMergeArgs>
     const title = (args.title ?? `[${ctx.ticket.id}] ${ctx.ticket.title.trim() || '(no title)'}`).slice(0, 200)
     const body  = args.body ?? defaultPrBody(ctx.sessionId, ctx.ticket)
 
-    // Same push + PR-create shell script as gitPullRequest.
     const command = [
       'set -e',
       'cd /work',
@@ -522,9 +461,6 @@ async function handleGitMerge(ctx: GithubCtx, args: z.infer<typeof gitMergeArgs>
       return { ok: false, error: 'push or PR create failed (see execution row for details)' }
     }
 
-    // Parse stdout: last line = HTTP status, rest = JSON body.
-    // If status is 201, PR was just created. If 422, a PR already exists
-    // for this branch (retry scenario) — look it up and skip to merge.
     const lines = r.stdout.trim().split('\n')
     const statusLine = lines[lines.length - 1] ?? ''
     const jsonBody   = lines.slice(0, -1).join('\n')
@@ -534,7 +470,6 @@ async function handleGitMerge(ctx: GithubCtx, args: z.infer<typeof gitMergeArgs>
     let prNumber: number
 
     if (status === 201) {
-      // Fresh PR created.
       try {
         const parsed = JSON.parse(jsonBody) as { html_url?: string; number?: number }
         if (!parsed.html_url || !parsed.number) throw new Error('missing html_url or number')
@@ -544,7 +479,6 @@ async function handleGitMerge(ctx: GithubCtx, args: z.infer<typeof gitMergeArgs>
         return { ok: false, error: `PR response not parseable: ${errMsg(err)}` }
       }
     } else if (status === 422 && jsonBody.includes('already exists')) {
-      // PR already open for this branch (retry). Look it up.
       const lookupRes = await fetch(
         `https://api.github.com/repos/${owner}/${name}/pulls?head=${encodeURIComponent(`${owner}:${branch}`)}&state=open`,
         { headers: { Authorization: `Bearer ${installToken}`, Accept: 'application/vnd.github+json' } },
@@ -558,8 +492,6 @@ async function handleGitMerge(ctx: GithubCtx, args: z.infer<typeof gitMergeArgs>
       return { ok: false, error: `PR create returned HTTP ${status}: ${jsonBody.slice(0, 500)}` }
     }
 
-    // Merge the PR. This is the deterministic part — if it fails, we
-    // fail the whole tool call. No fallback to "leave PR open."
     const mergeRes = await fetch(
       `https://api.github.com/repos/${owner}/${name}/pulls/${prNumber}/merge`,
       {
@@ -602,87 +534,16 @@ function defaultPrBody(sessionId: string, ticket: Ticket): string {
 This PR is a draft. Review the diff and mark it Ready when you're satisfied.`
 }
 
-// Tool descriptions carry the environmental contract each tool expects
-// and produces, so the agent doesn't need a separate "here's your
-// environment" preamble at the top of the system prompt. The tool
-// descriptions ARE the environmental documentation.
-const DESC = {
-  gitClone:          'Clone the configured GitHub repo into the empty session workspace at /work. Creates the per-session branch `foundry/<session-id>` and switches to it. Typical first step of a code session — the workspace starts empty, nothing is pre-cloned. Optional owner/repo args override the project default if you need a different repo.',
-  gitStatus:         'Show the working tree status in porcelain format. Requires a workspace populated by gitClone (or manually) — fails if /work is not a git repo.',
-  gitDiff:           'Show the diff. By default shows unstaged changes; set staged=true to see the staged diff. Optionally scope to specific paths. Requires a git workspace (see gitClone).',
-  gitAdd:            'Stage specific paths for commit. Only literal repo-relative paths are accepted — no -A, no wildcards, no glob expansion. Paths inside .git/, .foundry/, node_modules/, build outputs, and caches are rejected. Requires a git workspace (see gitClone).',
-  gitRemove:         'Remove paths from the working tree and index (git rm). Same validation as gitAdd — literal paths only, protected directories rejected. Requires a git workspace (see gitClone).',
-  gitCommit:         'Commit the staged index with a message. Fails if nothing is staged. Session id and ticket id are appended to the commit trailer automatically. Requires a git workspace (see gitClone).',
-  gitPullRequest: 'Push the session branch and open a pull request against the clone\'s default branch. The PR is NOT merged — a human reviews and merges it. Use this when review is wanted before landing. Pass draft:true to mark as draft. Call after at least one gitCommit. Posts a "PR opened" comment on the ticket. Requires a git workspace (see gitClone).',
-  gitMerge:        'Push the session branch, open a PR, and merge it immediately to the default branch. This is the trunk-based tool — code lands on main in one call. Fails with an error if there\'s a merge conflict (the PR is left open for manual resolution or gitRebase). Call after at least one gitCommit. Posts a "Merged" comment on the ticket. Requires a git workspace (see gitClone).',
-  gitRebase:       'Fetch latest main from origin and rebase the session branch on top of it. Use this after gitMerge fails due to a merge conflict — rebase resolves the conflict by replaying your commits on the latest main, then retry gitMerge. If the rebase itself has conflicts that git cannot auto-resolve, this tool fails with the conflict details. Requires a git workspace (see gitClone).',
-}
+// ── Tools ──
 
-// ── Anthropic Claude Agent SDK adapter ──
-
-export function buildSdk(ctx: GithubCtx, allowed?: string[] | '*' | null) {
-  const tu = (x: unknown): GithubCtx => ({ ...ctx, toolUseId: toolUseId(x) })
-  const all = [
-    sdkTool('gitClone',       DESC.gitClone,       gitCloneArgs.shape,       async (a, x) => asText(await handleGitClone(tu(x), a))),
-    sdkTool('gitStatus',      DESC.gitStatus,      gitStatusArgs.shape,      async (a, x) => asText(await handleGitStatus(tu(x), a))),
-    sdkTool('gitDiff',        DESC.gitDiff,        gitDiffArgs.shape,        async (a, x) => asText(await handleGitDiff(tu(x), a))),
-    sdkTool('gitAdd',         DESC.gitAdd,         gitAddArgs.shape,         async (a, x) => asText(await handleGitAdd(tu(x), a))),
-    sdkTool('gitRemove',      DESC.gitRemove,      gitRemoveArgs.shape,      async (a, x) => asText(await handleGitRemove(tu(x), a))),
-    sdkTool('gitCommit',      DESC.gitCommit,      gitCommitArgs.shape,      async (a, x) => asText(await handleGitCommit(tu(x), a))),
-    sdkTool('gitPullRequest', DESC.gitPullRequest, gitPullRequestArgs.shape, async (a, x) => asText(await handleGitPullRequest(tu(x), a))),
-    sdkTool('gitMerge',       DESC.gitMerge,       gitMergeArgs.shape,       async (a, x) => asText(await handleGitMerge(tu(x), a))),
-    sdkTool('gitRebase',      DESC.gitRebase,      gitRebaseArgs.shape,      async (a, x) => asText(await handleGitRebase(tu(x), a))),
-  ]
-  return createSdkMcpServer({ name: 'github', tools: filterTools(all, allowed) })
-}
-// ── Vercel ai SDK adapter ──
-
-export function buildAi(ctx: GithubCtx) {
-  return {
-    gitClone: tool({
-      description: DESC.gitClone,
-      inputSchema: gitCloneArgs,
-      execute:     (args: z.infer<typeof gitCloneArgs>) => handleGitClone(ctx, args),
-    }),
-    gitStatus: tool({
-      description: DESC.gitStatus,
-      inputSchema: gitStatusArgs,
-      execute:     (args: z.infer<typeof gitStatusArgs>) => handleGitStatus(ctx, args),
-    }),
-    gitDiff: tool({
-      description: DESC.gitDiff,
-      inputSchema: gitDiffArgs,
-      execute:     (args: z.infer<typeof gitDiffArgs>) => handleGitDiff(ctx, args),
-    }),
-    gitAdd: tool({
-      description: DESC.gitAdd,
-      inputSchema: gitAddArgs,
-      execute:     (args: z.infer<typeof gitAddArgs>) => handleGitAdd(ctx, args),
-    }),
-    gitRemove: tool({
-      description: DESC.gitRemove,
-      inputSchema: gitRemoveArgs,
-      execute:     (args: z.infer<typeof gitRemoveArgs>) => handleGitRemove(ctx, args),
-    }),
-    gitCommit: tool({
-      description: DESC.gitCommit,
-      inputSchema: gitCommitArgs,
-      execute:     (args: z.infer<typeof gitCommitArgs>) => handleGitCommit(ctx, args),
-    }),
-    gitPullRequest: tool({
-      description: DESC.gitPullRequest,
-      inputSchema: gitPullRequestArgs,
-      execute:     (args: z.infer<typeof gitPullRequestArgs>) => handleGitPullRequest(ctx, args),
-    }),
-    gitMerge: tool({
-      description: DESC.gitMerge,
-      inputSchema: gitMergeArgs,
-      execute:     (args: z.infer<typeof gitMergeArgs>) => handleGitMerge(ctx, args),
-    }),
-    gitRebase: tool({
-      description: DESC.gitRebase,
-      inputSchema: gitRebaseArgs,
-      execute:     (args: z.infer<typeof gitRebaseArgs>) => handleGitRebase(ctx, args),
-    }),
-  }
-}
+export const tools: ToolDef[] = [
+  { name: 'gitClone',       description: 'Clone the configured GitHub repo into the empty session workspace at /work. Creates the per-session branch `foundry/<session-id>` and switches to it. Typical first step of a code session — the workspace starts empty, nothing is pre-cloned. Optional owner/repo args override the project default if you need a different repo.', schema: gitCloneArgs, handler: handleGitClone },
+  { name: 'gitStatus',      description: 'Show the working tree status in porcelain format. Requires a workspace populated by gitClone (or manually) — fails if /work is not a git repo.',                                                                                                                                                                                    schema: gitStatusArgs, handler: handleGitStatus },
+  { name: 'gitDiff',        description: 'Show the diff. By default shows unstaged changes; set staged=true to see the staged diff. Optionally scope to specific paths. Requires a git workspace (see gitClone).',                                                                                                                                                             schema: gitDiffArgs, handler: handleGitDiff },
+  { name: 'gitAdd',         description: 'Stage specific paths for commit. Only literal repo-relative paths are accepted — no -A, no wildcards, no glob expansion. Paths inside .git/, .foundry/, node_modules/, build outputs, and caches are rejected. Requires a git workspace (see gitClone).',                                                                             schema: gitAddArgs, handler: handleGitAdd },
+  { name: 'gitRemove',      description: 'Remove paths from the working tree and index (git rm). Same validation as gitAdd — literal paths only, protected directories rejected. Requires a git workspace (see gitClone).',                                                                                                                                                    schema: gitRemoveArgs, handler: handleGitRemove },
+  { name: 'gitCommit',      description: 'Commit the staged index with a message. Fails if nothing is staged. Session id and ticket id are appended to the commit trailer automatically. Requires a git workspace (see gitClone).',                                                                                                                                            schema: gitCommitArgs, handler: handleGitCommit },
+  { name: 'gitPullRequest', description: 'Push the session branch and open a pull request against the clone\'s default branch. The PR is NOT merged — a human reviews and merges it. Use this when review is wanted before landing. Pass draft:true to mark as draft. Call after at least one gitCommit. Posts a "PR opened" comment on the ticket. Requires a git workspace (see gitClone).', schema: gitPullRequestArgs, handler: handleGitPullRequest },
+  { name: 'gitMerge',       description: 'Push the session branch, open a PR, and merge it immediately to the default branch. This is the trunk-based tool — code lands on main in one call. Fails with an error if there\'s a merge conflict (the PR is left open for manual resolution or gitRebase). Call after at least one gitCommit. Posts a "Merged" comment on the ticket. Requires a git workspace (see gitClone).', schema: gitMergeArgs, handler: handleGitMerge },
+  { name: 'gitRebase',      description: 'Fetch latest main from origin and rebase the session branch on top of it. Use this after gitMerge fails due to a merge conflict — rebase resolves the conflict by replaying your commits on the latest main, then retry gitMerge. If the rebase itself has conflicts that git cannot auto-resolve, this tool fails with the conflict details. Requires a git workspace (see gitClone).', schema: gitRebaseArgs, handler: handleGitRebase },
+]

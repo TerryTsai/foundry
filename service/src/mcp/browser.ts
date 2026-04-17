@@ -2,22 +2,16 @@
 // Both tools run inside the session's sandbox container (bind-mounted at
 // /work) so network egress goes through the same cgroup/policy as the rest
 // of the agent's shell activity. No persistent state.
-//
-// Structure: handler functions are SDK-agnostic. buildSdk wraps them as
-// Anthropic Claude Agent SDK tools. buildAi wraps them as Vercel ai SDK
-// tools. Both runners consume the same handlers.
 
-import { createSdkMcpServer, tool as sdkTool } from '@anthropic-ai/claude-agent-sdk'
-import { tool } from 'ai'
 import { z } from 'zod'
 
 import type { Db } from '../database.js'
 import type { Config } from '../config.js'
 import * as validate from '../validate.js'
 import { toInt } from '../util.js'
-import { asText, bounded, boundedOutput, esc, runCommand, toolUseId } from './shared.js'
+import { bounded, esc, runCommand } from './shared.js'
 
-import { filterTools, type McpServerInfo } from './registry.js'
+import type { McpServerInfo, ToolDef } from './registry.js'
 
 export const info: McpServerInfo = {
   id:          'browser',
@@ -69,36 +63,9 @@ async function handleScrape(ctx: BrowserCtx, args: z.infer<typeof validate.toolS
   }
 }
 
-const DESC = {
-  fetch:  'Make an HTTP request and return the response. Large responses are written to a file; use the read tool to paginate.',
-  scrape: 'Extract clean readable text from a web page. Large output is written to a file you can read with offset/limit.',
-}
+// ── Tools ──
 
-// ── Anthropic Claude Agent SDK adapter ──
-
-export function buildSdk(ctx: BrowserCtx, allowed?: string[] | '*' | null) {
-  const tu = (x: unknown): BrowserCtx => ({ ...ctx, toolUseId: toolUseId(x) })
-  const all = [
-    sdkTool('fetch',  DESC.fetch,  validate.toolFetch.shape,  async (a, x) => asText(await handleFetch(tu(x), a))),
-    sdkTool('scrape', DESC.scrape, validate.toolScrape.shape, async (a, x) => asText(await handleScrape(tu(x), a))),
-  ]
-  return createSdkMcpServer({ name: 'browser', tools: filterTools(all, allowed) })
-}
-// ── Vercel ai SDK adapter ──
-
-export function buildAi(ctx: BrowserCtx) {
-  return {
-    fetch: tool({
-      description:  DESC.fetch,
-      inputSchema:  validate.toolFetch,
-      outputSchema: boundedOutput.extend({ status: z.number() }),
-      execute:      (args: z.infer<typeof validate.toolFetch>) => handleFetch(ctx, args),
-    }),
-    scrape: tool({
-      description:  DESC.scrape,
-      inputSchema:  validate.toolScrape,
-      outputSchema: boundedOutput,
-      execute:      (args: z.infer<typeof validate.toolScrape>) => handleScrape(ctx, args),
-    }),
-  }
-}
+export const tools: ToolDef[] = [
+  { name: 'fetch',  description: 'Make an HTTP request and return the response. Large responses are written to a file; use the read tool to paginate.', schema: validate.toolFetch,  handler: handleFetch },
+  { name: 'scrape', description: 'Extract clean readable text from a web page. Large output is written to a file you can read with offset/limit.',     schema: validate.toolScrape, handler: handleScrape },
+]

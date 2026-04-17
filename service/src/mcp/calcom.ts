@@ -1,12 +1,10 @@
 // Cal.com v1 — scheduling. Auth is the API key on the `?apiKey=` query
 // string (not a header).
 
-import { createSdkMcpServer, tool as sdkTool } from '@anthropic-ai/claude-agent-sdk'
-import { tool } from 'ai'
 import { z } from 'zod'
 
-import { asText, runCommand, toolUseId, type ConnCtx } from './shared.js'
-import { filterTools, type McpServerInfo } from './registry.js'
+import { runCommand, type ConnCtx } from './shared.js'
+import type { McpServerInfo, ToolDef } from './registry.js'
 
 export const info: McpServerInfo = {
   id:          'calcom',
@@ -86,33 +84,12 @@ async function handlePing(ctx: CalcomCtx, args: z.infer<typeof pingArgs>) {
   return api(ctx, 'ping', args, 'GET', '/me')
 }
 
-const DESC = {
-  bookingList:   'List bookings. `status` is one of upcoming/recurring/past/cancelled/unconfirmed.',
-  bookingGet:    'Fetch full details for one booking.',
-  bookingCancel: 'Cancel a booking. `reason` is surfaced in the email to attendees.',
-  eventTypeList: 'List all configured event types (meeting templates).',
-  ping:          'Verify the API key by fetching the authenticated user.',
-}
+// ── Tools ──
 
-export function buildSdk(ctx: CalcomCtx, allowed?: string[] | '*' | null) {
-  const tu = (extra: unknown): CalcomCtx => ({ ...ctx, toolUseId: toolUseId(extra) })
-  const all = [
-    sdkTool('bookingList',   DESC.bookingList,   bookingListArgs.shape,   async (a, x) => asText(await handleBookingList(tu(x), a))),
-    sdkTool('bookingGet',    DESC.bookingGet,    bookingIdArgs.shape,     async (a, x) => asText(await handleBookingGet(tu(x), a))),
-    sdkTool('bookingCancel', DESC.bookingCancel, bookingCancelArgs.shape, async (a, x) => asText(await handleBookingCancel(tu(x), a))),
-    sdkTool('eventTypeList', DESC.eventTypeList, eventTypeListArgs.shape, async (a, x) => asText(await handleEventTypeList(tu(x), a))),
-    sdkTool('ping',          DESC.ping,          pingArgs.shape,          async (a, x) => asText(await handlePing(tu(x), a))),
-  ]
-  return createSdkMcpServer({ name: `calcom:${ctx.connectionName}`, tools: filterTools(all, allowed) })
-}
-
-export function buildAi(ctx: CalcomCtx) {
-  const p = `calcom-${ctx.connectionName}`
-  return {
-    [`${p}-bookingList`]:   tool({ description: DESC.bookingList,   inputSchema: bookingListArgs,   execute: a => handleBookingList(ctx, a) }),
-    [`${p}-bookingGet`]:    tool({ description: DESC.bookingGet,    inputSchema: bookingIdArgs,     execute: a => handleBookingGet(ctx, a) }),
-    [`${p}-bookingCancel`]: tool({ description: DESC.bookingCancel, inputSchema: bookingCancelArgs, execute: a => handleBookingCancel(ctx, a) }),
-    [`${p}-eventTypeList`]: tool({ description: DESC.eventTypeList, inputSchema: eventTypeListArgs, execute: a => handleEventTypeList(ctx, a) }),
-    [`${p}-ping`]:          tool({ description: DESC.ping,          inputSchema: pingArgs,          execute: a => handlePing(ctx, a) }),
-  }
-}
+export const tools: ToolDef[] = [
+  { name: 'bookingList',   description: 'List bookings. `status` is one of upcoming/recurring/past/cancelled/unconfirmed.',             schema: bookingListArgs,   handler: handleBookingList },
+  { name: 'bookingGet',    description: 'Fetch full details for one booking.',                                                          schema: bookingIdArgs,     handler: handleBookingGet },
+  { name: 'bookingCancel', description: 'Cancel a booking. `reason` is surfaced in the email to attendees.',                            schema: bookingCancelArgs, handler: handleBookingCancel },
+  { name: 'eventTypeList', description: 'List all configured event types (meeting templates).',                                         schema: eventTypeListArgs, handler: handleEventTypeList },
+  { name: 'ping',          description: 'Verify the API key by fetching the authenticated user.',                                       schema: pingArgs,          handler: handlePing },
+]

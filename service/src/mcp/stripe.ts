@@ -2,12 +2,10 @@
 // empty password. Requests use application/x-www-form-urlencoded
 // (Stripe's house style, not JSON).
 
-import { createSdkMcpServer, tool as sdkTool } from '@anthropic-ai/claude-agent-sdk'
-import { tool } from 'ai'
 import { z } from 'zod'
 
-import { asText, runCommand, toolUseId, type ConnCtx } from './shared.js'
-import { filterTools, type McpServerInfo } from './registry.js'
+import { runCommand, type ConnCtx } from './shared.js'
+import type { McpServerInfo, ToolDef } from './registry.js'
 
 export const info: McpServerInfo = {
   id:          'stripe',
@@ -52,7 +50,6 @@ const checkoutCreateArgs = z.object({
 const pingArgs = z.object({})
 
 // Flatten a nested object for Stripe's bracket-syntax form encoding.
-// { a: 1, b: { c: 2 }, d: [{e: 3}] } → a=1, b[c]=2, d[0][e]=3.
 function formFields(obj: unknown, prefix = ''): string[] {
   const out: string[] = []
   const add = (k: string, v: unknown) => {
@@ -112,33 +109,12 @@ async function handlePing(ctx: StripeCtx, args: z.infer<typeof pingArgs>) {
   return api(ctx, 'ping', args, 'GET', '/account')
 }
 
-const DESC = {
-  customerList:     'List customers, optionally filtered by exact email. Paginate with `starting_after` (the last customer id on the prior page).',
-  customerGet:      'Fetch full customer record including default_source, invoice_settings, metadata.',
-  subscriptionList: 'List subscriptions. Filter by customer or status ("active", "canceled", etc.).',
-  checkoutCreate:   'Create a hosted Checkout session. Returns { id, url } — send the url to the buyer. Line items reference Price ids you\'ve set up in the Stripe dashboard.',
-  ping:             'Verify the secret key by fetching /account.',
-}
+// ── Tools ──
 
-export function buildSdk(ctx: StripeCtx, allowed?: string[] | '*' | null) {
-  const tu = (extra: unknown): StripeCtx => ({ ...ctx, toolUseId: toolUseId(extra) })
-  const all = [
-    sdkTool('customerList',     DESC.customerList,     customerListArgs.shape,     async (a, x) => asText(await handleCustomerList(tu(x), a))),
-    sdkTool('customerGet',      DESC.customerGet,      customerGetArgs.shape,      async (a, x) => asText(await handleCustomerGet(tu(x), a))),
-    sdkTool('subscriptionList', DESC.subscriptionList, subscriptionListArgs.shape, async (a, x) => asText(await handleSubscriptionList(tu(x), a))),
-    sdkTool('checkoutCreate',   DESC.checkoutCreate,   checkoutCreateArgs.shape,   async (a, x) => asText(await handleCheckoutCreate(tu(x), a))),
-    sdkTool('ping',             DESC.ping,             pingArgs.shape,             async (a, x) => asText(await handlePing(tu(x), a))),
-  ]
-  return createSdkMcpServer({ name: `stripe:${ctx.connectionName}`, tools: filterTools(all, allowed) })
-}
-
-export function buildAi(ctx: StripeCtx) {
-  const p = `stripe-${ctx.connectionName}`
-  return {
-    [`${p}-customerList`]:     tool({ description: DESC.customerList,     inputSchema: customerListArgs,     execute: a => handleCustomerList(ctx, a) }),
-    [`${p}-customerGet`]:      tool({ description: DESC.customerGet,      inputSchema: customerGetArgs,      execute: a => handleCustomerGet(ctx, a) }),
-    [`${p}-subscriptionList`]: tool({ description: DESC.subscriptionList, inputSchema: subscriptionListArgs, execute: a => handleSubscriptionList(ctx, a) }),
-    [`${p}-checkoutCreate`]:   tool({ description: DESC.checkoutCreate,   inputSchema: checkoutCreateArgs,   execute: a => handleCheckoutCreate(ctx, a) }),
-    [`${p}-ping`]:             tool({ description: DESC.ping,             inputSchema: pingArgs,             execute: a => handlePing(ctx, a) }),
-  }
-}
+export const tools: ToolDef[] = [
+  { name: 'customerList',     description: 'List customers, optionally filtered by exact email. Paginate with `starting_after` (the last customer id on the prior page).',                                          schema: customerListArgs,     handler: handleCustomerList },
+  { name: 'customerGet',      description: 'Fetch full customer record including default_source, invoice_settings, metadata.',                                                                                     schema: customerGetArgs,      handler: handleCustomerGet },
+  { name: 'subscriptionList', description: 'List subscriptions. Filter by customer or status ("active", "canceled", etc.).',                                                                                        schema: subscriptionListArgs, handler: handleSubscriptionList },
+  { name: 'checkoutCreate',   description: 'Create a hosted Checkout session. Returns { id, url } — send the url to the buyer. Line items reference Price ids you\'ve set up in the Stripe dashboard.',             schema: checkoutCreateArgs,   handler: handleCheckoutCreate },
+  { name: 'ping',             description: 'Verify the secret key by fetching /account.',                                                                                                                          schema: pingArgs,             handler: handlePing },
+]

@@ -3,19 +3,12 @@
 // the session tmpdir bind-mounted at /work. State persists between calls
 // because the tmpdir lives on the host; the container is ephemeral.
 //
-// Structure: handler functions are SDK-agnostic. buildSdk wraps them as
-// Anthropic Claude Agent SDK tools (createSdkMcpServer). buildAi wraps
-// them as Vercel ai SDK tools (tool(...)). Both runners consume the
-// same handlers via their respective builder.
-//
 // Mutating tools (write, patch, remove) reject paths inside `.git/` and
 // `.foundry/` — the former prevents the agent from corrupting the repo
 // that the github server is operating against, the latter protects the
 // framework's scratch directories. This is the RCA-001 #2 mitigation
 // at the tool boundary.
 
-import { createSdkMcpServer, tool as sdkTool } from '@anthropic-ai/claude-agent-sdk'
-import { tool } from 'ai'
 import { z } from 'zod'
 import { writeFileSync, mkdirSync } from 'fs'
 import { join, dirname } from 'path'
@@ -24,8 +17,8 @@ import { ulid } from 'ulid'
 import type { Db } from '../database.js'
 import type { Config } from '../config.js'
 import * as validate from '../validate.js'
-import { asText, bounded, boundedOutput, esc, runCommand, toolUseId } from './shared.js'
-import { filterTools, type McpServerInfo } from './registry.js'
+import { bounded, esc, runCommand } from './shared.js'
+import type { McpServerInfo, ToolDef } from './registry.js'
 
 export const info: McpServerInfo = {
   id:          'sandbox',
@@ -56,19 +49,12 @@ export interface SandboxCtx {
 
 // ── Local helpers ──
 
-// Relative paths are rooted at /work (the workspace bind-mount) for
-// ergonomics: most tool calls target the project source. Absolute paths
-// pass through so the agent can reach /tmp, /proc, /etc. Empty/undefined
-// defaults to /work.
 function workPath(p?: string): string {
   if (!p) return '/work'
   if (p.startsWith('/')) return p
   return `/work/${p}`
 }
 
-// Scratch file written into the workspace so the container can read it
-// via bind mount. Used by patch to smuggle multi-line JSON metadata
-// without shell-quoting nightmares.
 function writeTmp(workspace: string, content: string, ext = 'txt'): string {
   const relPath = `.foundry/.tmp/${ulid()}.${ext}`
   const absPath = join(workspace, relPath)
@@ -77,9 +63,6 @@ function writeTmp(workspace: string, content: string, ext = 'txt'): string {
   return relPath
 }
 
-// Reject paths that would let the agent corrupt git state or the
-// framework's own scratch directories. Only applied to mutating tools —
-// read/exec/search/find can still look anywhere in /work.
 function assertSafeWritePath(p: string): void {
   if (!p) throw new Error('path is required')
   const abs = workPath(p)
@@ -92,9 +75,6 @@ function assertSafeWritePath(p: string): void {
 
 // ── Handlers ──
 
-// Core shell execution — used by both `run` (default) and `exec` (admin).
-// Same sandbox, same container, same cgroup tracking. The difference is
-// which agents see which tool name + how the description guides usage.
 async function handleShell(ctx: SandboxCtx, toolName: string, args: z.infer<typeof validate.toolExec>) {
   const command = args.cwd ? `cd ${esc(args.cwd)} && ${args.command}` : args.command
   try {
@@ -236,95 +216,15 @@ async function handleFind(ctx: SandboxCtx, args: z.infer<typeof validate.toolFin
   }
 }
 
-// Tool descriptions carry the environmental contract — what state the tool
-// expects and what it leaves behind. The agent needs no separate preamble.
-const DESC = {
-  run:
-    'Run a single shell command in the session sandbox. The workspace is bind-mounted at /work and persists across calls within this session. ' +
-    'The sandbox starts with an EMPTY /work — populate it yourself (e.g. via gitClone). ' +
-    'Pre-installed: git, node/npm/npx, tsc, prettier, eslint, tsx, python3, curl, wget, jq, lynx, make, gcc, and standard unix tools. ' +
-    '$HOME is /tmp so package managers work without flags. ' +
-    'Network is disabled by default; pass network:true for outbound access. ' +
-    'Prefer one command per call for clean audit trails — avoid chaining with && or ;. ' +
-    'Large stdout is written to a file; use the read tool to paginate.',
-  runScript:
-    'Run a multi-line script in the sandbox. Provide the script body and choose an interpreter (sh, python, or node). The script is written to a temp file and executed — no shell quoting or && chaining needed. ' +
-    'Same sandbox environment as `run`. Network disabled by default; pass network:true for outbound access.',
-  read:   'Read the contents of a file from the workspace. Use offset and limit to paginate. Large output is written to a file you can read with offset/limit. Reads against an empty workspace return "not found" — populate /work first.',
-  write:  'Create or overwrite a file in the workspace. Parent directories are created as needed. .git/ and .foundry/ paths are protected.',
-  patch:  'Apply a targeted edit to a file by replacing an exact string match. Fails if the old_string is not found or appears more than once. .git/ and .foundry/ paths are protected.',
-  remove: 'Delete a file or directory from the workspace (recursive). .git/ and .foundry/ paths are protected.',
-  search: 'Search file contents using grep with regex support across the workspace. Large output is written to a file you can read with offset/limit. Returns empty for an empty workspace.',
-  find:   'List files matching a glob pattern in the workspace. Defaults to max_depth 3 for performance — increase or omit to scan deeper. If a deep scan times out, narrow the path or pattern. Large output is written to a file you can read with offset/limit.',
-}
+// ── Tools ──
 
-// ── Anthropic Claude Agent SDK adapter ──
-
-export function buildSdk(ctx: SandboxCtx, allowed?: string[] | '*' | null) {
-  const tu = (x: unknown): SandboxCtx => ({ ...ctx, toolUseId: toolUseId(x) })
-  const all = [
-    sdkTool('run',    DESC.run,    validate.toolExec.shape,   async (a, x) => asText(await handleRun(tu(x), a))),
-    sdkTool('runScript', DESC.runScript, runScriptSchema.shape, async (a, x) => asText(await handleRunScript(tu(x), a))),
-    sdkTool('read',   DESC.read,   validate.toolRead.shape,   async (a, x) => asText(await handleRead(tu(x), a))),
-    sdkTool('write',  DESC.write,  validate.toolWrite.shape,  async (a, x) => asText(await handleWrite(tu(x), a))),
-    sdkTool('patch',  DESC.patch,  validate.toolPatch.shape,  async (a, x) => asText(await handlePatch(tu(x), a))),
-    sdkTool('remove', DESC.remove, removeSchema.shape,        async (a, x) => asText(await handleRemove(tu(x), a))),
-    sdkTool('search', DESC.search, validate.toolSearch.shape, async (a, x) => asText(await handleSearch(tu(x), a))),
-    sdkTool('find',   DESC.find,   validate.toolFind.shape,   async (a, x) => asText(await handleFind(tu(x), a))),
-  ]
-  return createSdkMcpServer({ name: 'sandbox', tools: filterTools(all, allowed) })
-}
-// ── Vercel ai SDK adapter ──
-
-export function buildAi(ctx: SandboxCtx) {
-  return {
-    run: tool({
-      description:  DESC.run,
-      inputSchema:  validate.toolExec,
-      outputSchema: boundedOutput.extend({ stderr: z.string(), exitCode: z.number() }),
-      execute:      (args: z.infer<typeof validate.toolExec>) => handleRun(ctx, args),
-    }),
-    runScript: tool({
-      description:  DESC.runScript,
-      inputSchema:  runScriptSchema,
-      outputSchema: boundedOutput.extend({ stderr: z.string(), exitCode: z.number() }),
-      execute:      (args: z.infer<typeof runScriptSchema>) => handleRunScript(ctx, args),
-    }),
-    read: tool({
-      description:  DESC.read,
-      inputSchema:  validate.toolRead,
-      outputSchema: boundedOutput,
-      execute:      (args: z.infer<typeof validate.toolRead>) => handleRead(ctx, args),
-    }),
-    write: tool({
-      description:  DESC.write,
-      inputSchema:  validate.toolWrite,
-      outputSchema: z.object({ ok: z.boolean(), error: z.string().optional() }),
-      execute:      (args: z.infer<typeof validate.toolWrite>) => handleWrite(ctx, args),
-    }),
-    patch: tool({
-      description:  DESC.patch,
-      inputSchema:  validate.toolPatch,
-      outputSchema: z.object({ ok: z.boolean(), error: z.string().optional() }),
-      execute:      (args: z.infer<typeof validate.toolPatch>) => handlePatch(ctx, args),
-    }),
-    remove: tool({
-      description:  DESC.remove,
-      inputSchema:  removeSchema,
-      outputSchema: z.object({ ok: z.boolean(), error: z.string().optional() }),
-      execute:      (args: z.infer<typeof removeSchema>) => handleRemove(ctx, args),
-    }),
-    search: tool({
-      description:  DESC.search,
-      inputSchema:  validate.toolSearch,
-      outputSchema: boundedOutput,
-      execute:      (args: z.infer<typeof validate.toolSearch>) => handleSearch(ctx, args),
-    }),
-    find: tool({
-      description:  DESC.find,
-      inputSchema:  validate.toolFind,
-      outputSchema: boundedOutput,
-      execute:      (args: z.infer<typeof validate.toolFind>) => handleFind(ctx, args),
-    }),
-  }
-}
+export const tools: ToolDef[] = [
+  { name: 'run',       description: 'Run a single shell command in the session sandbox. The workspace is bind-mounted at /work and persists across calls within this session. The sandbox starts with an EMPTY /work — populate it yourself (e.g. via gitClone). Pre-installed: git, node/npm/npx, tsc, prettier, eslint, tsx, python3, curl, wget, jq, lynx, make, gcc, and standard unix tools. $HOME is /tmp so package managers work without flags. Network is disabled by default; pass network:true for outbound access. Prefer one command per call for clean audit trails — avoid chaining with && or ;. Large stdout is written to a file; use the read tool to paginate.', schema: validate.toolExec, handler: handleRun },
+  { name: 'runScript',  description: 'Run a multi-line script in the sandbox. Provide the script body and choose an interpreter (sh, python, or node). The script is written to a temp file and executed — no shell quoting or && chaining needed. Same sandbox environment as `run`. Network disabled by default; pass network:true for outbound access.', schema: runScriptSchema, handler: handleRunScript },
+  { name: 'read',       description: 'Read the contents of a file from the workspace. Use offset and limit to paginate. Large output is written to a file you can read with offset/limit. Reads against an empty workspace return "not found" — populate /work first.',                                                                                  schema: validate.toolRead,   handler: handleRead },
+  { name: 'write',      description: 'Create or overwrite a file in the workspace. Parent directories are created as needed. .git/ and .foundry/ paths are protected.',                                                                                                                                                                                    schema: validate.toolWrite,  handler: handleWrite },
+  { name: 'patch',      description: 'Apply a targeted edit to a file by replacing an exact string match. Fails if the old_string is not found or appears more than once. .git/ and .foundry/ paths are protected.',                                                                                                                                       schema: validate.toolPatch,  handler: handlePatch },
+  { name: 'remove',     description: 'Delete a file or directory from the workspace (recursive). .git/ and .foundry/ paths are protected.',                                                                                                                                                                                                                schema: removeSchema,        handler: handleRemove },
+  { name: 'search',     description: 'Search file contents using grep with regex support across the workspace. Large output is written to a file you can read with offset/limit. Returns empty for an empty workspace.',                                                                                                                                   schema: validate.toolSearch, handler: handleSearch },
+  { name: 'find',       description: 'List files matching a glob pattern in the workspace. Defaults to max_depth 3 for performance — increase or omit to scan deeper. If a deep scan times out, narrow the path or pattern. Large output is written to a file you can read with offset/limit.',                                                            schema: validate.toolFind,   handler: handleFind },
+]

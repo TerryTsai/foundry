@@ -5,23 +5,23 @@
 // turn_id, order_index). Tokens ride on the first activity of the turn;
 // SUM across activities == modelUsage exactly.
 
-import { query } from '@anthropic-ai/claude-agent-sdk'
+import { createSdkMcpServer, tool as sdkTool, query } from '@anthropic-ai/claude-agent-sdk'
 import { readFileSync } from 'fs'
 import { join } from 'path'
 import { homedir } from 'os'
 import { type Db } from '../../database.js'
 import * as database from '../../database.js'
 import type { Connection } from '../../tables.js'
-import { parseConn } from '../../mcp/shared.js'
+import { asText, parseConn, toolUseId } from '../../mcp/shared.js'
 import { now, mustExist } from '../../util.js'
 
 import type { SessionContext, LoopResult } from '../compose.js'
+import { filterTools, parseToolSelection, byConnectionKind, type ToolDef } from '../../mcp/registry.js'
 
 import * as foundryServer from '../../mcp/foundry.js'
 import * as githubServer  from '../../mcp/github.js'
 import * as sandboxServer from '../../mcp/sandbox.js'
 import * as browserServer from '../../mcp/browser.js'
-import { parseToolSelection, byConnectionKind } from '../../mcp/registry.js'
 
 type Block = { type: string; id?: string; text?: string; thinking?: string; name?: string; input?: unknown; signature?: string }
 
@@ -124,32 +124,30 @@ function upsertActivity(db: Db, params: {
   })
 }
 
-function buildMcpServers(ctx: SessionContext): Record<string, ReturnType<typeof foundryServer.buildSdk>> {
+function toSdkServer(name: string, defs: ToolDef[], serverCtx: unknown, allowed: string[] | '*' | null | undefined) {
+  const tu = (extra: unknown) => ({ ...(serverCtx as any), toolUseId: toolUseId(extra) })
+  const all = defs.map(t =>
+    sdkTool(t.name, t.description, (t.schema as any).shape, async (a: any, x: unknown) => asText(await t.handler(tu(x), a)))
+  )
+  return createSdkMcpServer({ name, tools: filterTools(all, allowed) })
+}
+
+function buildMcpServers(ctx: SessionContext) {
   const { db, config, workDir } = ctx
   const sessionId  = ctx.session.id
   const agentDef   = ctx.agent
   const ticketData = ctx.ticket
   const selection  = parseToolSelection(agentDef.tools)
-  const mcpServers: Record<string, ReturnType<typeof foundryServer.buildSdk>> = {}
+  const mcpServers: Record<string, ReturnType<typeof createSdkMcpServer>> = {}
 
-  if (selection === null || 'foundry' in selection) {
-    mcpServers.foundry = foundryServer.buildSdk(
-      { db, config, sessionId, workspace: workDir, projectId: ticketData.project_id, accountId: agentDef.account_id, ticketId: ticketData.id, agentName: agentDef.name },
-      selection?.foundry,
-    )
-  }
-  if (selection === null || 'github' in selection) {
-    mcpServers.github = githubServer.buildSdk(
-      { db, config, sessionId, workspace: workDir, ticket: ticketData, agentName: agentDef.name },
-      selection?.github,
-    )
-  }
-  if (selection === null || 'sandbox' in selection) {
-    mcpServers.sandbox = sandboxServer.buildSdk({ db, config, sessionId, workspace: workDir }, selection?.sandbox)
-  }
-  if (selection === null || 'browser' in selection) {
-    mcpServers.browser = browserServer.buildSdk({ db, config, sessionId, workspace: workDir }, selection?.browser)
-  }
+  const foundryCtx = { db, config, sessionId, workspace: workDir, projectId: ticketData.project_id, accountId: agentDef.account_id, ticketId: ticketData.id, agentName: agentDef.name }
+  const githubCtx  = { db, config, sessionId, workspace: workDir, ticket: ticketData, agentName: agentDef.name }
+  const sandboxCtx = { db, config, sessionId, workspace: workDir }
+
+  if (selection === null || 'foundry' in selection) mcpServers.foundry = toSdkServer('foundry', foundryServer.tools, foundryCtx, selection?.foundry)
+  if (selection === null || 'github'  in selection) mcpServers.github  = toSdkServer('github',  githubServer.tools,  githubCtx,  selection?.github)
+  if (selection === null || 'sandbox' in selection) mcpServers.sandbox = toSdkServer('sandbox', sandboxServer.tools, sandboxCtx, selection?.sandbox)
+  if (selection === null || 'browser' in selection) mcpServers.browser = toSdkServer('browser', browserServer.tools, sandboxCtx, selection?.browser)
 
   const conns = database.connectionByAccount(db, agentDef.account_id)
   for (const conn of conns) {
@@ -158,10 +156,8 @@ function buildMcpServers(ctx: SessionContext): Record<string, ReturnType<typeof 
     const key = `${conn.kind}:${conn.name}`
     if (selection !== null && !(key in selection)) continue
     const { secrets, connConfig } = parseConn(conn)
-    mcpServers[key] = mod.buildSdk({
-      db, config, sessionId, workspace: workDir,
-      secrets, connConfig, connectionName: conn.name,
-    }, selection === null ? null : selection[key])
+    const connCtx = { db, config, sessionId, workspace: workDir, secrets, connConfig, connectionName: conn.name }
+    mcpServers[key] = toSdkServer(key, mod.tools, connCtx, selection === null ? null : selection[key])
   }
   return mcpServers
 }

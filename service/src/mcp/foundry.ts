@@ -9,15 +9,13 @@
 // tier-2 container's env and dies with the container. The agent sees
 // the tool by name and arguments; the curl is an implementation detail.
 
-import { createSdkMcpServer, tool as sdkTool } from '@anthropic-ai/claude-agent-sdk'
-import { tool } from 'ai'
 import { z } from 'zod'
 
 import type { Db } from '../database.js'
 import type { Config } from '../config.js'
-import { asText, esc, runCommand, toolUseId } from './shared.js'
+import { esc, runCommand } from './shared.js'
 
-import { filterTools, type McpServerInfo } from './registry.js'
+import type { McpServerInfo, ToolDef } from './registry.js'
 
 export const info: McpServerInfo = {
   id:          'foundry',
@@ -233,117 +231,28 @@ async function handleConnectionList(ctx: FoundryCtx, _args: z.infer<typeof conne
   return apiGet(ctx, 'connectionList', _args, `/connection?accountId=${ctx.accountId}`)
 }
 
-async function handleThink(ctx: FoundryCtx, args: z.infer<typeof thinkArgs>, tuId?: string) {
+async function handleThink(ctx: FoundryCtx, args: z.infer<typeof thinkArgs>) {
   // Think is a no-op but still goes through the sandbox for consistency.
   // The container boots, echoes "ok", dies. Gives a real execution row
   // with timing for how long the model spent on this reasoning step.
   const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace,
-    'echo ok', 'think', args, { mount: 'none', toolUseId: tuId ?? ctx.toolUseId })
+    'echo ok', 'think', args, { mount: 'none', toolUseId: ctx.toolUseId })
   return { ok: r.exitCode === 0 }
 }
 
-const DESC = {
-  ticketList:      'List tickets in the current project. Filter by status (created/waiting/running/finished/failed/cancelled), agent, or tag.',
-  ticketGet:       'Fetch a ticket by id including its title, body, status, dependency, and tags.',
-  ticketCreate:    'Create a new ticket in the current project. Use `depends_on` to sequence work — the new ticket won\'t dispatch until the dependency is finished. Use tags for grouping.',
-  ticketComment:   'Post a comment on a ticket. Used for status updates, questions, or communicating with the Founder.',
-  ticketCancel:    'Cancel a ticket. Works on any non-terminal ticket.',
-  verdictReport:   'Verifier-only. After reviewing the ticket payload + comments, call this exactly once with pass=true if the work meets acceptance criteria, or pass=false with a reason. Producer agents must NOT call this.',
-  ticketTagAdd:    'Add a tag to a ticket.',
-  ticketTagRemove: 'Remove a tag from a ticket.',
-  agentsList:      'List agents configured in the account. Useful for targeting tickets at a specific agent.',
-  sessionList:     'List agent sessions for a ticket. Defaults to the current session\'s ticket if omitted.',
-  connectionList:  'List configured external connections (LLM backends, integrations). Secrets are masked.',
-  think:           'Use this tool to reason, plan, or analyze before taking action. No side effects. Still runs in the sandbox for consistent execution tracking.',
-}
+// ── Tools ──
 
-// ── Anthropic Claude Agent SDK adapter ──
-
-export function buildSdk(ctx: FoundryCtx, allowed?: string[] | '*' | null) {
-  // Per-call ctx: stamp the tool_use block id onto a shallow copy so the
-  // api helpers (which read ctx.toolUseId) and runCommand write it onto
-  // the execution row. Keeping it per-call avoids races when tool calls
-  // execute in parallel within a single turn.
-  const tu = (extra: unknown): FoundryCtx => ({ ...ctx, toolUseId: toolUseId(extra) })
-  const all = [
-    sdkTool('ticketList',    DESC.ticketList,    ticketListArgs.shape,    async (a, x) => asText(await handleTicketList(tu(x), a))),
-    sdkTool('ticketGet',     DESC.ticketGet,     ticketGetArgs.shape,     async (a, x) => asText(await handleTicketGet(tu(x), a))),
-    sdkTool('ticketCreate',  DESC.ticketCreate,  ticketCreateArgs.shape,  async (a, x) => asText(await handleTicketCreate(tu(x), a))),
-    sdkTool('ticketComment', DESC.ticketComment, ticketCommentArgs.shape, async (a, x) => asText(await handleTicketComment(tu(x), a))),
-    sdkTool('ticketCancel',  DESC.ticketCancel,  ticketCancelArgs.shape,  async (a, x) => asText(await handleTicketCancel(tu(x), a))),
-    sdkTool('verdictReport', DESC.verdictReport, verdictReportArgs.shape, async (a, x) => asText(await handleVerdictReport(tu(x), a))),
-    sdkTool('ticketTagAdd',    DESC.ticketTagAdd,    ticketTagAddArgs.shape,    async (a, x) => asText(await handleTicketTagAdd(tu(x), a))),
-    sdkTool('ticketTagRemove', DESC.ticketTagRemove, ticketTagRemoveArgs.shape, async (a, x) => asText(await handleTicketTagRemove(tu(x), a))),
-    sdkTool('agentsList',    DESC.agentsList,    agentsListArgs.shape,    async (a, x) => asText(await handleAgentsList(tu(x), a))),
-    sdkTool('sessionList',   DESC.sessionList,   sessionListArgs.shape,   async (a, x) => asText(await handleSessionList(tu(x), a))),
-    sdkTool('connectionList', DESC.connectionList, connectionListArgs.shape, async (a, x) => asText(await handleConnectionList(tu(x), a))),
-    sdkTool('think',         DESC.think,         thinkArgs.shape,         async (a, x) => asText(await handleThink(tu(x), a))),
-  ]
-  return createSdkMcpServer({ name: 'foundry', tools: filterTools(all, allowed) })
-}
-// ── Vercel ai SDK adapter ──
-
-export function buildAi(ctx: FoundryCtx) {
-  return {
-    ticketList: tool({
-      description: DESC.ticketList,
-      inputSchema: ticketListArgs,
-      execute:     (args: z.infer<typeof ticketListArgs>) => handleTicketList(ctx, args),
-    }),
-    ticketGet: tool({
-      description: DESC.ticketGet,
-      inputSchema: ticketGetArgs,
-      execute:     (args: z.infer<typeof ticketGetArgs>) => handleTicketGet(ctx, args),
-    }),
-    ticketCreate: tool({
-      description: DESC.ticketCreate,
-      inputSchema: ticketCreateArgs,
-      execute:     (args: z.infer<typeof ticketCreateArgs>) => handleTicketCreate(ctx, args),
-    }),
-    ticketComment: tool({
-      description: DESC.ticketComment,
-      inputSchema: ticketCommentArgs,
-      execute:     (args: z.infer<typeof ticketCommentArgs>) => handleTicketComment(ctx, args),
-    }),
-    ticketCancel: tool({
-      description: DESC.ticketCancel,
-      inputSchema: ticketCancelArgs,
-      execute:     (args: z.infer<typeof ticketCancelArgs>) => handleTicketCancel(ctx, args),
-    }),
-    verdictReport: tool({
-      description: DESC.verdictReport,
-      inputSchema: verdictReportArgs,
-      execute:     (args: z.infer<typeof verdictReportArgs>) => handleVerdictReport(ctx, args),
-    }),
-    ticketTagAdd: tool({
-      description: DESC.ticketTagAdd,
-      inputSchema: ticketTagAddArgs,
-      execute:     (args: z.infer<typeof ticketTagAddArgs>) => handleTicketTagAdd(ctx, args),
-    }),
-    ticketTagRemove: tool({
-      description: DESC.ticketTagRemove,
-      inputSchema: ticketTagRemoveArgs,
-      execute:     (args: z.infer<typeof ticketTagRemoveArgs>) => handleTicketTagRemove(ctx, args),
-    }),
-    agentsList: tool({
-      description: DESC.agentsList,
-      inputSchema: agentsListArgs,
-      execute:     (args: z.infer<typeof agentsListArgs>) => handleAgentsList(ctx, args),
-    }),
-    sessionList: tool({
-      description: DESC.sessionList,
-      inputSchema: sessionListArgs,
-      execute:     (args: z.infer<typeof sessionListArgs>) => handleSessionList(ctx, args),
-    }),
-    connectionList: tool({
-      description: DESC.connectionList,
-      inputSchema: connectionListArgs,
-      execute:     (args: z.infer<typeof connectionListArgs>) => handleConnectionList(ctx, args),
-    }),
-    think: tool({
-      description: DESC.think,
-      inputSchema: thinkArgs,
-      execute:     (args: z.infer<typeof thinkArgs>) => handleThink(ctx, args),
-    }),
-  }
-}
+export const tools: ToolDef[] = [
+  { name: 'ticketList',      description: 'List tickets in the current project. Filter by status (created/waiting/running/finished/failed/cancelled), agent, or tag.',                                                                  schema: ticketListArgs,      handler: handleTicketList },
+  { name: 'ticketGet',       description: 'Fetch a ticket by id including its title, body, status, dependency, and tags.',                                                                                                              schema: ticketGetArgs,       handler: handleTicketGet },
+  { name: 'ticketCreate',    description: 'Create a new ticket in the current project. Use `depends_on` to sequence work — the new ticket won\'t dispatch until the dependency is finished. Use tags for grouping.',                     schema: ticketCreateArgs,    handler: handleTicketCreate },
+  { name: 'ticketComment',   description: 'Post a comment on a ticket. Used for status updates, questions, or communicating with the Founder.',                                                                                         schema: ticketCommentArgs,   handler: handleTicketComment },
+  { name: 'ticketCancel',    description: 'Cancel a ticket. Works on any non-terminal ticket.',                                                                                                                                         schema: ticketCancelArgs,    handler: handleTicketCancel },
+  { name: 'verdictReport',   description: 'Verifier-only. After reviewing the ticket payload + comments, call this exactly once with pass=true if the work meets acceptance criteria, or pass=false with a reason. Producer agents must NOT call this.', schema: verdictReportArgs, handler: handleVerdictReport },
+  { name: 'ticketTagAdd',    description: 'Add a tag to a ticket.',                                                                                                                                                                     schema: ticketTagAddArgs,    handler: handleTicketTagAdd },
+  { name: 'ticketTagRemove', description: 'Remove a tag from a ticket.',                                                                                                                                                                schema: ticketTagRemoveArgs, handler: handleTicketTagRemove },
+  { name: 'agentsList',      description: 'List agents configured in the account. Useful for targeting tickets at a specific agent.',                                                                                                   schema: agentsListArgs,      handler: handleAgentsList },
+  { name: 'sessionList',     description: 'List agent sessions for a ticket. Defaults to the current session\'s ticket if omitted.',                                                                                                    schema: sessionListArgs,     handler: handleSessionList },
+  { name: 'connectionList',  description: 'List configured external connections (LLM backends, integrations). Secrets are masked.',                                                                                                     schema: connectionListArgs,  handler: handleConnectionList },
+  { name: 'think',           description: 'Use this tool to reason, plan, or analyze before taking action. No side effects. Still runs in the sandbox for consistent execution tracking.',                                              schema: thinkArgs,           handler: handleThink },
+]

@@ -2,12 +2,10 @@
 // POST to https://api.linear.app/graphql with an inline query + variables.
 // Auth is the API key in the Authorization header (no `Bearer ` prefix).
 
-import { createSdkMcpServer, tool as sdkTool } from '@anthropic-ai/claude-agent-sdk'
-import { tool } from 'ai'
 import { z } from 'zod'
 
-import { asText, runCommand, toolUseId, type ConnCtx } from './shared.js'
-import { filterTools, type McpServerInfo } from './registry.js'
+import { runCommand, type ConnCtx } from './shared.js'
+import type { McpServerInfo, ToolDef } from './registry.js'
 
 export const info: McpServerInfo = {
   id:          'linear',
@@ -165,39 +163,14 @@ async function handlePing(ctx: LinearCtx, args: z.infer<typeof pingArgs>) {
   return gql(ctx, 'ping', args, `{ viewer { id name email } }`)
 }
 
-const DESC = {
-  teamList:    'List every team in the Linear workspace. Needed to discover team ids before creating issues.',
-  stateList:   'List workflow states for a team. Use this to discover state ids for issueCreate/issueUpdate transitions.',
-  issueList:   'List issues, optionally filtered by team, assignee, or workflow state bucket. Paginate with `after` using `pageInfo.endCursor` from the previous response.',
-  issueGet:    'Fetch full details for one issue. Accepts either the uuid or the human identifier like "ENG-42".',
-  issueCreate: 'Create a new issue. Team id is required; use teamList if you don\'t have one yet. Priority: 0=none, 1=urgent, 2=high, 3=medium, 4=low.',
-  issueUpdate: 'Update an existing issue. Pass only the fields you want to change. Use stateId to transition status; discover ids via stateList.',
-  ping:        'Verify the API key with a viewer query.',
-}
+// ── Tools ──
 
-export function buildSdk(ctx: LinearCtx, allowed?: string[] | '*' | null) {
-  const tu = (extra: unknown): LinearCtx => ({ ...ctx, toolUseId: toolUseId(extra) })
-  const all = [
-    sdkTool('teamList',    DESC.teamList,    teamListArgs.shape,    async (a, x) => asText(await handleTeamList(tu(x), a))),
-    sdkTool('stateList',   DESC.stateList,   stateListArgs.shape,   async (a, x) => asText(await handleStateList(tu(x), a))),
-    sdkTool('issueList',   DESC.issueList,   issueListArgs.shape,   async (a, x) => asText(await handleIssueList(tu(x), a))),
-    sdkTool('issueGet',    DESC.issueGet,    issueGetArgs.shape,    async (a, x) => asText(await handleIssueGet(tu(x), a))),
-    sdkTool('issueCreate', DESC.issueCreate, issueCreateArgs.shape, async (a, x) => asText(await handleIssueCreate(tu(x), a))),
-    sdkTool('issueUpdate', DESC.issueUpdate, issueUpdateArgs.shape, async (a, x) => asText(await handleIssueUpdate(tu(x), a))),
-    sdkTool('ping',        DESC.ping,        pingArgs.shape,        async (a, x) => asText(await handlePing(tu(x), a))),
-  ]
-  return createSdkMcpServer({ name: `linear:${ctx.connectionName}`, tools: filterTools(all, allowed) })
-}
-
-export function buildAi(ctx: LinearCtx) {
-  const p = `linear-${ctx.connectionName}`
-  return {
-    [`${p}-teamList`]:    tool({ description: DESC.teamList,    inputSchema: teamListArgs,    execute: a => handleTeamList(ctx, a) }),
-    [`${p}-stateList`]:   tool({ description: DESC.stateList,   inputSchema: stateListArgs,   execute: a => handleStateList(ctx, a) }),
-    [`${p}-issueList`]:   tool({ description: DESC.issueList,   inputSchema: issueListArgs,   execute: a => handleIssueList(ctx, a) }),
-    [`${p}-issueGet`]:    tool({ description: DESC.issueGet,    inputSchema: issueGetArgs,    execute: a => handleIssueGet(ctx, a) }),
-    [`${p}-issueCreate`]: tool({ description: DESC.issueCreate, inputSchema: issueCreateArgs, execute: a => handleIssueCreate(ctx, a) }),
-    [`${p}-issueUpdate`]: tool({ description: DESC.issueUpdate, inputSchema: issueUpdateArgs, execute: a => handleIssueUpdate(ctx, a) }),
-    [`${p}-ping`]:        tool({ description: DESC.ping,        inputSchema: pingArgs,        execute: a => handlePing(ctx, a) }),
-  }
-}
+export const tools: ToolDef[] = [
+  { name: 'teamList',    description: 'List every team in the Linear workspace. Needed to discover team ids before creating issues.',                                                                                 schema: teamListArgs,    handler: handleTeamList },
+  { name: 'stateList',   description: 'List workflow states for a team. Use this to discover state ids for issueCreate/issueUpdate transitions.',                                                                     schema: stateListArgs,   handler: handleStateList },
+  { name: 'issueList',   description: 'List issues, optionally filtered by team, assignee, or workflow state bucket. Paginate with `after` using `pageInfo.endCursor` from the previous response.',                   schema: issueListArgs,   handler: handleIssueList },
+  { name: 'issueGet',    description: 'Fetch full details for one issue. Accepts either the uuid or the human identifier like "ENG-42".',                                                                             schema: issueGetArgs,    handler: handleIssueGet },
+  { name: 'issueCreate', description: 'Create a new issue. Team id is required; use teamList if you don\'t have one yet. Priority: 0=none, 1=urgent, 2=high, 3=medium, 4=low.',                                       schema: issueCreateArgs, handler: handleIssueCreate },
+  { name: 'issueUpdate', description: 'Update an existing issue. Pass only the fields you want to change. Use stateId to transition status; discover ids via stateList.',                                             schema: issueUpdateArgs, handler: handleIssueUpdate },
+  { name: 'ping',        description: 'Verify the API key with a viewer query.',                                                                                                                                     schema: pingArgs,        handler: handlePing },
+]

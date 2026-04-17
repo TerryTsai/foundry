@@ -1,12 +1,9 @@
-// Resend — transactional email. Sends via the Resend API; credentials
-// come from the connection row.
+// Resend — transactional email.
 
-import { createSdkMcpServer, tool as sdkTool } from '@anthropic-ai/claude-agent-sdk'
-import { tool } from 'ai'
 import { z } from 'zod'
 
-import { asText, runCommand, toolUseId, type ConnCtx } from './shared.js'
-import { filterTools, type McpServerInfo } from './registry.js'
+import { runCommand, type ConnCtx } from './shared.js'
+import type { McpServerInfo, ToolDef } from './registry.js'
 
 export const info: McpServerInfo = {
   id:          'resend',
@@ -22,6 +19,8 @@ export const info: McpServerInfo = {
 
 type ResendCtx = ConnCtx
 
+// ── Schemas ──
+
 const sendEmailArgs = z.object({
   to:       z.union([z.string(), z.array(z.string())]).describe('Recipient(s). Single string or array.'),
   subject:  z.string().describe('Subject line.'),
@@ -35,11 +34,10 @@ const sendEmailArgs = z.object({
 const getEmailArgs = z.object({
   id: z.string().describe('Email id returned by sendEmail.'),
 })
-const pingArgs     = z.object({})
+const pingArgs = z.object({})
 
-// Thin wrapper around runCommand for all Resend API calls. The token rides
-// in env; the command string contains only `$API_KEY` expansions so the
-// execution row is safe to persist.
+// ── Handlers ──
+
 async function api(ctx: ResendCtx, toolName: string, args: unknown, method: 'GET' | 'POST', path: string, body?: unknown) {
   const bodyFlag = body !== undefined
     ? ` -H "Content-Type: application/json" --data ${JSON.stringify(JSON.stringify(body))}`
@@ -69,31 +67,14 @@ async function handleGetEmail(ctx: ResendCtx, args: z.infer<typeof getEmailArgs>
   return api(ctx, 'getEmail', args, 'GET', `/emails/${encodeURIComponent(args.id)}`)
 }
 
-async function handlePing(ctx: ResendCtx, args: z.infer<typeof pingArgs>) {
-  return api(ctx, 'ping', args, 'GET', '/api-keys')
+async function handlePing(ctx: ResendCtx, _args: z.infer<typeof pingArgs>) {
+  return api(ctx, 'ping', _args, 'GET', '/api-keys')
 }
 
-const DESC = {
-  sendEmail: 'Send a transactional email. At least one of `html` or `text` is required. `from` may be omitted if the connection has default_from set (must be a verified sender domain). Returns { id } on success.',
-  getEmail:  'Fetch a previously-sent email\'s delivery status and metadata.',
-  ping:      'Verify the API key by listing the account\'s keys.',
-}
+// ── Tools ──
 
-export function buildSdk(ctx: ResendCtx, allowed?: string[] | '*' | null) {
-  const tu = (extra: unknown): ResendCtx => ({ ...ctx, toolUseId: toolUseId(extra) })
-  const all = [
-    sdkTool('sendEmail', DESC.sendEmail, sendEmailArgs.shape, async (a, x) => asText(await handleSendEmail(tu(x), a))),
-    sdkTool('getEmail',  DESC.getEmail,  getEmailArgs.shape,  async (a, x) => asText(await handleGetEmail(tu(x), a))),
-    sdkTool('ping',      DESC.ping,      pingArgs.shape,      async (a, x) => asText(await handlePing(tu(x), a))),
-  ]
-  return createSdkMcpServer({ name: `resend:${ctx.connectionName}`, tools: filterTools(all, allowed) })
-}
-
-export function buildAi(ctx: ResendCtx) {
-  const p = `resend-${ctx.connectionName}`
-  return {
-    [`${p}-sendEmail`]: tool({ description: DESC.sendEmail, inputSchema: sendEmailArgs, execute: a => handleSendEmail(ctx, a) }),
-    [`${p}-getEmail`]:  tool({ description: DESC.getEmail,  inputSchema: getEmailArgs,  execute: a => handleGetEmail(ctx, a) }),
-    [`${p}-ping`]:      tool({ description: DESC.ping,      inputSchema: pingArgs,      execute: a => handlePing(ctx, a) }),
-  }
-}
+export const tools: ToolDef[] = [
+  { name: 'sendEmail', description: 'Send a transactional email. At least one of `html` or `text` is required. `from` may be omitted if the connection has default_from set. Returns { id } on success.', schema: sendEmailArgs, handler: handleSendEmail },
+  { name: 'getEmail',  description: 'Fetch a previously-sent email\'s delivery status and metadata.',                                                                                                     schema: getEmailArgs,  handler: handleGetEmail },
+  { name: 'ping',      description: 'Verify the API key by listing the account\'s keys.',                                                                                                                schema: pingArgs,      handler: handlePing },
+]

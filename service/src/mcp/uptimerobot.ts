@@ -1,12 +1,10 @@
 // UptimeRobot v2 — HTTP/ping monitors. Every endpoint is POST with form
 // data (api_key in the body, not a header). No typical REST semantics.
 
-import { createSdkMcpServer, tool as sdkTool } from '@anthropic-ai/claude-agent-sdk'
-import { tool } from 'ai'
 import { z } from 'zod'
 
-import { asText, runCommand, toolUseId, type ConnCtx } from './shared.js'
-import { filterTools, type McpServerInfo } from './registry.js'
+import { runCommand, type ConnCtx } from './shared.js'
+import type { McpServerInfo, ToolDef } from './registry.js'
 
 export const info: McpServerInfo = {
   id:          'uptimerobot',
@@ -99,36 +97,13 @@ async function handlePing(ctx: UptimeCtx, args: z.infer<typeof pingArgs>) {
   return api(ctx, 'ping', args, '/getAccountDetails', {})
 }
 
-const DESC = {
-  monitorList:   'List monitors. `monitors` optionally narrows to specific ids (comma-separated).',
-  monitorCreate: 'Create a monitor. `type` is one of http/keyword/ping/port/heartbeat. For keyword monitors pass `keyword_type` ("exists"/"not_exists") and `keyword_value`.',
-  monitorPause:  'Pause a monitor without deleting it.',
-  monitorResume: 'Resume a paused monitor.',
-  monitorDelete: 'Permanently delete a monitor.',
-  ping:          'Verify the API key by fetching account details.',
-}
+// ── Tools ──
 
-export function buildSdk(ctx: UptimeCtx, allowed?: string[] | '*' | null) {
-  const tu = (extra: unknown): UptimeCtx => ({ ...ctx, toolUseId: toolUseId(extra) })
-  const all = [
-    sdkTool('monitorList',   DESC.monitorList,   monitorListArgs.shape,   async (a, x) => asText(await handleMonitorList(tu(x), a))),
-    sdkTool('monitorCreate', DESC.monitorCreate, monitorCreateArgs.shape, async (a, x) => asText(await handleMonitorCreate(tu(x), a))),
-    sdkTool('monitorPause',  DESC.monitorPause,  monitorIdArgs.shape,     async (a, x) => asText(await handleMonitorPause(tu(x), a))),
-    sdkTool('monitorResume', DESC.monitorResume, monitorIdArgs.shape,     async (a, x) => asText(await handleMonitorResume(tu(x), a))),
-    sdkTool('monitorDelete', DESC.monitorDelete, monitorIdArgs.shape,     async (a, x) => asText(await handleMonitorDelete(tu(x), a))),
-    sdkTool('ping',          DESC.ping,          pingArgs.shape,          async (a, x) => asText(await handlePing(tu(x), a))),
-  ]
-  return createSdkMcpServer({ name: `uptimerobot:${ctx.connectionName}`, tools: filterTools(all, allowed) })
-}
-
-export function buildAi(ctx: UptimeCtx) {
-  const p = `uptimerobot-${ctx.connectionName}`
-  return {
-    [`${p}-monitorList`]:   tool({ description: DESC.monitorList,   inputSchema: monitorListArgs,   execute: a => handleMonitorList(ctx, a) }),
-    [`${p}-monitorCreate`]: tool({ description: DESC.monitorCreate, inputSchema: monitorCreateArgs, execute: a => handleMonitorCreate(ctx, a) }),
-    [`${p}-monitorPause`]:  tool({ description: DESC.monitorPause,  inputSchema: monitorIdArgs,     execute: a => handleMonitorPause(ctx, a) }),
-    [`${p}-monitorResume`]: tool({ description: DESC.monitorResume, inputSchema: monitorIdArgs,     execute: a => handleMonitorResume(ctx, a) }),
-    [`${p}-monitorDelete`]: tool({ description: DESC.monitorDelete, inputSchema: monitorIdArgs,     execute: a => handleMonitorDelete(ctx, a) }),
-    [`${p}-ping`]:          tool({ description: DESC.ping,          inputSchema: pingArgs,          execute: a => handlePing(ctx, a) }),
-  }
-}
+export const tools: ToolDef[] = [
+  { name: 'monitorList',   description: 'List monitors. `monitors` optionally narrows to specific ids (comma-separated).',                                                                                   schema: monitorListArgs,   handler: handleMonitorList },
+  { name: 'monitorCreate', description: 'Create a monitor. `type` is one of http/keyword/ping/port/heartbeat. For keyword monitors pass `keyword_type` ("exists"/"not_exists") and `keyword_value`.',        schema: monitorCreateArgs, handler: handleMonitorCreate },
+  { name: 'monitorPause',  description: 'Pause a monitor without deleting it.',                                                                                                                              schema: monitorIdArgs,     handler: handleMonitorPause },
+  { name: 'monitorResume', description: 'Resume a paused monitor.',                                                                                                                                          schema: monitorIdArgs,     handler: handleMonitorResume },
+  { name: 'monitorDelete', description: 'Permanently delete a monitor.',                                                                                                                                     schema: monitorIdArgs,     handler: handleMonitorDelete },
+  { name: 'ping',          description: 'Verify the API key by fetching account details.',                                                                                                                   schema: pingArgs,          handler: handlePing },
+]

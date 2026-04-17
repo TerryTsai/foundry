@@ -1,11 +1,9 @@
 // Clerk — user auth. Secret key authenticates server-side user CRUD.
 
-import { createSdkMcpServer, tool as sdkTool } from '@anthropic-ai/claude-agent-sdk'
-import { tool } from 'ai'
 import { z } from 'zod'
 
-import { asText, runCommand, toolUseId, type ConnCtx } from './shared.js'
-import { filterTools, type McpServerInfo } from './registry.js'
+import { runCommand, type ConnCtx } from './shared.js'
+import type { McpServerInfo, ToolDef } from './registry.js'
 
 export const info: McpServerInfo = {
   id:          'clerk',
@@ -90,36 +88,13 @@ async function handlePing(ctx: ClerkCtx, args: z.infer<typeof pingArgs>) {
   return api(ctx, 'ping', args, 'GET', '/users?limit=1')
 }
 
-const DESC = {
-  userList:   'List users. `query` searches name/email/username. Paginate with `offset` + `limit`.',
-  userGet:    'Fetch one user\'s full record (email addresses, external accounts, metadata).',
-  userUpdate: 'Patch user fields. Only include fields you want to change. Use metadata maps for arbitrary app-specific state.',
-  userBan:    'Prevent a user from signing in. Reversible via userUnban.',
-  userUnban:  'Restore sign-in access for a previously-banned user.',
-  ping:       'Verify the secret key by fetching one user.',
-}
+// ── Tools ──
 
-export function buildSdk(ctx: ClerkCtx, allowed?: string[] | '*' | null) {
-  const tu = (extra: unknown): ClerkCtx => ({ ...ctx, toolUseId: toolUseId(extra) })
-  const all = [
-    sdkTool('userList',   DESC.userList,   userListArgs.shape,   async (a, x) => asText(await handleUserList(tu(x), a))),
-    sdkTool('userGet',    DESC.userGet,    userGetArgs.shape,    async (a, x) => asText(await handleUserGet(tu(x), a))),
-    sdkTool('userUpdate', DESC.userUpdate, userUpdateArgs.shape, async (a, x) => asText(await handleUserUpdate(tu(x), a))),
-    sdkTool('userBan',    DESC.userBan,    userBanArgs.shape,    async (a, x) => asText(await handleUserBan(tu(x), a))),
-    sdkTool('userUnban',  DESC.userUnban,  userUnbanArgs.shape,  async (a, x) => asText(await handleUserUnban(tu(x), a))),
-    sdkTool('ping',       DESC.ping,       pingArgs.shape,       async (a, x) => asText(await handlePing(tu(x), a))),
-  ]
-  return createSdkMcpServer({ name: `clerk:${ctx.connectionName}`, tools: filterTools(all, allowed) })
-}
-
-export function buildAi(ctx: ClerkCtx) {
-  const p = `clerk-${ctx.connectionName}`
-  return {
-    [`${p}-userList`]:   tool({ description: DESC.userList,   inputSchema: userListArgs,   execute: a => handleUserList(ctx, a) }),
-    [`${p}-userGet`]:    tool({ description: DESC.userGet,    inputSchema: userGetArgs,    execute: a => handleUserGet(ctx, a) }),
-    [`${p}-userUpdate`]: tool({ description: DESC.userUpdate, inputSchema: userUpdateArgs, execute: a => handleUserUpdate(ctx, a) }),
-    [`${p}-userBan`]:    tool({ description: DESC.userBan,    inputSchema: userBanArgs,    execute: a => handleUserBan(ctx, a) }),
-    [`${p}-userUnban`]:  tool({ description: DESC.userUnban,  inputSchema: userUnbanArgs,  execute: a => handleUserUnban(ctx, a) }),
-    [`${p}-ping`]:       tool({ description: DESC.ping,       inputSchema: pingArgs,       execute: a => handlePing(ctx, a) }),
-  }
-}
+export const tools: ToolDef[] = [
+  { name: 'userList',   description: 'List users. `query` searches name/email/username. Paginate with `offset` + `limit`.',                                                      schema: userListArgs,   handler: handleUserList },
+  { name: 'userGet',    description: 'Fetch one user\'s full record (email addresses, external accounts, metadata).',                                                             schema: userGetArgs,    handler: handleUserGet },
+  { name: 'userUpdate', description: 'Patch user fields. Only include fields you want to change. Use metadata maps for arbitrary app-specific state.',                            schema: userUpdateArgs, handler: handleUserUpdate },
+  { name: 'userBan',    description: 'Prevent a user from signing in. Reversible via userUnban.',                                                                                 schema: userBanArgs,    handler: handleUserBan },
+  { name: 'userUnban',  description: 'Restore sign-in access for a previously-banned user.',                                                                                      schema: userUnbanArgs,  handler: handleUserUnban },
+  { name: 'ping',       description: 'Verify the secret key by fetching one user.',                                                                                              schema: pingArgs,       handler: handlePing },
+]

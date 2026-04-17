@@ -1,11 +1,9 @@
 // AWS connection tools — typed per-operation, covering S3, Lambda, API Gateway, IAM, and CloudFront.
 
-import { createSdkMcpServer, tool as sdkTool } from '@anthropic-ai/claude-agent-sdk'
-import { tool } from 'ai'
 import { z } from 'zod'
 
-import { asText, runCommand, toolUseId, type ConnCtx } from './shared.js'
-import { filterTools, type McpServerInfo } from './registry.js'
+import { runCommand, type ConnCtx } from './shared.js'
+import type { McpServerInfo, ToolDef } from './registry.js'
 
 export const info: McpServerInfo = {
   id:          'aws',
@@ -440,126 +438,41 @@ async function handleCloudfrontInvalidate(ctx: AwsCtx, args: z.infer<typeof clou
     `cloudfront create-invalidation --distribution-id ${args.distribution_id} --invalidation-batch ${paths}`)
 }
 
-// ── Descriptions ──
+// ── Tools ──
 
-const DESC: Record<string, string> = {
-  s3CreateBucket:       'Create a new S3 bucket.',
-  s3DeleteBucket:       'Delete an empty S3 bucket.',
-  s3List:               'List S3 buckets, or objects in a bucket with optional prefix filter.',
-  s3Upload:             'Upload a workspace file to S3. `file` is relative to /work.',
-  s3Download:           'Download an S3 object to the workspace. `file` is relative to /work.',
-  s3Delete:             'Delete an object from S3.',
-  s3SyncUpload:         'Sync a workspace directory to an S3 bucket. Optionally delete remote files not present locally.',
-  s3SetWebsite:         'Enable static website hosting on an S3 bucket.',
-  s3EmptyBucket:        'Delete all objects in an S3 bucket recursively. Required before s3DeleteBucket — buckets must be empty.',
-  s3DisableBlockPublic: 'Disable Block Public Access on an S3 bucket. Required before s3SetPublicRead — new buckets block public access by default.',
-  s3SetPublicRead:      'Apply a public-read bucket policy for static website hosting. Call s3DisableBlockPublic first.',
-  stsGetCallerIdentity: 'Get the AWS account ID, user ARN, and user ID for the current credentials.',
-  lambdaList:           'List Lambda functions in the account.',
-  lambdaCreate:         'Create a Lambda function. Requires an IAM role ARN (create with iamCreateRole first). If the role was just created, the tool auto-retries after propagation delay. Provide a zip from workspace or S3.',
-  lambdaUpdate:         'Update a Lambda function\'s code from a zip.',
-  lambdaDelete:         'Delete a Lambda function.',
-  lambdaInvoke:         'Invoke a Lambda function with optional JSON payload.',
-  lambdaSetEnv:         'Set environment variables on a Lambda function.',
-  apiGatewayCreate:     'Create an HTTP API Gateway.',
-  apiGatewayList:       'List API Gateways in the account.',
-  apiGatewayDelete:     'Delete an API Gateway.',
-  apiGatewayAddRoute:   'Add a route to an API Gateway with a Lambda integration. Creates the integration and route in one call. The Lambda must have an invoke permission for API Gateway — call lambdaAddPermission first.',
-  apiGatewayDeploy:     'Create/update a stage on an API Gateway with auto-deploy enabled.',
-  lambdaAddPermission:  'Grant a service permission to invoke a Lambda. Pass api_id and the source ARN is constructed automatically. Required before wiring API Gateway routes.',
-  iamCreateRole:        'Create an IAM role. Pass a service principal (e.g. "lambda.amazonaws.com") — trust policy is constructed automatically.',
-  iamAttachPolicy:      'Attach a managed IAM policy to a role.',
-  iamListRolePolicies:  'List managed policies attached to an IAM role. Use before iamDetachPolicy to discover what to detach.',
-  iamDetachPolicy:      'Detach a managed policy from an IAM role. Required before deleting the role.',
-  iamDeleteRole:        'Delete an IAM role. Detach all policies first with iamDetachPolicy.',
-  cloudfrontCreate:     'Create a CloudFront distribution fronting an S3 origin. HTTPS redirect enabled.',
-  cloudfrontList:       'List CloudFront distributions.',
-  cloudfrontDisable:    'Disable a CloudFront distribution. Required before deletion — fetches config, sets Enabled=false, updates. Wait a few minutes for propagation before deleting.',
-  cloudfrontDelete:     'Delete a disabled CloudFront distribution. Must be disabled first with cloudfrontDisable and fully propagated (Status=Deployed).',
-  cloudfrontInvalidate: 'Invalidate CloudFront cache for the given paths.',
-}
-
-// ── Anthropic Claude Agent SDK adapter ──
-
-export function buildSdk(ctx: AwsCtx, allowed?: string[] | '*' | null) {
-  const tu = (extra: unknown): AwsCtx => ({ ...ctx, toolUseId: toolUseId(extra) })
-  const all = [
-    sdkTool('s3CreateBucket',       DESC.s3CreateBucket,       s3CreateBucketArgs.shape,       async (a: any, x: unknown) => asText(await handleS3CreateBucket(tu(x), a))),
-    sdkTool('s3DeleteBucket',       DESC.s3DeleteBucket,       s3DeleteBucketArgs.shape,       async (a: any, x: unknown) => asText(await handleS3DeleteBucket(tu(x), a))),
-    sdkTool('s3List',               DESC.s3List,               s3ListArgs.shape,               async (a: any, x: unknown) => asText(await handleS3List(tu(x), a))),
-    sdkTool('s3Upload',             DESC.s3Upload,             s3UploadArgs.shape,             async (a: any, x: unknown) => asText(await handleS3Upload(tu(x), a))),
-    sdkTool('s3Download',           DESC.s3Download,           s3DownloadArgs.shape,           async (a: any, x: unknown) => asText(await handleS3Download(tu(x), a))),
-    sdkTool('s3Delete',             DESC.s3Delete,             s3DeleteArgs.shape,             async (a: any, x: unknown) => asText(await handleS3Delete(tu(x), a))),
-    sdkTool('s3EmptyBucket',        DESC.s3EmptyBucket,        s3EmptyBucketArgs.shape,        async (a: any, x: unknown) => asText(await handleS3EmptyBucket(tu(x), a))),
-    sdkTool('s3SyncUpload',         DESC.s3SyncUpload,         s3SyncUploadArgs.shape,         async (a: any, x: unknown) => asText(await handleS3SyncUpload(tu(x), a))),
-    sdkTool('s3SetWebsite',         DESC.s3SetWebsite,         s3SetWebsiteArgs.shape,         async (a: any, x: unknown) => asText(await handleS3SetWebsite(tu(x), a))),
-    sdkTool('s3DisableBlockPublic', DESC.s3DisableBlockPublic, s3DisableBlockPublicArgs.shape, async (a: any, x: unknown) => asText(await handleS3DisableBlockPublic(tu(x), a))),
-    sdkTool('s3SetPublicRead',      DESC.s3SetPublicRead,      s3SetPublicReadArgs.shape,      async (a: any, x: unknown) => asText(await handleS3SetPublicRead(tu(x), a))),
-    sdkTool('stsGetCallerIdentity', DESC.stsGetCallerIdentity, stsGetCallerIdentityArgs.shape, async (a: any, x: unknown) => asText(await handleStsGetCallerIdentity(tu(x), a))),
-    sdkTool('lambdaList',           DESC.lambdaList,           lambdaListArgs.shape,           async (a: any, x: unknown) => asText(await handleLambdaList(tu(x), a))),
-    sdkTool('lambdaCreate',         DESC.lambdaCreate,         lambdaCreateArgs.shape,         async (a: any, x: unknown) => asText(await handleLambdaCreate(tu(x), a))),
-    sdkTool('lambdaUpdate',         DESC.lambdaUpdate,         lambdaUpdateArgs.shape,         async (a: any, x: unknown) => asText(await handleLambdaUpdate(tu(x), a))),
-    sdkTool('lambdaDelete',         DESC.lambdaDelete,         lambdaDeleteArgs.shape,         async (a: any, x: unknown) => asText(await handleLambdaDelete(tu(x), a))),
-    sdkTool('lambdaInvoke',         DESC.lambdaInvoke,         lambdaInvokeArgs.shape,         async (a: any, x: unknown) => asText(await handleLambdaInvoke(tu(x), a))),
-    sdkTool('lambdaSetEnv',         DESC.lambdaSetEnv,         lambdaSetEnvArgs.shape,         async (a: any, x: unknown) => asText(await handleLambdaSetEnv(tu(x), a))),
-    sdkTool('lambdaAddPermission',  DESC.lambdaAddPermission,  lambdaAddPermissionArgs.shape,  async (a: any, x: unknown) => asText(await handleLambdaAddPermission(tu(x), a))),
-    sdkTool('apiGatewayCreate',     DESC.apiGatewayCreate,     apiGatewayCreateArgs.shape,     async (a: any, x: unknown) => asText(await handleApiGatewayCreate(tu(x), a))),
-    sdkTool('apiGatewayList',       DESC.apiGatewayList,       apiGatewayListArgs.shape,       async (a: any, x: unknown) => asText(await handleApiGatewayList(tu(x), a))),
-    sdkTool('apiGatewayDelete',     DESC.apiGatewayDelete,     apiGatewayDeleteArgs.shape,     async (a: any, x: unknown) => asText(await handleApiGatewayDelete(tu(x), a))),
-    sdkTool('apiGatewayAddRoute',   DESC.apiGatewayAddRoute,   apiGatewayAddRouteArgs.shape,   async (a: any, x: unknown) => asText(await handleApiGatewayAddRoute(tu(x), a))),
-    sdkTool('apiGatewayDeploy',     DESC.apiGatewayDeploy,     apiGatewayDeployArgs.shape,     async (a: any, x: unknown) => asText(await handleApiGatewayDeploy(tu(x), a))),
-    sdkTool('iamCreateRole',        DESC.iamCreateRole,        iamCreateRoleArgs.shape,        async (a: any, x: unknown) => asText(await handleIamCreateRole(tu(x), a))),
-    sdkTool('iamAttachPolicy',      DESC.iamAttachPolicy,      iamAttachPolicyArgs.shape,      async (a: any, x: unknown) => asText(await handleIamAttachPolicy(tu(x), a))),
-    sdkTool('iamListRolePolicies',  DESC.iamListRolePolicies,  iamListRolePoliciesArgs.shape,  async (a: any, x: unknown) => asText(await handleIamListRolePolicies(tu(x), a))),
-    sdkTool('iamDetachPolicy',      DESC.iamDetachPolicy,      iamDetachPolicyArgs.shape,      async (a: any, x: unknown) => asText(await handleIamDetachPolicy(tu(x), a))),
-    sdkTool('iamDeleteRole',        DESC.iamDeleteRole,        iamDeleteRoleArgs.shape,        async (a: any, x: unknown) => asText(await handleIamDeleteRole(tu(x), a))),
-    sdkTool('cloudfrontCreate',     DESC.cloudfrontCreate,     cloudfrontCreateArgs.shape,     async (a: any, x: unknown) => asText(await handleCloudfrontCreate(tu(x), a))),
-    sdkTool('cloudfrontList',       DESC.cloudfrontList,       cloudfrontListArgs.shape,       async (a: any, x: unknown) => asText(await handleCloudfrontList(tu(x), a))),
-    sdkTool('cloudfrontDisable',    DESC.cloudfrontDisable,    cloudfrontDisableArgs.shape,    async (a: any, x: unknown) => asText(await handleCloudfrontDisable(tu(x), a))),
-    sdkTool('cloudfrontDelete',     DESC.cloudfrontDelete,     cloudfrontDeleteArgs.shape,     async (a: any, x: unknown) => asText(await handleCloudfrontDelete(tu(x), a))),
-    sdkTool('cloudfrontInvalidate', DESC.cloudfrontInvalidate, cloudfrontInvalidateArgs.shape, async (a: any, x: unknown) => asText(await handleCloudfrontInvalidate(tu(x), a))),
-  ]
-  return createSdkMcpServer({ name: `aws:${ctx.connectionName}`, tools: filterTools(all, allowed) })
-}
-
-// ── Vercel ai SDK adapter ──
-
-export function buildAi(ctx: AwsCtx) {
-  const p = `aws-${ctx.connectionName}`
-  return {
-    [`${p}-s3CreateBucket`]:       tool({ description: DESC.s3CreateBucket,       inputSchema: s3CreateBucketArgs,       execute: (a: z.infer<typeof s3CreateBucketArgs>)       => handleS3CreateBucket(ctx, a) }),
-    [`${p}-s3DeleteBucket`]:       tool({ description: DESC.s3DeleteBucket,       inputSchema: s3DeleteBucketArgs,       execute: (a: z.infer<typeof s3DeleteBucketArgs>)       => handleS3DeleteBucket(ctx, a) }),
-    [`${p}-s3List`]:               tool({ description: DESC.s3List,               inputSchema: s3ListArgs,               execute: (a: z.infer<typeof s3ListArgs>)               => handleS3List(ctx, a) }),
-    [`${p}-s3Upload`]:             tool({ description: DESC.s3Upload,             inputSchema: s3UploadArgs,             execute: (a: z.infer<typeof s3UploadArgs>)             => handleS3Upload(ctx, a) }),
-    [`${p}-s3Download`]:           tool({ description: DESC.s3Download,           inputSchema: s3DownloadArgs,           execute: (a: z.infer<typeof s3DownloadArgs>)           => handleS3Download(ctx, a) }),
-    [`${p}-s3Delete`]:             tool({ description: DESC.s3Delete,             inputSchema: s3DeleteArgs,             execute: (a: z.infer<typeof s3DeleteArgs>)             => handleS3Delete(ctx, a) }),
-    [`${p}-s3EmptyBucket`]:        tool({ description: DESC.s3EmptyBucket,        inputSchema: s3EmptyBucketArgs,        execute: (a: z.infer<typeof s3EmptyBucketArgs>)        => handleS3EmptyBucket(ctx, a) }),
-    [`${p}-s3SyncUpload`]:         tool({ description: DESC.s3SyncUpload,         inputSchema: s3SyncUploadArgs,         execute: (a: z.infer<typeof s3SyncUploadArgs>)         => handleS3SyncUpload(ctx, a) }),
-    [`${p}-s3SetWebsite`]:         tool({ description: DESC.s3SetWebsite,         inputSchema: s3SetWebsiteArgs,         execute: (a: z.infer<typeof s3SetWebsiteArgs>)         => handleS3SetWebsite(ctx, a) }),
-    [`${p}-s3DisableBlockPublic`]: tool({ description: DESC.s3DisableBlockPublic, inputSchema: s3DisableBlockPublicArgs, execute: (a: z.infer<typeof s3DisableBlockPublicArgs>) => handleS3DisableBlockPublic(ctx, a) }),
-    [`${p}-s3SetPublicRead`]:      tool({ description: DESC.s3SetPublicRead,      inputSchema: s3SetPublicReadArgs,      execute: (a: z.infer<typeof s3SetPublicReadArgs>)      => handleS3SetPublicRead(ctx, a) }),
-    [`${p}-stsGetCallerIdentity`]: tool({ description: DESC.stsGetCallerIdentity, inputSchema: stsGetCallerIdentityArgs, execute: (a: z.infer<typeof stsGetCallerIdentityArgs>) => handleStsGetCallerIdentity(ctx, a) }),
-    [`${p}-lambdaList`]:           tool({ description: DESC.lambdaList,           inputSchema: lambdaListArgs,           execute: (a: z.infer<typeof lambdaListArgs>)           => handleLambdaList(ctx, a) }),
-    [`${p}-lambdaCreate`]:         tool({ description: DESC.lambdaCreate,         inputSchema: lambdaCreateArgs,         execute: (a: z.infer<typeof lambdaCreateArgs>)         => handleLambdaCreate(ctx, a) }),
-    [`${p}-lambdaUpdate`]:         tool({ description: DESC.lambdaUpdate,         inputSchema: lambdaUpdateArgs,         execute: (a: z.infer<typeof lambdaUpdateArgs>)         => handleLambdaUpdate(ctx, a) }),
-    [`${p}-lambdaDelete`]:         tool({ description: DESC.lambdaDelete,         inputSchema: lambdaDeleteArgs,         execute: (a: z.infer<typeof lambdaDeleteArgs>)         => handleLambdaDelete(ctx, a) }),
-    [`${p}-lambdaInvoke`]:         tool({ description: DESC.lambdaInvoke,         inputSchema: lambdaInvokeArgs,         execute: (a: z.infer<typeof lambdaInvokeArgs>)         => handleLambdaInvoke(ctx, a) }),
-    [`${p}-lambdaSetEnv`]:         tool({ description: DESC.lambdaSetEnv,         inputSchema: lambdaSetEnvArgs,         execute: (a: z.infer<typeof lambdaSetEnvArgs>)         => handleLambdaSetEnv(ctx, a) }),
-    [`${p}-lambdaAddPermission`]:  tool({ description: DESC.lambdaAddPermission,  inputSchema: lambdaAddPermissionArgs,  execute: (a: z.infer<typeof lambdaAddPermissionArgs>)  => handleLambdaAddPermission(ctx, a) }),
-    [`${p}-apiGatewayCreate`]:     tool({ description: DESC.apiGatewayCreate,     inputSchema: apiGatewayCreateArgs,     execute: (a: z.infer<typeof apiGatewayCreateArgs>)     => handleApiGatewayCreate(ctx, a) }),
-    [`${p}-apiGatewayList`]:       tool({ description: DESC.apiGatewayList,       inputSchema: apiGatewayListArgs,       execute: (a: z.infer<typeof apiGatewayListArgs>)       => handleApiGatewayList(ctx, a) }),
-    [`${p}-apiGatewayDelete`]:     tool({ description: DESC.apiGatewayDelete,     inputSchema: apiGatewayDeleteArgs,     execute: (a: z.infer<typeof apiGatewayDeleteArgs>)     => handleApiGatewayDelete(ctx, a) }),
-    [`${p}-apiGatewayAddRoute`]:   tool({ description: DESC.apiGatewayAddRoute,   inputSchema: apiGatewayAddRouteArgs,   execute: (a: z.infer<typeof apiGatewayAddRouteArgs>)   => handleApiGatewayAddRoute(ctx, a) }),
-    [`${p}-apiGatewayDeploy`]:     tool({ description: DESC.apiGatewayDeploy,     inputSchema: apiGatewayDeployArgs,     execute: (a: z.infer<typeof apiGatewayDeployArgs>)     => handleApiGatewayDeploy(ctx, a) }),
-    [`${p}-iamCreateRole`]:        tool({ description: DESC.iamCreateRole,        inputSchema: iamCreateRoleArgs,        execute: (a: z.infer<typeof iamCreateRoleArgs>)        => handleIamCreateRole(ctx, a) }),
-    [`${p}-iamAttachPolicy`]:      tool({ description: DESC.iamAttachPolicy,      inputSchema: iamAttachPolicyArgs,      execute: (a: z.infer<typeof iamAttachPolicyArgs>)      => handleIamAttachPolicy(ctx, a) }),
-    [`${p}-iamListRolePolicies`]:  tool({ description: DESC.iamListRolePolicies,  inputSchema: iamListRolePoliciesArgs,  execute: (a: z.infer<typeof iamListRolePoliciesArgs>)  => handleIamListRolePolicies(ctx, a) }),
-    [`${p}-iamDetachPolicy`]:      tool({ description: DESC.iamDetachPolicy,      inputSchema: iamDetachPolicyArgs,      execute: (a: z.infer<typeof iamDetachPolicyArgs>)      => handleIamDetachPolicy(ctx, a) }),
-    [`${p}-iamDeleteRole`]:        tool({ description: DESC.iamDeleteRole,        inputSchema: iamDeleteRoleArgs,        execute: (a: z.infer<typeof iamDeleteRoleArgs>)        => handleIamDeleteRole(ctx, a) }),
-    [`${p}-cloudfrontCreate`]:     tool({ description: DESC.cloudfrontCreate,     inputSchema: cloudfrontCreateArgs,     execute: (a: z.infer<typeof cloudfrontCreateArgs>)     => handleCloudfrontCreate(ctx, a) }),
-    [`${p}-cloudfrontList`]:       tool({ description: DESC.cloudfrontList,       inputSchema: cloudfrontListArgs,       execute: (a: z.infer<typeof cloudfrontListArgs>)       => handleCloudfrontList(ctx, a) }),
-    [`${p}-cloudfrontDisable`]:    tool({ description: DESC.cloudfrontDisable,    inputSchema: cloudfrontDisableArgs,    execute: (a: z.infer<typeof cloudfrontDisableArgs>)    => handleCloudfrontDisable(ctx, a) }),
-    [`${p}-cloudfrontDelete`]:     tool({ description: DESC.cloudfrontDelete,     inputSchema: cloudfrontDeleteArgs,     execute: (a: z.infer<typeof cloudfrontDeleteArgs>)     => handleCloudfrontDelete(ctx, a) }),
-    [`${p}-cloudfrontInvalidate`]: tool({ description: DESC.cloudfrontInvalidate, inputSchema: cloudfrontInvalidateArgs, execute: (a: z.infer<typeof cloudfrontInvalidateArgs>) => handleCloudfrontInvalidate(ctx, a) }),
-  }
-}
+export const tools: ToolDef[] = [
+  { name: 's3CreateBucket',       description: 'Create a new S3 bucket.',                                                                                                                                         schema: s3CreateBucketArgs,       handler: handleS3CreateBucket },
+  { name: 's3DeleteBucket',       description: 'Delete an empty S3 bucket.',                                                                                                                                      schema: s3DeleteBucketArgs,       handler: handleS3DeleteBucket },
+  { name: 's3List',               description: 'List S3 buckets, or objects in a bucket with optional prefix filter.',                                                                                             schema: s3ListArgs,               handler: handleS3List },
+  { name: 's3Upload',             description: 'Upload a workspace file to S3. `file` is relative to /work.',                                                                                                     schema: s3UploadArgs,             handler: handleS3Upload },
+  { name: 's3Download',           description: 'Download an S3 object to the workspace. `file` is relative to /work.',                                                                                            schema: s3DownloadArgs,           handler: handleS3Download },
+  { name: 's3Delete',             description: 'Delete an object from S3.',                                                                                                                                       schema: s3DeleteArgs,             handler: handleS3Delete },
+  { name: 's3SyncUpload',         description: 'Sync a workspace directory to an S3 bucket. Optionally delete remote files not present locally.',                                                                  schema: s3SyncUploadArgs,         handler: handleS3SyncUpload },
+  { name: 's3SetWebsite',         description: 'Enable static website hosting on an S3 bucket.',                                                                                                                  schema: s3SetWebsiteArgs,         handler: handleS3SetWebsite },
+  { name: 's3EmptyBucket',        description: 'Delete all objects in an S3 bucket recursively. Required before s3DeleteBucket — buckets must be empty.',                                                          schema: s3EmptyBucketArgs,        handler: handleS3EmptyBucket },
+  { name: 's3DisableBlockPublic', description: 'Disable Block Public Access on an S3 bucket. Required before s3SetPublicRead — new buckets block public access by default.',                                      schema: s3DisableBlockPublicArgs, handler: handleS3DisableBlockPublic },
+  { name: 's3SetPublicRead',      description: 'Apply a public-read bucket policy for static website hosting. Call s3DisableBlockPublic first.',                                                                   schema: s3SetPublicReadArgs,      handler: handleS3SetPublicRead },
+  { name: 'stsGetCallerIdentity', description: 'Get the AWS account ID, user ARN, and user ID for the current credentials.',                                                                                      schema: stsGetCallerIdentityArgs, handler: handleStsGetCallerIdentity },
+  { name: 'lambdaList',           description: 'List Lambda functions in the account.',                                                                                                                           schema: lambdaListArgs,           handler: handleLambdaList },
+  { name: 'lambdaCreate',         description: 'Create a Lambda function. Requires an IAM role ARN (create with iamCreateRole first). If the role was just created, the tool auto-retries after propagation delay. Provide a zip from workspace or S3.', schema: lambdaCreateArgs, handler: handleLambdaCreate },
+  { name: 'lambdaUpdate',         description: 'Update a Lambda function\'s code from a zip.',                                                                                                                    schema: lambdaUpdateArgs,         handler: handleLambdaUpdate },
+  { name: 'lambdaDelete',         description: 'Delete a Lambda function.',                                                                                                                                       schema: lambdaDeleteArgs,         handler: handleLambdaDelete },
+  { name: 'lambdaInvoke',         description: 'Invoke a Lambda function with optional JSON payload.',                                                                                                            schema: lambdaInvokeArgs,         handler: handleLambdaInvoke },
+  { name: 'lambdaSetEnv',         description: 'Set environment variables on a Lambda function.',                                                                                                                 schema: lambdaSetEnvArgs,         handler: handleLambdaSetEnv },
+  { name: 'apiGatewayCreate',     description: 'Create an HTTP API Gateway.',                                                                                                                                     schema: apiGatewayCreateArgs,     handler: handleApiGatewayCreate },
+  { name: 'apiGatewayList',       description: 'List API Gateways in the account.',                                                                                                                               schema: apiGatewayListArgs,       handler: handleApiGatewayList },
+  { name: 'apiGatewayDelete',     description: 'Delete an API Gateway.',                                                                                                                                          schema: apiGatewayDeleteArgs,     handler: handleApiGatewayDelete },
+  { name: 'apiGatewayAddRoute',   description: 'Add a route to an API Gateway with a Lambda integration. Creates the integration and route in one call. The Lambda must have an invoke permission for API Gateway — call lambdaAddPermission first.', schema: apiGatewayAddRouteArgs, handler: handleApiGatewayAddRoute },
+  { name: 'apiGatewayDeploy',     description: 'Create/update a stage on an API Gateway with auto-deploy enabled.',                                                                                               schema: apiGatewayDeployArgs,     handler: handleApiGatewayDeploy },
+  { name: 'lambdaAddPermission',  description: 'Grant a service permission to invoke a Lambda. Pass api_id and the source ARN is constructed automatically. Required before wiring API Gateway routes.',           schema: lambdaAddPermissionArgs,  handler: handleLambdaAddPermission },
+  { name: 'iamCreateRole',        description: 'Create an IAM role. Pass a service principal (e.g. "lambda.amazonaws.com") — trust policy is constructed automatically.',                                          schema: iamCreateRoleArgs,        handler: handleIamCreateRole },
+  { name: 'iamAttachPolicy',      description: 'Attach a managed IAM policy to a role.',                                                                                                                          schema: iamAttachPolicyArgs,      handler: handleIamAttachPolicy },
+  { name: 'iamListRolePolicies',  description: 'List managed policies attached to an IAM role. Use before iamDetachPolicy to discover what to detach.',                                                           schema: iamListRolePoliciesArgs,  handler: handleIamListRolePolicies },
+  { name: 'iamDetachPolicy',      description: 'Detach a managed policy from an IAM role. Required before deleting the role.',                                                                                    schema: iamDetachPolicyArgs,      handler: handleIamDetachPolicy },
+  { name: 'iamDeleteRole',        description: 'Delete an IAM role. Detach all policies first with iamDetachPolicy.',                                                                                             schema: iamDeleteRoleArgs,        handler: handleIamDeleteRole },
+  { name: 'cloudfrontCreate',     description: 'Create a CloudFront distribution fronting an S3 origin. HTTPS redirect enabled.',                                                                                 schema: cloudfrontCreateArgs,     handler: handleCloudfrontCreate },
+  { name: 'cloudfrontList',       description: 'List CloudFront distributions.',                                                                                                                                  schema: cloudfrontListArgs,       handler: handleCloudfrontList },
+  { name: 'cloudfrontDisable',    description: 'Disable a CloudFront distribution. Required before deletion — fetches config, sets Enabled=false, updates. Wait a few minutes for propagation before deleting.',   schema: cloudfrontDisableArgs,    handler: handleCloudfrontDisable },
+  { name: 'cloudfrontDelete',     description: 'Delete a disabled CloudFront distribution. Must be disabled first with cloudfrontDisable and fully propagated (Status=Deployed).',                                 schema: cloudfrontDeleteArgs,     handler: handleCloudfrontDelete },
+  { name: 'cloudfrontInvalidate', description: 'Invalidate CloudFront cache for the given paths.',                                                                                                                schema: cloudfrontInvalidateArgs, handler: handleCloudfrontInvalidate },
+]

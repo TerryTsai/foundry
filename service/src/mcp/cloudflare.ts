@@ -2,12 +2,10 @@
 // account owns (key `cloudflare:<connection.name>`), not once per session
 // like the built-ins. Credentials come from the connection row via ctx.
 
-import { createSdkMcpServer, tool as sdkTool } from '@anthropic-ai/claude-agent-sdk'
-import { tool } from 'ai'
 import { z } from 'zod'
 
-import { asText, runCommand, toolUseId, type ConnCtx } from './shared.js'
-import { filterTools, type McpServerInfo } from './registry.js'
+import { runCommand, type ConnCtx } from './shared.js'
+import type { McpServerInfo, ToolDef } from './registry.js'
 
 export const info: McpServerInfo = {
   id:          'cloudflare',
@@ -336,166 +334,31 @@ async function handleKvPut(ctx: CloudflareCtx, args: z.infer<typeof kvPutArgs>) 
   return runWrangler(ctx, 'kvPut', args, `kv key put --namespace-id=${JSON.stringify(args.namespace_id)} ${JSON.stringify(args.key)} ${JSON.stringify(args.value)}`)
 }
 
-const DESC = {
-  whoami:           'Verify the token and show the authorized user / account context.',
-  zonesList:        'List DNS zones on the account. Returns zone id, name, and status. Use the zone id for purgeCache.',
-  purgeCache:       'Purge cache for a zone. Pass a `files` URL list (preferred) or `purge_everything: true`. Get the zone_id from zonesList first.',
-  pagesList:        'List Cloudflare Pages projects on the account.',
-  pagesDeployments: 'List recent deployments for a Pages project.',
-  pagesRemove:      'Delete a Cloudflare Pages project. Irreversible — removes all deployments and releases the *.pages.dev subdomain.',
-  pagesDeploy:      'Deploy to Cloudflare Pages. Creates the project on first use. `dir` is the static output directory relative to /work (e.g. "public"). If the project has a functions/ directory at /work/functions/, Pages Functions are deployed automatically alongside the static assets.',
-  r2CreateBucket:   'Create a new R2 bucket on the account.',
-  r2DeleteBucket:   'Delete an R2 bucket. The bucket must be empty.',
-  r2ListBuckets:    'List R2 buckets on the account.',
-  r2ListObjects:    'List objects in an R2 bucket with optional prefix filter.',
-  r2Upload:         'Upload a workspace file to an R2 bucket. `file` is relative to /work.',
-  r2Download:       'Download an R2 object to the workspace. `file` is relative to /work.',
-  r2Delete:         'Delete an object from an R2 bucket.',
-  d1Create:         'Create a new D1 SQLite database on the account.',
-  d1Delete:         'Delete a D1 database. Irreversible — all data is lost.',
-  d1List:           'List D1 databases on the account.',
-  d1Query:          'Execute a SQL statement on a D1 database. Returns rows for SELECT, or change count for mutations.',
-  kvCreate:         'Create a new KV namespace. Returns namespace_id — save it for kvGet/kvPut/kvDelete calls.',
-  kvDeleteNamespace: 'Delete a KV namespace entirely. Irreversible — all keys are lost.',
-  kvList:           'List KV namespaces on the account. Returns namespace ids and titles.',
-  kvGet:            'Get a value from a KV namespace by key.',
-  kvPut:            'Set a key-value pair in a KV namespace.',
-  kvDelete:         'Delete a key from a KV namespace.',
-}
+// ── Tools ──
 
-// ── Anthropic Claude Agent SDK adapter ──
-
-export function buildSdk(ctx: CloudflareCtx, allowed?: string[] | '*' | null) {
-  const tu = (extra: unknown): CloudflareCtx => ({ ...ctx, toolUseId: toolUseId(extra) })
-  const all = [
-    sdkTool('whoami',           DESC.whoami,           whoamiArgs.shape,           async (a, x) => asText(await handleWhoami(tu(x), a))),
-    sdkTool('zonesList',        DESC.zonesList,        zonesListArgs.shape,        async (a, x) => asText(await handleZonesList(tu(x), a))),
-    sdkTool('purgeCache',       DESC.purgeCache,       purgeCacheArgs.shape,       async (a, x) => asText(await handlePurgeCache(tu(x), a))),
-    sdkTool('pagesList',        DESC.pagesList,        pagesListArgs.shape,        async (a, x) => asText(await handlePagesList(tu(x), a))),
-    sdkTool('pagesDeployments', DESC.pagesDeployments, pagesDeploymentsArgs.shape, async (a, x) => asText(await handlePagesDeployments(tu(x), a))),
-    sdkTool('pagesRemove',      DESC.pagesRemove,      pagesRemoveArgs.shape,      async (a, x) => asText(await handlePagesRemove(tu(x), a))),
-    sdkTool('pagesDeploy',      DESC.pagesDeploy,      pagesDeployArgs.shape,      async (a, x) => asText(await handlePagesDeploy(tu(x), a))),
-    sdkTool('r2CreateBucket',   DESC.r2CreateBucket,   r2CreateBucketArgs.shape,   async (a, x) => asText(await handleR2CreateBucket(tu(x), a))),
-    sdkTool('r2DeleteBucket',   DESC.r2DeleteBucket,   r2DeleteBucketArgs.shape,   async (a, x) => asText(await handleR2DeleteBucket(tu(x), a))),
-    sdkTool('r2ListBuckets',    DESC.r2ListBuckets,    r2ListBucketsArgs.shape,    async (a, x) => asText(await handleR2ListBuckets(tu(x), a))),
-    sdkTool('r2ListObjects',    DESC.r2ListObjects,    r2ListObjectsArgs.shape,    async (a, x) => asText(await handleR2ListObjects(tu(x), a))),
-    sdkTool('r2Upload',         DESC.r2Upload,         r2UploadArgs.shape,         async (a, x) => asText(await handleR2Upload(tu(x), a))),
-    sdkTool('r2Download',       DESC.r2Download,       r2DownloadArgs.shape,       async (a, x) => asText(await handleR2Download(tu(x), a))),
-    sdkTool('r2Delete',         DESC.r2Delete,         r2DeleteArgs.shape,         async (a, x) => asText(await handleR2Delete(tu(x), a))),
-    sdkTool('d1Create',         DESC.d1Create,         d1CreateArgs.shape,         async (a, x) => asText(await handleD1Create(tu(x), a))),
-    sdkTool('d1Delete',         DESC.d1Delete,         d1DeleteArgs.shape,         async (a, x) => asText(await handleD1Delete(tu(x), a))),
-    sdkTool('d1List',           DESC.d1List,           d1ListArgs.shape,           async (a, x) => asText(await handleD1List(tu(x), a))),
-    sdkTool('d1Query',          DESC.d1Query,          d1QueryArgs.shape,          async (a, x) => asText(await handleD1Query(tu(x), a))),
-    sdkTool('kvDeleteNamespace', DESC.kvDeleteNamespace, kvDeleteNamespaceArgs.shape, async (a, x) => asText(await handleKvDeleteNamespace(tu(x), a))),
-    sdkTool('kvCreate',         DESC.kvCreate,         kvCreateArgs.shape,         async (a, x) => asText(await handleKvCreate(tu(x), a))),
-    sdkTool('kvList',           DESC.kvList,           kvListArgs.shape,           async (a, x) => asText(await handleKvList(tu(x), a))),
-    sdkTool('kvGet',            DESC.kvGet,            kvGetArgs.shape,            async (a, x) => asText(await handleKvGet(tu(x), a))),
-    sdkTool('kvPut',            DESC.kvPut,            kvPutArgs.shape,            async (a, x) => asText(await handleKvPut(tu(x), a))),
-    sdkTool('kvDelete',         DESC.kvDelete,         kvDeleteArgs.shape,         async (a, x) => asText(await handleKvDelete(tu(x), a))),
-  ]
-  return createSdkMcpServer({ name: `cloudflare:${ctx.connectionName}`, tools: filterTools(all, allowed) })
-}
-
-// ── Vercel ai SDK adapter ──
-
-export function buildAi(ctx: CloudflareCtx) {
-  const prefix = `cloudflare-${ctx.connectionName}`
-  return {
-    [`${prefix}-whoami`]: tool({
-      description: DESC.whoami,           inputSchema: whoamiArgs,
-      execute:     (a: z.infer<typeof whoamiArgs>) => handleWhoami(ctx, a),
-    }),
-    [`${prefix}-zonesList`]: tool({
-      description: DESC.zonesList,        inputSchema: zonesListArgs,
-      execute:     (a: z.infer<typeof zonesListArgs>) => handleZonesList(ctx, a),
-    }),
-    [`${prefix}-purgeCache`]: tool({
-      description: DESC.purgeCache,       inputSchema: purgeCacheArgs,
-      execute:     (a: z.infer<typeof purgeCacheArgs>) => handlePurgeCache(ctx, a),
-    }),
-    [`${prefix}-pagesList`]: tool({
-      description: DESC.pagesList,        inputSchema: pagesListArgs,
-      execute:     (a: z.infer<typeof pagesListArgs>) => handlePagesList(ctx, a),
-    }),
-    [`${prefix}-pagesDeployments`]: tool({
-      description: DESC.pagesDeployments, inputSchema: pagesDeploymentsArgs,
-      execute:     (a: z.infer<typeof pagesDeploymentsArgs>) => handlePagesDeployments(ctx, a),
-    }),
-    [`${prefix}-pagesRemove`]: tool({
-      description: DESC.pagesRemove,      inputSchema: pagesRemoveArgs,
-      execute:     (a: z.infer<typeof pagesRemoveArgs>) => handlePagesRemove(ctx, a),
-    }),
-    [`${prefix}-pagesDeploy`]: tool({
-      description: DESC.pagesDeploy,      inputSchema: pagesDeployArgs,
-      execute:     (a: z.infer<typeof pagesDeployArgs>) => handlePagesDeploy(ctx, a),
-    }),
-    [`${prefix}-r2CreateBucket`]: tool({
-      description: DESC.r2CreateBucket,   inputSchema: r2CreateBucketArgs,
-      execute:     (a: z.infer<typeof r2CreateBucketArgs>) => handleR2CreateBucket(ctx, a),
-    }),
-    [`${prefix}-r2DeleteBucket`]: tool({
-      description: DESC.r2DeleteBucket,   inputSchema: r2DeleteBucketArgs,
-      execute:     (a: z.infer<typeof r2DeleteBucketArgs>) => handleR2DeleteBucket(ctx, a),
-    }),
-    [`${prefix}-r2ListBuckets`]: tool({
-      description: DESC.r2ListBuckets,    inputSchema: r2ListBucketsArgs,
-      execute:     (a: z.infer<typeof r2ListBucketsArgs>) => handleR2ListBuckets(ctx, a),
-    }),
-    [`${prefix}-r2ListObjects`]: tool({
-      description: DESC.r2ListObjects,    inputSchema: r2ListObjectsArgs,
-      execute:     (a: z.infer<typeof r2ListObjectsArgs>) => handleR2ListObjects(ctx, a),
-    }),
-    [`${prefix}-r2Upload`]: tool({
-      description: DESC.r2Upload,         inputSchema: r2UploadArgs,
-      execute:     (a: z.infer<typeof r2UploadArgs>) => handleR2Upload(ctx, a),
-    }),
-    [`${prefix}-r2Download`]: tool({
-      description: DESC.r2Download,       inputSchema: r2DownloadArgs,
-      execute:     (a: z.infer<typeof r2DownloadArgs>) => handleR2Download(ctx, a),
-    }),
-    [`${prefix}-r2Delete`]: tool({
-      description: DESC.r2Delete,         inputSchema: r2DeleteArgs,
-      execute:     (a: z.infer<typeof r2DeleteArgs>) => handleR2Delete(ctx, a),
-    }),
-    [`${prefix}-d1Create`]: tool({
-      description: DESC.d1Create,         inputSchema: d1CreateArgs,
-      execute:     (a: z.infer<typeof d1CreateArgs>) => handleD1Create(ctx, a),
-    }),
-    [`${prefix}-d1Delete`]: tool({
-      description: DESC.d1Delete,         inputSchema: d1DeleteArgs,
-      execute:     (a: z.infer<typeof d1DeleteArgs>) => handleD1Delete(ctx, a),
-    }),
-    [`${prefix}-d1List`]: tool({
-      description: DESC.d1List,           inputSchema: d1ListArgs,
-      execute:     (a: z.infer<typeof d1ListArgs>) => handleD1List(ctx, a),
-    }),
-    [`${prefix}-d1Query`]: tool({
-      description: DESC.d1Query,          inputSchema: d1QueryArgs,
-      execute:     (a: z.infer<typeof d1QueryArgs>) => handleD1Query(ctx, a),
-    }),
-    [`${prefix}-kvDeleteNamespace`]: tool({
-      description: DESC.kvDeleteNamespace, inputSchema: kvDeleteNamespaceArgs,
-      execute:     (a: z.infer<typeof kvDeleteNamespaceArgs>) => handleKvDeleteNamespace(ctx, a),
-    }),
-    [`${prefix}-kvCreate`]: tool({
-      description: DESC.kvCreate,         inputSchema: kvCreateArgs,
-      execute:     (a: z.infer<typeof kvCreateArgs>) => handleKvCreate(ctx, a),
-    }),
-    [`${prefix}-kvList`]: tool({
-      description: DESC.kvList,           inputSchema: kvListArgs,
-      execute:     (a: z.infer<typeof kvListArgs>) => handleKvList(ctx, a),
-    }),
-    [`${prefix}-kvGet`]: tool({
-      description: DESC.kvGet,            inputSchema: kvGetArgs,
-      execute:     (a: z.infer<typeof kvGetArgs>) => handleKvGet(ctx, a),
-    }),
-    [`${prefix}-kvPut`]: tool({
-      description: DESC.kvPut,            inputSchema: kvPutArgs,
-      execute:     (a: z.infer<typeof kvPutArgs>) => handleKvPut(ctx, a),
-    }),
-    [`${prefix}-kvDelete`]: tool({
-      description: DESC.kvDelete,         inputSchema: kvDeleteArgs,
-      execute:     (a: z.infer<typeof kvDeleteArgs>) => handleKvDelete(ctx, a),
-    }),
-  }
-}
+export const tools: ToolDef[] = [
+  { name: 'whoami',           description: 'Verify the token and show the authorized user / account context.',                                                                                                                       schema: whoamiArgs,           handler: handleWhoami },
+  { name: 'zonesList',        description: 'List DNS zones on the account. Returns zone id, name, and status. Use the zone id for purgeCache.',                                                                                      schema: zonesListArgs,        handler: handleZonesList },
+  { name: 'purgeCache',       description: 'Purge cache for a zone. Pass a `files` URL list (preferred) or `purge_everything: true`. Get the zone_id from zonesList first.',                                                         schema: purgeCacheArgs,       handler: handlePurgeCache },
+  { name: 'pagesList',        description: 'List Cloudflare Pages projects on the account.',                                                                                                                                         schema: pagesListArgs,        handler: handlePagesList },
+  { name: 'pagesDeployments', description: 'List recent deployments for a Pages project.',                                                                                                                                           schema: pagesDeploymentsArgs, handler: handlePagesDeployments },
+  { name: 'pagesRemove',      description: 'Delete a Cloudflare Pages project. Irreversible — removes all deployments and releases the *.pages.dev subdomain.',                                                                      schema: pagesRemoveArgs,      handler: handlePagesRemove },
+  { name: 'pagesDeploy',      description: 'Deploy to Cloudflare Pages. Creates the project on first use. `dir` is the static output directory relative to /work (e.g. "public"). If the project has a functions/ directory at /work/functions/, Pages Functions are deployed automatically alongside the static assets.', schema: pagesDeployArgs, handler: handlePagesDeploy },
+  { name: 'r2CreateBucket',   description: 'Create a new R2 bucket on the account.',                                                                                                                                                schema: r2CreateBucketArgs,   handler: handleR2CreateBucket },
+  { name: 'r2DeleteBucket',   description: 'Delete an R2 bucket. The bucket must be empty.',                                                                                                                                        schema: r2DeleteBucketArgs,   handler: handleR2DeleteBucket },
+  { name: 'r2ListBuckets',    description: 'List R2 buckets on the account.',                                                                                                                                                        schema: r2ListBucketsArgs,    handler: handleR2ListBuckets },
+  { name: 'r2ListObjects',    description: 'List objects in an R2 bucket with optional prefix filter.',                                                                                                                              schema: r2ListObjectsArgs,    handler: handleR2ListObjects },
+  { name: 'r2Upload',         description: 'Upload a workspace file to an R2 bucket. `file` is relative to /work.',                                                                                                                 schema: r2UploadArgs,         handler: handleR2Upload },
+  { name: 'r2Download',       description: 'Download an R2 object to the workspace. `file` is relative to /work.',                                                                                                                  schema: r2DownloadArgs,       handler: handleR2Download },
+  { name: 'r2Delete',         description: 'Delete an object from an R2 bucket.',                                                                                                                                                   schema: r2DeleteArgs,         handler: handleR2Delete },
+  { name: 'd1Create',         description: 'Create a new D1 SQLite database on the account.',                                                                                                                                       schema: d1CreateArgs,         handler: handleD1Create },
+  { name: 'd1Delete',         description: 'Delete a D1 database. Irreversible — all data is lost.',                                                                                                                                schema: d1DeleteArgs,         handler: handleD1Delete },
+  { name: 'd1List',           description: 'List D1 databases on the account.',                                                                                                                                                     schema: d1ListArgs,           handler: handleD1List },
+  { name: 'd1Query',          description: 'Execute a SQL statement on a D1 database. Returns rows for SELECT, or change count for mutations.',                                                                                     schema: d1QueryArgs,          handler: handleD1Query },
+  { name: 'kvCreate',         description: 'Create a new KV namespace. Returns namespace_id — save it for kvGet/kvPut/kvDelete calls.',                                                                                             schema: kvCreateArgs,         handler: handleKvCreate },
+  { name: 'kvDeleteNamespace', description: 'Delete a KV namespace entirely. Irreversible — all keys are lost.',                                                                                                                    schema: kvDeleteNamespaceArgs, handler: handleKvDeleteNamespace },
+  { name: 'kvList',           description: 'List KV namespaces on the account. Returns namespace ids and titles.',                                                                                                                   schema: kvListArgs,           handler: handleKvList },
+  { name: 'kvGet',            description: 'Get a value from a KV namespace by key.',                                                                                                                                               schema: kvGetArgs,            handler: handleKvGet },
+  { name: 'kvPut',            description: 'Set a key-value pair in a KV namespace.',                                                                                                                                               schema: kvPutArgs,            handler: handleKvPut },
+  { name: 'kvDelete',         description: 'Delete a key from a KV namespace.',                                                                                                                                                     schema: kvDeleteArgs,         handler: handleKvDelete },
+]
