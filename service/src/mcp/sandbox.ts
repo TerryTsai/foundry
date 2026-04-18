@@ -20,13 +20,6 @@ import * as validate from '../validate.js'
 import { bounded, esc, runCommand } from './shared.js'
 import type { McpServerInfo, ToolDef } from './registry.js'
 
-export const info: McpServerInfo = {
-  id:          'sandbox',
-  name:        'Sandbox',
-  category:    'core',
-  description: 'Isolated Linux environment with a persistent session workspace: files, commands, search.',
-}
-
 export interface SandboxCtx {
   db:        Db
   config:    Config
@@ -207,6 +200,13 @@ async function handleFind(ctx: SandboxCtx, args: z.infer<typeof validate.toolFin
 }
 
 // ── Tools ──
+
+export const info: McpServerInfo = {
+  id:          'sandbox',
+  name:        'Sandbox',
+  category:    'core',
+  description: 'Isolated Linux environment with a persistent session workspace: files, commands, search.',
+}
 
 export const tools: ToolDef[] = [
   { name: 'run',       description: 'Run a single shell command in the session sandbox. The workspace is bind-mounted at /work and persists across calls within this session. The sandbox starts with an EMPTY /work — populate it yourself (e.g. via gitClone). Pre-installed: git, node/npm/npx, tsc, prettier, eslint, tsx, python3, curl, wget, jq, lynx, make, gcc, and standard unix tools. $HOME is /tmp so package managers work without flags. Network is disabled by default; pass network:true for outbound access. Prefer one command per call for clean audit trails — avoid chaining with && or ;. Large stdout is written to a file; use the read tool to paginate.', schema: validate.toolExec, handler: handleRun },

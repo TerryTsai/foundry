@@ -7,13 +7,6 @@ import { z } from 'zod'
 import { runCommand, type ConnCtx } from './shared.js'
 import type { McpServerInfo, ToolDef } from './registry.js'
 
-export const info: McpServerInfo = {
-  id:          'stripe',
-  name:        'Stripe',
-  category:    'growth',
-  description: 'Payments, subscriptions, and checkout.',
-}
-
 type StripeCtx = ConnCtx
 
 const customerListArgs = z.object({
@@ -103,6 +96,13 @@ async function handlePing(ctx: StripeCtx, args: z.infer<typeof pingArgs>) {
 }
 
 // ── Tools ──
+
+export const info: McpServerInfo = {
+  id:          'stripe',
+  name:        'Stripe',
+  category:    'growth',
+  description: 'Payments, subscriptions, and checkout.',
+}
 
 export const tools: ToolDef[] = [
   { name: 'customerList',     description: 'List customers, optionally filtered by exact email. Paginate with `starting_after` (the last customer id on the prior page).',                                          schema: customerListArgs,     handler: handleCustomerList },

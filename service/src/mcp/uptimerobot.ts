@@ -6,13 +6,6 @@ import { z } from 'zod'
 import { runCommand, type ConnCtx } from './shared.js'
 import type { McpServerInfo, ToolDef } from './registry.js'
 
-export const info: McpServerInfo = {
-  id:          'uptimerobot',
-  name:        'UptimeRobot',
-  category:    'product',
-  description: 'HTTP / ping uptime monitors.',
-}
-
 type UptimeCtx = ConnCtx
 
 const monitorListArgs = z.object({
@@ -90,6 +83,13 @@ async function handlePing(ctx: UptimeCtx, args: z.infer<typeof pingArgs>) {
 }
 
 // ── Tools ──
+
+export const info: McpServerInfo = {
+  id:          'uptimerobot',
+  name:        'UptimeRobot',
+  category:    'product',
+  description: 'HTTP / ping uptime monitors.',
+}
 
 export const tools: ToolDef[] = [
   { name: 'monitorList',   description: 'List monitors. `monitors` optionally narrows to specific ids (comma-separated).',                                                                                   schema: monitorListArgs,   handler: handleMonitorList },

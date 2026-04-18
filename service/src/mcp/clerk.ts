@@ -5,13 +5,6 @@ import { z } from 'zod'
 import { runCommand, type ConnCtx } from './shared.js'
 import type { McpServerInfo, ToolDef } from './registry.js'
 
-export const info: McpServerInfo = {
-  id:          'clerk',
-  name:        'Clerk',
-  category:    'growth',
-  description: 'User auth (sessions, profiles, orgs).',
-}
-
 type ClerkCtx = ConnCtx
 
 const userListArgs = z.object({
@@ -81,6 +74,13 @@ async function handlePing(ctx: ClerkCtx, args: z.infer<typeof pingArgs>) {
 }
 
 // ── Tools ──
+
+export const info: McpServerInfo = {
+  id:          'clerk',
+  name:        'Clerk',
+  category:    'growth',
+  description: 'User auth (sessions, profiles, orgs).',
+}
 
 export const tools: ToolDef[] = [
   { name: 'userList',   description: 'List users. `query` searches name/email/username. Paginate with `offset` + `limit`.',                                                      schema: userListArgs,   handler: handleUserList },

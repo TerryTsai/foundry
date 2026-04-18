@@ -8,13 +8,6 @@ import { z } from 'zod'
 import { runCommand, type ConnCtx } from './shared.js'
 import type { McpServerInfo, ToolDef } from './registry.js'
 
-export const info: McpServerInfo = {
-  id:          'posthog',
-  name:        'PostHog',
-  category:    'product',
-  description: 'Product analytics and feature flags.',
-}
-
 type PosthogCtx = ConnCtx
 
 function host(ctx: PosthogCtx): string {
@@ -75,6 +68,13 @@ async function handlePing(ctx: PosthogCtx, args: z.infer<typeof pingArgs>) {
 }
 
 // ── Tools ──
+
+export const info: McpServerInfo = {
+  id:          'posthog',
+  name:        'PostHog',
+  category:    'product',
+  description: 'Product analytics and feature flags.',
+}
 
 export const tools: ToolDef[] = [
   { name: 'queryHogQL',      description: 'Run a HogQL query. HogQL is SQL against the events/persons/sessions tables. Returns { results, types, columns }.',   schema: queryHogQLArgs,      handler: handleQueryHogQL },

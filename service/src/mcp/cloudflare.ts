@@ -7,13 +7,6 @@ import { z } from 'zod'
 import { runCommand, type ConnCtx } from './shared.js'
 import type { McpServerInfo, ToolDef } from './registry.js'
 
-export const info: McpServerInfo = {
-  id:          'cloudflare',
-  name:        'Cloudflare',
-  category:    'infra',
-  description: 'Cloudflare REST API tools: tokens, zones, Pages, cache purge, and Pages deploy.',
-}
-
 type CloudflareCtx = ConnCtx
 
 // ── Schemas ──
@@ -309,6 +302,13 @@ async function handleKvPut(ctx: CloudflareCtx, args: z.infer<typeof kvPutArgs>) 
 }
 
 // ── Tools ──
+
+export const info: McpServerInfo = {
+  id:          'cloudflare',
+  name:        'Cloudflare',
+  category:    'infra',
+  description: 'Cloudflare REST API tools: tokens, zones, Pages, cache purge, and Pages deploy.',
+}
 
 export const tools: ToolDef[] = [
   { name: 'whoami',           description: 'Verify the token and show the authorized user / account context.',                                                                                                                       schema: whoamiArgs,           handler: handleWhoami },

@@ -7,13 +7,6 @@ import { z } from 'zod'
 import { runCommand, type ConnCtx } from './shared.js'
 import type { McpServerInfo, ToolDef } from './registry.js'
 
-export const info: McpServerInfo = {
-  id:          'supabase',
-  name:        'Supabase',
-  category:    'data',
-  description: 'Postgres tables via PostgREST.',
-}
-
 type SupabaseCtx = ConnCtx
 
 function baseUrl(ctx: SupabaseCtx): string {
@@ -108,6 +101,13 @@ async function handlePing(ctx: SupabaseCtx, args: z.infer<typeof pingArgs>) {
 }
 
 // ── Tools ──
+
+export const info: McpServerInfo = {
+  id:          'supabase',
+  name:        'Supabase',
+  category:    'data',
+  description: 'Postgres tables via PostgREST.',
+}
 
 export const tools: ToolDef[] = [
   { name: 'tableSelect', description: 'SELECT rows from a table. Filter syntax is PostgREST: { column: "op.value" } where op is one of eq, neq, gt, gte, lt, lte, like, ilike, in, is. `select` picks columns ("a,b,c"); `order` takes "column.asc" or "column.desc".', schema: tableSelectArgs, handler: handleTableSelect },

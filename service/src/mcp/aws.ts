@@ -5,13 +5,6 @@ import { z } from 'zod'
 import { runCommand, type ConnCtx } from './shared.js'
 import type { McpServerInfo, ToolDef } from './registry.js'
 
-export const info: McpServerInfo = {
-  id:          'aws',
-  name:        'AWS',
-  category:    'infra',
-  description: 'AWS tools for deploying sites: S3, Lambda, API Gateway, IAM, CloudFront.',
-}
-
 type AwsCtx = ConnCtx
 
 async function runAws(ctx: AwsCtx, toolName: string, args: unknown, command: string) {
@@ -396,6 +389,13 @@ async function handleCloudfrontInvalidate(ctx: AwsCtx, args: z.infer<typeof clou
 }
 
 // ── Tools ──
+
+export const info: McpServerInfo = {
+  id:          'aws',
+  name:        'AWS',
+  category:    'infra',
+  description: 'AWS tools for deploying sites: S3, Lambda, API Gateway, IAM, CloudFront.',
+}
 
 export const tools: ToolDef[] = [
   { name: 's3CreateBucket',       description: 'Create a new S3 bucket.',                                                                                                                                         schema: s3CreateBucketArgs,       handler: handleS3CreateBucket },

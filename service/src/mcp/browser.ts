@@ -13,13 +13,6 @@ import { bounded, esc, runCommand } from './shared.js'
 
 import type { McpServerInfo, ToolDef } from './registry.js'
 
-export const info: McpServerInfo = {
-  id:          'browser',
-  name:        'Browser',
-  category:    'core',
-  description: 'Web access: HTTP requests and page text extraction.',
-}
-
 export interface BrowserCtx {
   db:        Db
   config:    Config
@@ -60,6 +53,13 @@ async function handleScrape(ctx: BrowserCtx, args: z.infer<typeof validate.toolS
 }
 
 // ── Tools ──
+
+export const info: McpServerInfo = {
+  id:          'browser',
+  name:        'Browser',
+  category:    'core',
+  description: 'Web access: HTTP requests and page text extraction.',
+}
 
 export const tools: ToolDef[] = [
   { name: 'fetch',  description: 'Make an HTTP request and return the response. Large responses are written to a file; use the read tool to paginate.', schema: validate.toolFetch,  handler: handleFetch },

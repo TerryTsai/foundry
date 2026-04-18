@@ -6,13 +6,6 @@ import { z } from 'zod'
 import { runCommand, type ConnCtx } from './shared.js'
 import type { McpServerInfo, ToolDef } from './registry.js'
 
-export const info: McpServerInfo = {
-  id:          'calcom',
-  name:        'Cal.com',
-  category:    'growth',
-  description: 'Scheduling, event types, and bookings.',
-}
-
 type CalcomCtx = ConnCtx
 
 const bookingListArgs = z.object({
@@ -78,6 +71,13 @@ async function handlePing(ctx: CalcomCtx, args: z.infer<typeof pingArgs>) {
 }
 
 // ── Tools ──
+
+export const info: McpServerInfo = {
+  id:          'calcom',
+  name:        'Cal.com',
+  category:    'growth',
+  description: 'Scheduling, event types, and bookings.',
+}
 
 export const tools: ToolDef[] = [
   { name: 'bookingList',   description: 'List bookings. `status` is one of upcoming/recurring/past/cancelled/unconfirmed.',             schema: bookingListArgs,   handler: handleBookingList },

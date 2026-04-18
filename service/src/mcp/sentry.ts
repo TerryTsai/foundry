@@ -6,13 +6,6 @@ import { z } from 'zod'
 import { runCommand, type ConnCtx } from './shared.js'
 import type { McpServerInfo, ToolDef } from './registry.js'
 
-export const info: McpServerInfo = {
-  id:          'sentry',
-  name:        'Sentry',
-  category:    'product',
-  description: 'Error tracking.',
-}
-
 type SentryCtx = ConnCtx
 
 function host(ctx: SentryCtx): string {
@@ -75,6 +68,13 @@ async function handlePing(ctx: SentryCtx, args: z.infer<typeof pingArgs>) {
 }
 
 // ── Tools ──
+
+export const info: McpServerInfo = {
+  id:          'sentry',
+  name:        'Sentry',
+  category:    'product',
+  description: 'Error tracking.',
+}
 
 export const tools: ToolDef[] = [
   { name: 'listIssues',   description: 'List issues in a project. Use `query` with Sentry search syntax (e.g. "is:unresolved", "issue.category:error age:-24h"). Pagination: pass `cursor` from the prior response\'s Link header to fetch the next page.', schema: listIssuesArgs,   handler: handleListIssues },

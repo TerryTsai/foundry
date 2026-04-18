@@ -17,13 +17,6 @@ import { esc, runCommand } from './shared.js'
 
 import type { McpServerInfo, ToolDef } from './registry.js'
 
-export const info: McpServerInfo = {
-  id:          'foundry',
-  name:        'Foundry',
-  category:    'core',
-  description: 'Foundry harness introspection: tickets, agents, sessions, connections.',
-}
-
 export interface FoundryCtx {
   db:         Db
   config:     Config
@@ -227,6 +220,13 @@ async function handleThink(ctx: FoundryCtx, args: z.infer<typeof thinkArgs>) {
 }
 
 // ── Tools ──
+
+export const info: McpServerInfo = {
+  id:          'foundry',
+  name:        'Foundry',
+  category:    'core',
+  description: 'Foundry harness introspection: tickets, agents, sessions, connections.',
+}
 
 export const tools: ToolDef[] = [
   { name: 'ticketList',      description: 'List tickets in the current project. Filter by status (created/waiting/running/finished/failed/cancelled), agent, or tag.',                                                                  schema: ticketListArgs,      handler: handleTicketList },

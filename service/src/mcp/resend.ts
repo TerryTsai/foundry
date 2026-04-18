@@ -5,13 +5,6 @@ import { z } from 'zod'
 import { runCommand, type ConnCtx } from './shared.js'
 import type { McpServerInfo, ToolDef } from './registry.js'
 
-export const info: McpServerInfo = {
-  id:          'resend',
-  name:        'Resend',
-  category:    'growth',
-  description: 'Transactional email.',
-}
-
 type ResendCtx = ConnCtx
 
 // ── Schemas ──
@@ -67,6 +60,13 @@ async function handlePing(ctx: ResendCtx, _args: z.infer<typeof pingArgs>) {
 }
 
 // ── Tools ──
+
+export const info: McpServerInfo = {
+  id:          'resend',
+  name:        'Resend',
+  category:    'growth',
+  description: 'Transactional email.',
+}
 
 export const tools: ToolDef[] = [
   { name: 'sendEmail', description: 'Send a transactional email. At least one of `html` or `text` is required. `from` may be omitted if the connection has default_from set. Returns { id } on success.', schema: sendEmailArgs, handler: handleSendEmail },

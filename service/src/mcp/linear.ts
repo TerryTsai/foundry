@@ -7,13 +7,6 @@ import { z } from 'zod'
 import { runCommand, type ConnCtx } from './shared.js'
 import type { McpServerInfo, ToolDef } from './registry.js'
 
-export const info: McpServerInfo = {
-  id:          'linear',
-  name:        'Linear',
-  category:    'code',
-  description: 'Issue tracking and product planning.',
-}
-
 type LinearCtx = ConnCtx
 
 // ── Args ─────────────────────────────────────────────────────────────
@@ -155,6 +148,13 @@ async function handlePing(ctx: LinearCtx, args: z.infer<typeof pingArgs>) {
 }
 
 // ── Tools ──
+
+export const info: McpServerInfo = {
+  id:          'linear',
+  name:        'Linear',
+  category:    'code',
+  description: 'Issue tracking and product planning.',
+}
 
 export const tools: ToolDef[] = [
   { name: 'teamList',    description: 'List every team in the Linear workspace. Needed to discover team ids before creating issues.',                                                                                 schema: teamListArgs,    handler: handleTeamList },

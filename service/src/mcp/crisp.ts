@@ -6,13 +6,6 @@ import { z } from 'zod'
 import { runCommand, type ConnCtx } from './shared.js'
 import type { McpServerInfo, ToolDef } from './registry.js'
 
-export const info: McpServerInfo = {
-  id:          'crisp',
-  name:        'Crisp',
-  category:    'growth',
-  description: 'Customer chat conversations.',
-}
-
 type CrispCtx = ConnCtx
 
 function website(ctx: CrispCtx): string {
@@ -82,6 +75,13 @@ async function handlePing(ctx: CrispCtx, args: z.infer<typeof pingArgs>) {
 }
 
 // ── Tools ──
+
+export const info: McpServerInfo = {
+  id:          'crisp',
+  name:        'Crisp',
+  category:    'growth',
+  description: 'Customer chat conversations.',
+}
 
 export const tools: ToolDef[] = [
   { name: 'conversationList',  description: 'List conversations on the website (paginated, 1-indexed). `search_query` + `search_type` filter by text/email/phone/session_id.', schema: conversationListArgs,  handler: handleConversationList },

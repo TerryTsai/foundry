@@ -40,13 +40,6 @@ import { runCommand } from './shared.js'
 
 import type { McpServerInfo, ToolDef } from './registry.js'
 
-export const info: McpServerInfo = {
-  id:          'github',
-  name:        'GitHub',
-  category:    'code',
-  description: 'Development flow against a configured GitHub repo: clone, inspect, stage, commit, open draft PRs.',
-}
-
 // ════════════════════════════════════════════════════════════════════════════
 // WORKSPACE LIFECYCLE (host-side)
 // ════════════════════════════════════════════════════════════════════════════
@@ -524,6 +517,13 @@ This PR is a draft. Review the diff and mark it Ready when you're satisfied.`
 }
 
 // ── Tools ──
+
+export const info: McpServerInfo = {
+  id:          'github',
+  name:        'GitHub',
+  category:    'code',
+  description: 'Development flow against a configured GitHub repo: clone, inspect, stage, commit, open draft PRs.',
+}
 
 export const tools: ToolDef[] = [
   { name: 'gitClone',       description: 'Clone the configured GitHub repo into the empty session workspace at /work. Creates the per-session branch `foundry/<session-id>` and switches to it. Typical first step of a code session — the workspace starts empty, nothing is pre-cloned. Optional owner/repo args override the project default if you need a different repo.', schema: gitCloneArgs, handler: handleGitClone },
