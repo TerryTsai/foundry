@@ -86,6 +86,66 @@ function TagSection({ ticketId, initialTags }: { ticketId: string; initialTags: 
   )
 }
 
+// ── Timeline: merge sessions, verdicts, events into one chronological stream ──
+
+interface TimelineEntry {
+  id: string
+  time: string
+  kind: 'session' | 'verdict' | 'event'
+  icon: React.ReactNode
+  label: string
+  status?: string
+  meta?: string
+  body?: string
+  link?: string
+}
+
+function buildTimeline(
+  sessions: Session[], verdicts: Verdict[], events: Event[],
+  agentNameById: (id: string) => string, projectId: string, ticketId: string,
+): TimelineEntry[] {
+  const entries: TimelineEntry[] = []
+
+  for (const s of sessions as any[]) {
+    entries.push({
+      id: `s-${s.id}`,
+      time: s.started_at,
+      kind: 'session',
+      icon: <Zap size={14} />,
+      label: s.agent_name ?? agentNameById(s.agent_id),
+      status: s.status,
+      body: [s.duration_ms ? fmtDuration(s.duration_ms) : null, s.cost_usd ? `$${s.cost_usd.toFixed(4)}` : null, s.tool_calls ? `${s.tool_calls} tools` : null].filter(Boolean).join(' · ') || undefined,
+      link: `/p/${projectId}/tickets/${ticketId}/sessions/${s.id}`,
+    })
+  }
+
+  for (const v of verdicts) {
+    entries.push({
+      id: `v-${v.id}`,
+      time: v.created_at,
+      kind: 'verdict',
+      icon: v.pass ? <Check size={14} className="text-emerald-500" /> : <X size={14} className="text-red-500" />,
+      label: agentNameById(v.agent_id),
+      status: v.pass ? 'pass' : 'fail',
+      body: v.reason,
+    })
+  }
+
+  for (const e of events) {
+    entries.push({
+      id: `e-${e.id}`,
+      time: e.created_at,
+      kind: 'event',
+      icon: <Clock size={14} className="text-zinc-500" />,
+      label: e.kind.replace(/_/g, ' '),
+      status: e.caused_by,
+      body: e.data !== '{}' ? e.data : undefined,
+    })
+  }
+
+  return entries.sort((a, b) => a.time.localeCompare(b.time))
+}
+
 // ── Loader ──
 
 interface TicketLoaderData {
@@ -97,7 +157,7 @@ interface TicketLoaderData {
 
 export function TicketDetailPage() {
   const { projectId } = useShell()
-  const { ticket, agents, comments: initialComments, usage, tags: initialTags, verdicts, sessions, chain, events } = useLoaderData() as TicketLoaderData
+  const { ticket, agents, comments: initialComments, usage, tags: initialTags, verdicts, sessions, events } = useLoaderData() as TicketLoaderData
   const { revalidate } = useRevalidator()
   const navigate = useNavigate()
   const [editing, setEditing] = useState(false)
@@ -130,6 +190,8 @@ export function TicketDetailPage() {
 
   const ts = (s: string) => new Date(s).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
   const agentNameById = (id: string) => agents.find(a => a.id === id)?.name ?? id
+
+  const timeline = buildTimeline(sessions, verdicts, events, agentNameById, projectId, ticket.id)
 
   return (
     <DetailShell
@@ -171,35 +233,22 @@ export function TicketDetailPage() {
         </div>
       </Section>
 
-      {/* ── Sessions ── */}
-      <Section title="Sessions" count={sessions.length} defaultOpen={false}>
-        {sessions.length === 0 && <p className="text-xs text-zinc-500">No sessions yet.</p>}
-        {sessions.map((s: any) => (
-          <Link key={s.id} to={`/p/${projectId}/tickets/${ticket.id}/sessions/${s.id}`} className="block">
+      {/* ── Timeline ── */}
+      <Section title="Timeline" count={timeline.length} defaultOpen={false}>
+        {timeline.length === 0 && <p className="text-xs text-zinc-500">No activity yet.</p>}
+        {timeline.map(e => {
+          const row = (
             <ActivityRow
-              icon={<Zap size={14} />}
-              label={s.agent_name ?? agentNameById(s.agent_id)}
-              status={s.status}
-              meta={ts(s.started_at)}
-              body={[s.duration_ms ? fmtDuration(s.duration_ms) : null, s.cost_usd ? `$${s.cost_usd.toFixed(4)}` : null, s.tool_calls ? `${s.tool_calls} tools` : null].filter(Boolean).join(' · ') || undefined}
+              key={e.id}
+              icon={e.icon}
+              label={e.label}
+              status={e.status}
+              meta={ts(e.time)}
+              body={e.body}
             />
-          </Link>
-        ))}
-      </Section>
-
-      {/* ── Verdicts ── */}
-      <Section title="Verdicts" count={verdicts.length} defaultOpen={false}>
-        {verdicts.length === 0 && <p className="text-xs text-zinc-500">No verdicts yet.</p>}
-        {verdicts.map(v => (
-          <ActivityRow
-            key={v.id}
-            icon={v.pass ? <Check size={14} className="text-emerald-500" /> : <X size={14} className="text-red-500" />}
-            label={agentNameById(v.agent_id)}
-            status={v.pass ? 'finished' : 'failed'}
-            meta={ts(v.created_at)}
-            body={v.reason}
-          />
-        ))}
+          )
+          return e.link ? <Link key={e.id} to={e.link} className="block">{row}</Link> : <div key={e.id}>{row}</div>
+        })}
       </Section>
 
       {/* ── Comments ── */}
@@ -214,36 +263,6 @@ export function TicketDetailPage() {
             status={c.author}
             meta={ts(c.created_at)}
             body={c.body}
-          />
-        ))}
-      </Section>
-
-      {/* ── Chain ── */}
-      <Section title="Chain" count={chain.length > 1 ? chain.length : 0}>
-        {chain.length <= 1 && <p className="text-xs text-zinc-500">No dependencies.</p>}
-        {chain.map((t, i) => (
-          <Link key={t.id} to={`/p/${projectId}/tickets/${t.id}`} className="block">
-            <ActivityRow
-              icon={<span className="text-[10px] font-mono text-zinc-500">{i + 1}</span>}
-              label={t.title}
-              status={t.status}
-              meta={t.id === ticket.id ? 'current' : undefined}
-            />
-          </Link>
-        ))}
-      </Section>
-
-      {/* ── Events ── */}
-      <Section title="Events" count={events.length}>
-        {events.length === 0 && <p className="text-xs text-zinc-500">No events.</p>}
-        {events.map(e => (
-          <ActivityRow
-            key={e.id}
-            icon={<Clock size={14} className="text-zinc-500" />}
-            label={e.kind}
-            status={e.caused_by}
-            meta={ts(e.created_at)}
-            body={e.data !== '{}' ? e.data : undefined}
           />
         ))}
       </Section>
