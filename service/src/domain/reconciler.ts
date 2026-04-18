@@ -152,16 +152,8 @@ function evaluateWaiting(db: Db, ticket: Ticket, agents: AgentDef[], slots: { re
   const allPass = roundVerdicts.length > 0 && roundVerdicts.every(v => v.pass)
 
   if (allPass) {
-    transition(db, ticket.id, 'waiting', 'finished', 'reconciler')
-    const notes = roundVerdicts.map(v => {
-      const a = agents.find(x => x.id === v.agent_id)
-      return a?.name ?? v.agent_id
-    })
-    database.commentInsert(db, {
-      ticket_id: ticket.id, session_id: null,
-      author: 'system', body: `Verified by: ${notes.join(', ')}.`,
-      created_at: now(),
-    })
+    const verifierNames = roundVerdicts.map(v => agents.find(x => x.id === v.agent_id)?.name ?? v.agent_id)
+    transition(db, ticket.id, 'waiting', 'finished', 'reconciler', { verified_by: verifierNames })
   } else {
     // Any fail — cycle back to waiting for next producer round
     transition(db, ticket.id, 'waiting', 'waiting', 'reconciler', { reason: 'verdict_fail' })
