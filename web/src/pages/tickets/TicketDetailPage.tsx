@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate, useLoaderData, useRevalidator, Link } from 'react-router-dom'
-import { User, Bot, Info, Check, X, Clock, Zap, ChevronDown } from 'lucide-react'
+import { User, Bot, Info, Check, X, Clock, Zap } from 'lucide-react'
 import { ticketApi, commentApi, bustCache } from '../../api.js'
 import { ActivityRow } from '../../components/detail/ActivityRow.js'
+import { SectionLabel } from '../../components/detail/SectionLabel.js'
 import { DetailShell } from '../../components/layout/DetailShell.js'
 import type { Ticket, Agent, Comment, UsageRollup, Tag, Verdict, Session, Event } from '../../types.js'
 import { useShell } from '../../Shell.js'
@@ -12,26 +13,6 @@ import { ActionButton } from '../../components/form/ActionButton.js'
 import { useBreadcrumbLabel } from '../../Breadcrumb.js'
 import { fmtDuration, fmtActor } from '../../lib/format.js'
 import { marked } from 'marked'
-
-// ── Collapsible section ──
-
-function Section({ title, count, defaultOpen, children }: {
-  title: string; count: number; defaultOpen?: boolean; children: React.ReactNode
-}) {
-  const [open, setOpen] = useState(defaultOpen ?? false)
-  return (
-    <div className="border-t border-zinc-200 dark:border-zinc-800/60">
-      <button
-        onClick={() => setOpen(!open)}
-        className="w-full flex items-center justify-between py-2.5 text-xs text-zinc-500 dark:text-zinc-400 active:text-zinc-700 dark:active:text-zinc-200 transition-colors"
-      >
-        <span className="font-medium">{title}{count > 0 ? ` (${count})` : ''}</span>
-        <ChevronDown size={14} className={`transition-transform duration-150 ${open ? 'rotate-180' : ''}`} />
-      </button>
-      {open && <div className="pb-3">{children}</div>}
-    </div>
-  )
-}
 
 // ── Tag Section ──
 
@@ -212,8 +193,8 @@ export function TicketDetailPage() {
       ]}
       composer={{ placeholder: 'Comment', onSubmit: handleAddComment }}
     >
-      {/* ── Description ── */}
-      <Section title="Description" count={0} defaultOpen={false}>
+      <div>
+        <SectionLabel label="description" />
         <div className="space-y-4">
           {editing ? (
             <>
@@ -231,10 +212,10 @@ export function TicketDetailPage() {
           )}
           <TagSection ticketId={ticket.id} initialTags={initialTags} />
         </div>
-      </Section>
+      </div>
 
-      {/* ── Timeline ── */}
-      <Section title="Timeline" count={timeline.length} defaultOpen={false}>
+      <div>
+        <SectionLabel label="timeline" />
         {timeline.length === 0 && <p className="text-xs text-zinc-500">No activity yet.</p>}
         {timeline.map(e => {
           const row = (
@@ -249,10 +230,10 @@ export function TicketDetailPage() {
           )
           return e.link ? <Link key={e.id} to={e.link} className="block">{row}</Link> : <div key={e.id}>{row}</div>
         })}
-      </Section>
+      </div>
 
-      {/* ── Comments ── */}
-      <Section title="Comments" count={comments.length} defaultOpen={false}>
+      <div>
+        <SectionLabel label="comments" />
         {comments.length === 0 && <p className="text-xs text-zinc-500">No comments yet.</p>}
         {comments.map(c => (
           <ActivityRow
@@ -265,9 +246,8 @@ export function TicketDetailPage() {
             body={c.body}
           />
         ))}
-      </Section>
+      </div>
 
-      {/* ── Cancel ── */}
       {!editing && ticket.status !== 'finished' && ticket.status !== 'cancelled' && (
         <div className="pt-2 border-t border-zinc-200 dark:border-zinc-800/60">
           <ActionButton label="cancel ticket" variant="destructive" onClick={handleCancel} className="w-full" />
