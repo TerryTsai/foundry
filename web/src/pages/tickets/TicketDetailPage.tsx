@@ -1,17 +1,17 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { useNavigate, useLoaderData, useRevalidator } from 'react-router-dom'
-import { User, Bot, Info, Check, X } from 'lucide-react'
+import { useNavigate, useLoaderData, useRevalidator, Link } from 'react-router-dom'
+import { User, Bot, Info, Check, X, Clock, Zap } from 'lucide-react'
 import { ticketApi, commentApi, bustCache } from '../../api.js'
 import { ActivityRow } from '../../components/detail/ActivityRow.js'
-import { SectionLabel } from '../../components/detail/SectionLabel.js'
 import { DetailShell } from '../../components/layout/DetailShell.js'
-import type { Ticket, Agent, Comment, UsageRollup, Tag, Verdict } from '../../types.js'
+import type { Ticket, Agent, Comment, UsageRollup, Tag, Verdict, Session, Event } from '../../types.js'
 import { useShell } from '../../Shell.js'
 import { Field } from '../../components/form/Field.js'
 import { TextArea } from '../../components/form/TextArea.js'
 import { ActionButton } from '../../components/form/ActionButton.js'
 import { useBreadcrumbLabel } from '../../Breadcrumb.js'
-import { fmtDuration, fmtBytes, fmtActor } from '../../lib/format.js'
+import { fmtDuration, fmtActor } from '../../lib/format.js'
+import { marked } from 'marked'
 
 // ── Tag Section ──
 
@@ -22,10 +22,7 @@ function TagSection({ ticketId, initialTags }: { ticketId: string; initialTags: 
   const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => { setTags(initialTags) }, [initialTags])
-
-  useEffect(() => {
-    if (adding) inputRef.current?.focus()
-  }, [adding])
+  useEffect(() => { if (adding) inputRef.current?.focus() }, [adding])
 
   async function refreshTags() {
     bustCache()
@@ -54,123 +51,64 @@ function TagSection({ ticketId, initialTags }: { ticketId: string; initialTags: 
   return (
     <div className="flex flex-wrap items-center gap-1.5">
       {tags.map(t => (
-        <span
-          key={t.id}
-          className="inline-flex items-center gap-1 font-mono px-1.5 py-px rounded-sm border border-zinc-300 dark:border-zinc-700 text-xs text-zinc-600 dark:text-zinc-400"
-        >
+        <span key={t.id} className="inline-flex items-center gap-1 font-mono px-1.5 py-px rounded-sm border border-zinc-300 dark:border-zinc-700 text-xs text-zinc-600 dark:text-zinc-400">
           {t.tag}
-          <button
-            onClick={() => void handleRemove(t.tag)}
-            className="leading-none text-zinc-400 dark:text-zinc-600 hover:text-zinc-600 dark:hover:text-zinc-400 transition-colors"
-            aria-label={`Remove tag ${t.tag}`}
-          >
-            ×
-          </button>
+          <button onClick={() => void handleRemove(t.tag)} className="leading-none text-zinc-400 dark:text-zinc-600 hover:text-zinc-600 dark:hover:text-zinc-400 transition-colors" aria-label={`Remove tag ${t.tag}`}>×</button>
         </span>
       ))}
       {adding ? (
-        <input
-          ref={inputRef}
-          value={value}
-          onChange={e => setValue(e.target.value)}
-          onKeyDown={handleKeyDown}
-          onBlur={() => void commitAdd()}
-          placeholder="tag name"
-          className="text-xs bg-transparent border-b border-zinc-500 dark:border-zinc-600 focus:border-zinc-700 dark:focus:border-zinc-400 outline-none px-1 w-20 text-zinc-700 dark:text-zinc-300 placeholder:text-zinc-400 dark:placeholder:text-zinc-600 transition-colors"
-        />
+        <input ref={inputRef} value={value} onChange={e => setValue(e.target.value)} onKeyDown={handleKeyDown} onBlur={() => void commitAdd()} placeholder="tag name"
+          className="text-xs bg-transparent border-b border-zinc-500 dark:border-zinc-600 focus:border-zinc-700 dark:focus:border-zinc-400 outline-none px-1 w-20 text-zinc-700 dark:text-zinc-300 placeholder:text-zinc-400 dark:placeholder:text-zinc-600 transition-colors" />
       ) : (
-        <button
-          onClick={() => setAdding(true)}
-          className="text-xs text-zinc-400 dark:text-zinc-600 hover:text-zinc-600 dark:hover:text-zinc-400 transition-colors leading-none"
-        >
-          + tag
-        </button>
+        <button onClick={() => setAdding(true)} className="text-xs text-zinc-400 dark:text-zinc-600 hover:text-zinc-600 dark:hover:text-zinc-400 transition-colors leading-none">+ tag</button>
       )}
     </div>
   )
 }
 
-// ── Comments Section ──
+// ── Tab bar ──
 
-function CommentsSection({ projectId, ticketId, comments, onRefresh }: { projectId: string; ticketId: string; comments: Comment[]; onRefresh: () => Promise<void> }) {
-  const ts = (s: string) => new Date(s).toLocaleString(undefined, {
-    month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
-  })
+const TABS = ['Description', 'Sessions', 'Verdicts', 'Comments', 'Chain', 'Events'] as const
+type Tab = typeof TABS[number]
 
+function TabBar({ active, onChange, counts }: { active: Tab; onChange: (t: Tab) => void; counts: Record<Tab, number> }) {
   return (
-    <div>
-      <SectionLabel label={`comments (${comments.length})`} onRefresh={onRefresh} />
-      <div>
-        {comments.map(c => {
-          const firstLine = c.body.split('\n')[0].slice(0, 80)
-          return (
-            <ActivityRow
-              key={c.id}
-              icon={c.author === 'founder' ? <User size={14} /> : c.author === 'system' ? <Info size={14} /> : <Bot size={14} />}
-              label={firstLine}
-              sub={c.session_id ? { to: `/p/${projectId}/tickets/${ticketId}/sessions/${c.session_id}`, label: 'session' } : undefined}
-              status={c.author}
-              meta={ts(c.created_at)}
-              body={c.body}
-            />
-          )
-        })}
-      </div>
+    <div className="flex border-b border-zinc-200 dark:border-zinc-800/60 overflow-x-auto no-scrollbar -mx-4 px-4">
+      {TABS.map(t => (
+        <button
+          key={t}
+          onClick={() => onChange(t)}
+          className={`shrink-0 px-3 py-2 text-xs transition-colors border-b-2 ${
+            active === t
+              ? 'border-zinc-700 dark:border-zinc-300 text-zinc-900 dark:text-zinc-100'
+              : 'border-transparent text-zinc-500 dark:text-zinc-500 active:text-zinc-700 dark:active:text-zinc-300'
+          }`}
+        >
+          {t}{counts[t] > 0 ? ` (${counts[t]})` : ''}
+        </button>
+      ))}
     </div>
   )
 }
 
-// ── Verdicts Section ──
-
-function VerdictsSection({ verdicts, agents }: { verdicts: Verdict[]; agents: Agent[] }) {
-  if (verdicts.length === 0) return null
-  const ts = (s: string) => new Date(s).toLocaleString(undefined, {
-    month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
-  })
-  const agentName = (id: string) => agents.find(a => a.id === id)?.name ?? id
-  const passCount = verdicts.filter(v => v.pass).length
-  return (
-    <div>
-      <SectionLabel label={`verdicts (${passCount}/${verdicts.length} pass)`} />
-      <div>
-        {verdicts.map(v => (
-          <ActivityRow
-            key={v.id}
-            icon={v.pass
-              ? <Check size={14} className="text-emerald-500" />
-              : <X size={14} className="text-red-500" />}
-            label={agentName(v.agent_id)}
-            status={v.pass ? 'finished' : 'failed'}
-            meta={ts(v.created_at)}
-            body={v.reason}
-          />
-        ))}
-      </div>
-    </div>
-  )
-}
-
-// ── Loader data shape ──
+// ── Loader ──
 
 interface TicketLoaderData {
-  ticket: Ticket
-  agents: Agent[]
-  comments: Comment[]
-  usage: UsageRollup
-  tags: Tag[]
-  verdicts: Verdict[]
+  ticket: Ticket; agents: Agent[]; comments: Comment[]; usage: UsageRollup
+  tags: Tag[]; verdicts: Verdict[]; sessions: Session[]; chain: Ticket[]; events: Event[]
 }
 
-// ── Ticket Detail Page ──
+// ── Page ──
 
 export function TicketDetailPage() {
   const { projectId } = useShell()
-  const { ticket, agents, comments: initialComments, usage, tags: initialTags, verdicts } = useLoaderData() as TicketLoaderData
+  const { ticket, agents, comments: initialComments, usage, tags: initialTags, verdicts, sessions, chain, events } = useLoaderData() as TicketLoaderData
   const { revalidate } = useRevalidator()
   const navigate = useNavigate()
   const [editing, setEditing] = useState(false)
   const [description, setDescription] = useState(ticket.description)
   const [comments, setComments] = useState(initialComments)
+  const [tab, setTab] = useState<Tab>('Description')
 
   useBreadcrumbLabel(ticket.title)
 
@@ -179,11 +117,6 @@ export function TicketDetailPage() {
 
   const handleAddComment = useCallback(async (text: string) => {
     await commentApi.create(ticket.id, { author: 'founder', body: text })
-    setComments(await commentApi.list(ticket.id))
-  }, [ticket.id])
-
-  const refreshComments = useCallback(async () => {
-    bustCache()
     setComments(await commentApi.list(ticket.id))
   }, [ticket.id])
 
@@ -201,20 +134,24 @@ export function TicketDetailPage() {
     navigate(`/p/${projectId}/tickets`)
   }
 
-  const ts = (s: string) => new Date(s).toLocaleString(undefined, {
-    month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
-  })
+  const ts = (s: string) => new Date(s).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+  const agentNameById = (id: string) => agents.find(a => a.id === id)?.name ?? id
+
+  const counts: Record<Tab, number> = {
+    Description: 0,
+    Sessions: sessions.length,
+    Verdicts: verdicts.length,
+    Comments: comments.length,
+    Chain: chain.length > 1 ? chain.length : 0,
+    Events: events.length,
+  }
 
   return (
     <DetailShell
       type="ticket" id={ticket.id} title={ticket.title}
       status={ticket.status}
-      subtitle={!editing ? ticket.description : undefined}
       actions={!editing && ticket.status === 'created' && verdicts.length === 0 ? (
-        <button onClick={() => setEditing(true)}
-          className="text-xs text-zinc-400 dark:text-zinc-500 active:text-zinc-900 dark:active:text-zinc-100 shrink-0">
-          edit
-        </button>
+        <button onClick={() => setEditing(true)} className="text-xs text-zinc-400 dark:text-zinc-500 active:text-zinc-900 dark:active:text-zinc-100 shrink-0">edit</button>
       ) : undefined}
       infoRows={[
         { label: 'agent',    value: agentName },
@@ -223,38 +160,125 @@ export function TicketDetailPage() {
         { label: 'priority', value: ticket.priority > 0 ? String(ticket.priority) : null },
         { label: 'updated',  value: ticket.updated_at !== ticket.created_at ? ts(ticket.updated_at) : null },
         { label: 'sessions',   value: usage.session_count > 0 ? String(usage.session_count) : null },
-        { label: 'tokens in',  value: usage.tokens_in  > 0 ? usage.tokens_in.toLocaleString()  : null },
-        { label: 'tokens out', value: usage.tokens_out > 0 ? usage.tokens_out.toLocaleString() : null },
-        { label: 'tool calls', value: usage.tool_calls > 0 ? String(usage.tool_calls)          : null },
-        { label: 'cpu',      value: usage.cpu_ms > 0 ? fmtDuration(usage.cpu_ms) : null },
-        { label: 'memory',   value: usage.peak_memory_mb !== null ? `${usage.peak_memory_mb.toFixed(0)} MB peak` : null },
-        { label: 'network',  value: usage.net_bytes > 0 ? fmtBytes(usage.net_bytes) : null },
-        { label: 'duration', value: usage.duration_ms > 0 ? fmtDuration(usage.duration_ms) : null },
+        { label: 'tools',      value: usage.tool_calls > 0 ? String(usage.tool_calls) : null },
+        { label: 'duration',   value: usage.duration_ms > 0 ? fmtDuration(usage.duration_ms) : null },
       ]}
-      composer={{ placeholder: 'Comment', onSubmit: handleAddComment }}
+      composer={tab === 'Comments' ? { placeholder: 'Comment', onSubmit: handleAddComment } : undefined}
     >
-      {editing && (
+      <TabBar active={tab} onChange={setTab} counts={counts} />
+
+      {/* ── Description ── */}
+      {tab === 'Description' && (
         <div className="space-y-4">
-          <Field label="description">
-            <TextArea label="description" value={description} onChange={e => setDescription(e.target.value)} rows={6} />
-          </Field>
-          <div className="flex gap-2">
-            <ActionButton label="cancel" variant="secondary" onClick={() => setEditing(false)} className="flex-1" />
-            <ActionButton label="save" onClick={handleSave} className="flex-1" />
-          </div>
+          {editing ? (
+            <>
+              <Field label="description">
+                <TextArea label="description" value={description} onChange={e => setDescription(e.target.value)} rows={6} />
+              </Field>
+              <div className="flex gap-2">
+                <ActionButton label="cancel" variant="secondary" onClick={() => setEditing(false)} className="flex-1" />
+                <ActionButton label="save" onClick={handleSave} className="flex-1" />
+              </div>
+            </>
+          ) : (
+            <div className="prose-zinc text-sm text-zinc-700 dark:text-zinc-400 max-w-full overflow-x-auto"
+              dangerouslySetInnerHTML={{ __html: marked.parse(ticket.description) as string }} />
+          )}
+          <TagSection ticketId={ticket.id} initialTags={initialTags} />
+          {!editing && ticket.status !== 'finished' && ticket.status !== 'cancelled' && (
+            <ActionButton label="cancel ticket" variant="destructive" onClick={handleCancel} className="w-full" />
+          )}
         </div>
       )}
 
-      <TagSection ticketId={ticket.id} initialTags={initialTags} />
+      {/* ── Sessions ── */}
+      {tab === 'Sessions' && (
+        <div>
+          {sessions.length === 0 && <p className="text-xs text-zinc-500 py-4">No sessions yet.</p>}
+          {sessions.map((s: any) => (
+            <Link key={s.id} to={`/p/${projectId}/tickets/${ticket.id}/sessions/${s.id}`} className="block">
+              <ActivityRow
+                icon={<Zap size={14} />}
+                label={s.agent_name ?? agentNameById(s.agent_id)}
+                status={s.status}
+                meta={ts(s.started_at)}
+                body={[
+                  s.duration_ms ? fmtDuration(s.duration_ms) : null,
+                  s.cost_usd ? `$${s.cost_usd.toFixed(4)}` : null,
+                  s.tool_calls ? `${s.tool_calls} tools` : null,
+                ].filter(Boolean).join(' · ') || undefined}
+              />
+            </Link>
+          ))}
+        </div>
+      )}
 
-      <VerdictsSection verdicts={verdicts} agents={agents} />
+      {/* ── Verdicts ── */}
+      {tab === 'Verdicts' && (
+        <div>
+          {verdicts.length === 0 && <p className="text-xs text-zinc-500 py-4">No verdicts yet.</p>}
+          {verdicts.map(v => (
+            <ActivityRow
+              key={v.id}
+              icon={v.pass ? <Check size={14} className="text-emerald-500" /> : <X size={14} className="text-red-500" />}
+              label={agentNameById(v.agent_id)}
+              status={v.pass ? 'finished' : 'failed'}
+              meta={ts(v.created_at)}
+              body={v.reason}
+            />
+          ))}
+        </div>
+      )}
 
-      <CommentsSection projectId={projectId} ticketId={ticket.id} comments={comments} onRefresh={refreshComments} />
+      {/* ── Comments ── */}
+      {tab === 'Comments' && (
+        <div>
+          {comments.length === 0 && <p className="text-xs text-zinc-500 py-4">No comments yet.</p>}
+          {comments.map(c => (
+            <ActivityRow
+              key={c.id}
+              icon={c.author === 'founder' ? <User size={14} /> : c.author === 'system' ? <Info size={14} /> : <Bot size={14} />}
+              label={c.body.split('\n')[0].slice(0, 80)}
+              sub={c.session_id ? { to: `/p/${projectId}/tickets/${ticket.id}/sessions/${c.session_id}`, label: 'session' } : undefined}
+              status={c.author}
+              meta={ts(c.created_at)}
+              body={c.body}
+            />
+          ))}
+        </div>
+      )}
 
+      {/* ── Chain ── */}
+      {tab === 'Chain' && (
+        <div>
+          {chain.length <= 1 && <p className="text-xs text-zinc-500 py-4">No dependencies.</p>}
+          {chain.map((t, i) => (
+            <Link key={t.id} to={`/p/${projectId}/tickets/${t.id}`} className="block">
+              <ActivityRow
+                icon={<span className="text-[10px] font-mono text-zinc-500">{i + 1}</span>}
+                label={t.title}
+                status={t.status}
+                meta={t.id === ticket.id ? 'current' : undefined}
+              />
+            </Link>
+          ))}
+        </div>
+      )}
 
-      {!editing && ticket.status !== 'finished' && ticket.status !== 'cancelled' && (
-        <div className="pt-2">
-          <ActionButton label="cancel ticket" variant="destructive" onClick={handleCancel} className="w-full" />
+      {/* ── Events ── */}
+      {tab === 'Events' && (
+        <div>
+          {events.length === 0 && <p className="text-xs text-zinc-500 py-4">No events.</p>}
+          {events.map(e => (
+            <ActivityRow
+              key={e.id}
+              icon={<Clock size={14} className="text-zinc-500" />}
+              label={e.kind}
+              status={e.caused_by}
+              meta={ts(e.created_at)}
+              body={e.data !== '{}' ? e.data : undefined}
+            />
+          ))}
         </div>
       )}
     </DetailShell>

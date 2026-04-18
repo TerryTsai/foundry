@@ -116,6 +116,8 @@ export const ticketApi = {
   addTag: (ticketId: string, tag: string) => post<Tag>(`/ticket/${ticketId}/tag`, { tag }),
   removeTag: (ticketId: string, tag: string) => del<void>(`/ticket/${ticketId}/tag/${encodeURIComponent(tag)}`),
   verdicts: (ticketId: string) => get<Verdict[]>(`/ticket/${ticketId}/verdict`),
+  sessions: (ticketId: string) => get<Session[]>(`/ticket/${ticketId}/session`),
+  events: (ticketId: string) => get<import('./types.js').Event[]>(`/ticket/${ticketId}/event`),
 }
 
 // Comments

@@ -14,6 +14,7 @@ import { agentMcpList, agentList, agentGet, agentCreate, agentUpdate, agentRemov
 import { sessionGet, sessionStatus, sessionKill, sessionActivities, sessionByTicket, sessionListAll } from './domain/sessions.js'
 import { executionList, executionGet, executionBySession, executionCreate, executionKill, executionStream } from './domain/executions.js'
 import { ticketUsage, agentUsage, sessionUsage } from './domain/usage.js'
+import * as database from './database.js'
 import * as validate from './validate.js'
 import { unauthorized } from './errors.js'
 import { parse, run, send, parseCookie, serializeCookie, requireAuth } from './middleware.js'
@@ -150,6 +151,7 @@ export function ticketRoutes(db: Db) {
   r.get   ('/:id/comment',                                      run(req => commentList(db, req.params.id)),                      send())
   r.post  ('/:id/comment', parse(validate.commentCreate),       run(req => commentCreate(db, req.params.id, req.data)),          send(201))
   r.get   ('/:id/session',                                      run(req => sessionByTicket(db, req.params.id)),                  send())
+  r.get   ('/:id/event',                                        run(req => database.eventByEntity(db, 'ticket', req.params.id)), send())
   r.get   ('/:id/usage',                                        run(req => ticketUsage(db, req.params.id)),                      send())
   r.get   ('/:id/tag',                                          run(req => tagList(db, req.params.id)),                           send())
   r.post  ('/:id/tag',              parse(validate.tagCreate),  run(req => tagAdd(db, req.params.id, req.data.tag)),              send(201))

@@ -257,6 +257,17 @@ export interface Execution {
   ended_at: string | null
 }
 
+export interface Event {
+  id: string
+  entity_type: string
+  entity_id: string
+  kind: string
+  data: string
+  caused_by: string
+  caused_by_id: string | null
+  created_at: string
+}
+
 // One row per content block (text / thinking / tool_use / reconcile /
 // prompt). Grouped by turn_id when rendering to reconstruct a model
 // turn. Kinds:
