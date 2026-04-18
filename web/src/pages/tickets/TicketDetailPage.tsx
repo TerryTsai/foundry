@@ -170,7 +170,7 @@ export function TicketDetailPage() {
       </div>
 
       {/* ── Sessions ── */}
-      <Section title="Sessions" count={sessions.length} defaultOpen={sessions.length > 0}>
+      <Section title="Sessions" count={sessions.length} defaultOpen={false}>
         {sessions.length === 0 && <p className="text-xs text-zinc-500">No sessions yet.</p>}
         {sessions.map((s: any) => (
           <Link key={s.id} to={`/p/${projectId}/tickets/${ticket.id}/sessions/${s.id}`} className="block">
@@ -186,7 +186,7 @@ export function TicketDetailPage() {
       </Section>
 
       {/* ── Verdicts ── */}
-      <Section title="Verdicts" count={verdicts.length} defaultOpen={verdicts.length > 0}>
+      <Section title="Verdicts" count={verdicts.length} defaultOpen={false}>
         {verdicts.length === 0 && <p className="text-xs text-zinc-500">No verdicts yet.</p>}
         {verdicts.map(v => (
           <ActivityRow
@@ -201,7 +201,7 @@ export function TicketDetailPage() {
       </Section>
 
       {/* ── Comments ── */}
-      <Section title="Comments" count={comments.length} defaultOpen={comments.length > 0}>
+      <Section title="Comments" count={comments.length} defaultOpen={false}>
         {comments.length === 0 && <p className="text-xs text-zinc-500">No comments yet.</p>}
         {comments.map(c => (
           <ActivityRow
