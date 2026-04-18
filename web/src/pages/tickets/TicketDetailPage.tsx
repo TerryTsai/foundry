@@ -12,7 +12,6 @@ import { TextArea } from '../../components/form/TextArea.js'
 import { ActionButton } from '../../components/form/ActionButton.js'
 import { useBreadcrumbLabel } from '../../Breadcrumb.js'
 import { fmtDuration, fmtActor } from '../../lib/format.js'
-import { marked } from 'marked'
 
 // ── Tag Section ──
 
@@ -178,6 +177,7 @@ export function TicketDetailPage() {
     <DetailShell
       type="ticket" id={ticket.id} title={ticket.title}
       status={ticket.status}
+      subtitle={!editing ? ticket.description : undefined}
       actions={!editing && ticket.status === 'created' && verdicts.length === 0 ? (
         <button onClick={() => setEditing(true)} className="text-xs text-zinc-400 dark:text-zinc-500 active:text-zinc-900 dark:active:text-zinc-100 shrink-0">edit</button>
       ) : undefined}
@@ -193,25 +193,21 @@ export function TicketDetailPage() {
       ]}
       composer={{ placeholder: 'Comment', onSubmit: handleAddComment }}
     >
-      <div>
-        <SectionLabel label="description" />
+      {editing && (
         <div className="space-y-4">
-          {editing ? (
-            <>
-              <Field label="description">
-                <TextArea label="description" value={description} onChange={e => setDescription(e.target.value)} rows={6} />
-              </Field>
-              <div className="flex gap-2">
-                <ActionButton label="cancel" variant="secondary" onClick={() => setEditing(false)} className="flex-1" />
-                <ActionButton label="save" onClick={handleSave} className="flex-1" />
-              </div>
-            </>
-          ) : (
-            <div className="prose-zinc text-sm text-zinc-700 dark:text-zinc-400 max-w-full overflow-x-auto"
-              dangerouslySetInnerHTML={{ __html: marked.parse(ticket.description) as string }} />
-          )}
-          <TagSection ticketId={ticket.id} initialTags={initialTags} />
+          <Field label="description">
+            <TextArea label="description" value={description} onChange={e => setDescription(e.target.value)} rows={6} />
+          </Field>
+          <div className="flex gap-2">
+            <ActionButton label="cancel" variant="secondary" onClick={() => setEditing(false)} className="flex-1" />
+            <ActionButton label="save" onClick={handleSave} className="flex-1" />
+          </div>
         </div>
+      )}
+
+      <div>
+        <SectionLabel label="tags" />
+        <TagSection ticketId={ticket.id} initialTags={initialTags} />
       </div>
 
       <div>
