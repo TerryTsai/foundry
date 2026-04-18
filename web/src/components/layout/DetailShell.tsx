@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import { marked } from 'marked'
 import { PageShell } from './PageShell.js'
 import { DetailHeader } from '../detail/DetailHeader.js'
 import { InfoGroup } from '../detail/InfoGroup.js'
@@ -14,7 +13,7 @@ interface DetailShellProps {
   type: string
   id?: string
   title: string
-  subtitle?: string
+  subtitle?: React.ReactNode
   status?: string
   mono?: boolean
   actions?: React.ReactNode
@@ -61,16 +60,11 @@ export function DetailShell({
 
   return (
     <PageShell composer={composer}>
-      <div className="max-w-2xl mx-auto lg:px-2 py-5 space-y-4">
+      <div className="max-w-2xl mx-auto lg:px-2 py-5 space-y-3">
         {backLink}
         <DetailHeader type={type} title={title} status={status} mono={mono} actions={actions} />
         <InfoGroup rows={allRows} primaryCount={primaryCount} />
-        {subtitle && (
-          <div
-            className="prose-zinc text-sm text-zinc-700 dark:text-zinc-400 max-w-full overflow-x-auto"
-            dangerouslySetInnerHTML={{ __html: marked.parse(subtitle) as string }}
-          />
-        )}
+        {subtitle && <div>{subtitle}</div>}
         <div className="space-y-4">
           {children}
         </div>

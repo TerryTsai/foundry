@@ -12,6 +12,7 @@ import { TextArea } from '../../components/form/TextArea.js'
 import { ActionButton } from '../../components/form/ActionButton.js'
 import { useBreadcrumbLabel } from '../../Breadcrumb.js'
 import { fmtDuration, fmtActor } from '../../lib/format.js'
+import { marked } from 'marked'
 
 // ── Tag Section ──
 
@@ -177,7 +178,13 @@ export function TicketDetailPage() {
     <DetailShell
       type="ticket" id={ticket.id} title={ticket.title}
       status={ticket.status}
-      subtitle={!editing ? ticket.description : undefined}
+      subtitle={!editing ? (
+        <div className="space-y-3">
+          <div className="prose-zinc text-sm text-zinc-700 dark:text-zinc-400 max-w-full overflow-x-auto"
+            dangerouslySetInnerHTML={{ __html: marked.parse(ticket.description) as string }} />
+          <TagSection ticketId={ticket.id} initialTags={initialTags} />
+        </div>
+      ) : undefined}
       actions={!editing && ticket.status === 'created' && verdicts.length === 0 ? (
         <button onClick={() => setEditing(true)} className="text-xs text-zinc-400 dark:text-zinc-500 active:text-zinc-900 dark:active:text-zinc-100 shrink-0">edit</button>
       ) : undefined}
@@ -204,11 +211,6 @@ export function TicketDetailPage() {
           </div>
         </div>
       )}
-
-      <div>
-        <SectionLabel label="tags" />
-        <TagSection ticketId={ticket.id} initialTags={initialTags} />
-      </div>
 
       <div>
         <SectionLabel label="timeline" />
