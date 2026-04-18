@@ -150,24 +150,26 @@ export function TicketDetailPage() {
       ]}
       composer={{ placeholder: 'Comment', onSubmit: handleAddComment }}
     >
-      {/* ── Description (always open) ── */}
-      <div className="space-y-4">
-        {editing ? (
-          <>
-            <Field label="description">
-              <TextArea label="description" value={description} onChange={e => setDescription(e.target.value)} rows={6} />
-            </Field>
-            <div className="flex gap-2">
-              <ActionButton label="cancel" variant="secondary" onClick={() => setEditing(false)} className="flex-1" />
-              <ActionButton label="save" onClick={handleSave} className="flex-1" />
-            </div>
-          </>
-        ) : (
-          <div className="prose-zinc text-sm text-zinc-700 dark:text-zinc-400 max-w-full overflow-x-auto"
-            dangerouslySetInnerHTML={{ __html: marked.parse(ticket.description) as string }} />
-        )}
-        <TagSection ticketId={ticket.id} initialTags={initialTags} />
-      </div>
+      {/* ── Description ── */}
+      <Section title="Description" count={0} defaultOpen={false}>
+        <div className="space-y-4">
+          {editing ? (
+            <>
+              <Field label="description">
+                <TextArea label="description" value={description} onChange={e => setDescription(e.target.value)} rows={6} />
+              </Field>
+              <div className="flex gap-2">
+                <ActionButton label="cancel" variant="secondary" onClick={() => setEditing(false)} className="flex-1" />
+                <ActionButton label="save" onClick={handleSave} className="flex-1" />
+              </div>
+            </>
+          ) : (
+            <div className="prose-zinc text-sm text-zinc-700 dark:text-zinc-400 max-w-full overflow-x-auto"
+              dangerouslySetInnerHTML={{ __html: marked.parse(ticket.description) as string }} />
+          )}
+          <TagSection ticketId={ticket.id} initialTags={initialTags} />
+        </div>
+      </Section>
 
       {/* ── Sessions ── */}
       <Section title="Sessions" count={sessions.length} defaultOpen={false}>
