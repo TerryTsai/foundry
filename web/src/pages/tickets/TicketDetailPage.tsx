@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { useNavigate, useLoaderData, useRevalidator, Link } from 'react-router-dom'
+import { useNavigate, useLoaderData, useRevalidator } from 'react-router-dom'
 import { User, Bot, Info, Check, X, Clock, Zap } from 'lucide-react'
 import { ticketApi, commentApi, bustCache } from '../../api.js'
 import { ActivityRow } from '../../components/detail/ActivityRow.js'
@@ -12,7 +12,6 @@ import { TextArea } from '../../components/form/TextArea.js'
 import { ActionButton } from '../../components/form/ActionButton.js'
 import { useBreadcrumbLabel } from '../../Breadcrumb.js'
 import { fmtDuration, fmtActor } from '../../lib/format.js'
-import { marked } from 'marked'
 
 // ── Tag Section ──
 
@@ -78,7 +77,12 @@ interface TimelineEntry {
   status?: string
   meta?: string
   body?: string
-  link?: string
+  sub?: { to: string; label: string }
+  expandable?: boolean
+}
+
+function cap(s: string): string {
+  return s.length === 0 ? s : s.charAt(0).toUpperCase() + s.slice(1)
 }
 
 function buildTimeline(
@@ -93,10 +97,10 @@ function buildTimeline(
       time: s.started_at,
       kind: 'session',
       icon: <Zap size={14} />,
-      label: s.agent_name ?? agentNameById(s.agent_id),
+      label: cap(s.agent_name ?? agentNameById(s.agent_id)),
       status: s.status,
       body: [s.duration_ms ? fmtDuration(s.duration_ms) : null, s.cost_usd ? `$${s.cost_usd.toFixed(4)}` : null, s.tool_calls ? `${s.tool_calls} tools` : null].filter(Boolean).join(' · ') || undefined,
-      link: `/p/${projectId}/tickets/${ticketId}/sessions/${s.id}`,
+      sub: { to: `/p/${projectId}/tickets/${ticketId}/sessions/${s.id}`, label: 'session' },
     })
   }
 
@@ -106,7 +110,7 @@ function buildTimeline(
       time: v.created_at,
       kind: 'verdict',
       icon: v.pass ? <Check size={14} className="text-emerald-500" /> : <X size={14} className="text-red-500" />,
-      label: agentNameById(v.agent_id),
+      label: cap(agentNameById(v.agent_id)),
       status: v.pass ? 'pass' : 'fail',
       body: v.reason,
     })
@@ -118,9 +122,9 @@ function buildTimeline(
       time: e.created_at,
       kind: 'event',
       icon: <Clock size={14} className="text-zinc-500" />,
-      label: e.kind.replace(/_/g, ' '),
+      label: cap(e.kind.replace(/_/g, ' ')),
       status: e.caused_by,
-      body: e.data !== '{}' ? e.data : undefined,
+      expandable: false,
     })
   }
 
@@ -178,13 +182,8 @@ export function TicketDetailPage() {
     <DetailShell
       type="ticket" id={ticket.id} title={ticket.title}
       status={ticket.status}
-      subtitle={!editing ? (
-        <div className="space-y-3">
-          <div className="prose-zinc text-sm text-zinc-700 dark:text-zinc-400 max-w-full overflow-x-auto"
-            dangerouslySetInnerHTML={{ __html: marked.parse(ticket.description) as string }} />
-          <TagSection ticketId={ticket.id} initialTags={initialTags} />
-        </div>
-      ) : undefined}
+      subtitle={!editing ? ticket.description : undefined}
+      subtitleAside={!editing ? <TagSection ticketId={ticket.id} initialTags={initialTags} /> : undefined}
       actions={!editing && ticket.status === 'created' && verdicts.length === 0 ? (
         <button onClick={() => setEditing(true)} className="text-xs text-zinc-400 dark:text-zinc-500 active:text-zinc-900 dark:active:text-zinc-100 shrink-0">edit</button>
       ) : undefined}
@@ -215,19 +214,18 @@ export function TicketDetailPage() {
       <div>
         <SectionLabel label="timeline" />
         {timeline.length === 0 && <p className="text-xs text-zinc-500">No activity yet.</p>}
-        {timeline.map(e => {
-          const row = (
-            <ActivityRow
-              key={e.id}
-              icon={e.icon}
-              label={e.label}
-              status={e.status}
-              meta={ts(e.time)}
-              body={e.body}
-            />
-          )
-          return e.link ? <Link key={e.id} to={e.link} className="block">{row}</Link> : <div key={e.id}>{row}</div>
-        })}
+        {timeline.map(e => (
+          <ActivityRow
+            key={e.id}
+            icon={e.icon}
+            label={e.label}
+            status={e.status}
+            meta={ts(e.time)}
+            body={e.body}
+            sub={e.sub}
+            expandable={e.expandable}
+          />
+        ))}
       </div>
 
       <div>
@@ -238,7 +236,6 @@ export function TicketDetailPage() {
             key={c.id}
             icon={c.author === 'founder' ? <User size={14} /> : c.author === 'system' ? <Info size={14} /> : <Bot size={14} />}
             label={c.body.split('\n')[0].slice(0, 80)}
-            sub={c.session_id ? { to: `/p/${projectId}/tickets/${ticket.id}/sessions/${c.session_id}`, label: 'session' } : undefined}
             status={c.author}
             meta={ts(c.created_at)}
             body={c.body}

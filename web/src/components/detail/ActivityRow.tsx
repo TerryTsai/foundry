@@ -18,9 +18,12 @@ interface ActivityRowProps {
   /** Fully custom expanded content. When provided, replaces the default
    *  body/mono/footer layout. Use for rich block-by-block renders. */
   children?: React.ReactNode
+  /** When false, the row is static: no chevron, no toggle, no expanded
+   *  section. Use for entries whose label says everything. Defaults true. */
+  expandable?: boolean
 }
 
-export function ActivityRow({ label, icon, status, meta, sub, body, mono, footer, children }: ActivityRowProps) {
+export function ActivityRow({ label, icon, status, meta, sub, body, mono, footer, children, expandable = true }: ActivityRowProps) {
   const [expanded, setExpanded] = useState(false)
 
   const row = (
@@ -46,24 +49,30 @@ export function ActivityRow({ label, icon, status, meta, sub, body, mono, footer
           )}
         </div>
       )}
-      <ChevronRight
-        size={14}
-        strokeWidth={2}
-        className={`text-zinc-400 dark:text-zinc-700 shrink-0 -mr-1 mt-1 transition-transform ${expanded ? 'rotate-90' : ''}`}
-      />
+      {expandable && (
+        <ChevronRight
+          size={14}
+          strokeWidth={2}
+          className={`text-zinc-400 dark:text-zinc-700 shrink-0 -mr-1 mt-1 transition-transform ${expanded ? 'rotate-90' : ''}`}
+        />
+      )}
     </div>
   )
 
   return (
     <div className="border-b border-zinc-200 dark:border-zinc-800/30 last:border-b-0">
-      <button
-        onClick={() => setExpanded(e => !e)}
-        className="w-full text-left py-3 active:bg-zinc-100 dark:active:bg-zinc-900/70"
-      >
-        {row}
-      </button>
+      {expandable ? (
+        <button
+          onClick={() => setExpanded(e => !e)}
+          className="w-full text-left py-3 active:bg-zinc-100 dark:active:bg-zinc-900/70"
+        >
+          {row}
+        </button>
+      ) : (
+        <div className="py-3">{row}</div>
+      )}
 
-      {expanded && (
+      {expandable && expanded && (
         <div className="pb-3 -mt-1">
           {children ?? (body ? (
             mono ? (
