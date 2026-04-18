@@ -45,3 +45,6 @@ npm-debug.log*
 # SQLite backup snapshots
 *.db.bak*
 
+# Deploy script's last-deployed SHA (server-local state)
+.foundry-deployed-sha
+

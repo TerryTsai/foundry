@@ -7,6 +7,7 @@ set -euo pipefail
 # manages it. Only source code, node_modules, and built artifacts change.
 
 REPO_DIR="/home/terry/foundry"
+STATE_FILE="$REPO_DIR/.foundry-deployed-sha"
 LOG_PREFIX="[foundry-deploy]"
 
 cd "$REPO_DIR"
@@ -14,17 +15,18 @@ cd "$REPO_DIR"
 # Fetch latest from origin without modifying the working tree
 git fetch origin main --quiet
 
-LOCAL=$(git rev-parse HEAD)
-REMOTE=$(git rev-parse origin/main)
+# Fast-forward local main to origin if behind (no-op if already up to date,
+# e.g. the commit was made locally on this machine before pushing).
+git pull --ff-only origin main --quiet
 
-if [ "$LOCAL" = "$REMOTE" ]; then
-  exit 0  # nothing new
+HEAD_SHA=$(git rev-parse HEAD)
+DEPLOYED_SHA=$(cat "$STATE_FILE" 2>/dev/null || echo "")
+
+if [ "$HEAD_SHA" = "$DEPLOYED_SHA" ]; then
+  exit 0  # already deployed
 fi
 
-echo "$LOG_PREFIX $(date '+%Y-%m-%d %H:%M:%S') deploying $LOCAL → $REMOTE"
-
-# Pull (fast-forward only — never creates merge commits)
-git pull --ff-only origin main
+echo "$LOG_PREFIX $(date '+%Y-%m-%d %H:%M:%S') deploying ${DEPLOYED_SHA:-<none>} → $HEAD_SHA"
 
 # Rebuild service
 echo "$LOG_PREFIX building service..."
@@ -38,9 +40,9 @@ cd "$REPO_DIR/web"
 npm install --prefer-offline --no-audit --no-fund --silent
 npm run build
 
-# Rebuild sandbox image if Dockerfile changed
+# Rebuild sandbox image if Dockerfile changed since last deploy
 cd "$REPO_DIR"
-if git diff --name-only "$LOCAL" "$REMOTE" | grep -q "Dockerfile.sandbox"; then
+if [ -n "$DEPLOYED_SHA" ] && git diff --name-only "$DEPLOYED_SHA" "$HEAD_SHA" | grep -q "Dockerfile.sandbox"; then
   echo "$LOG_PREFIX rebuilding sandbox image..."
   cd "$REPO_DIR/service"
   podman build -f Dockerfile.sandbox -t foundry-sandbox . --quiet
@@ -50,4 +52,5 @@ fi
 echo "$LOG_PREFIX restarting service..."
 systemctl --user restart foundry.service
 
+echo "$HEAD_SHA" > "$STATE_FILE"
 echo "$LOG_PREFIX deployed $(git rev-parse --short HEAD)"
