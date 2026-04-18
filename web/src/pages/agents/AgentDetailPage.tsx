@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, useLoaderData } from 'react-router-dom'
-import { marked } from 'marked'
 import { agentApi } from '../../api.js'
 import type { Agent, Connection, UsageRollup, McpServerInfo, McpToolSelection } from '../../types.js'
 import { DetailShell } from '../../components/layout/DetailShell.js'
@@ -130,10 +129,7 @@ export function AgentDetailPage() {
   return (
     <DetailShell
       type="agent" id={agent.id} title={agent.name}
-      subtitle={!editing ? (
-        <div className="prose-zinc text-sm text-zinc-700 dark:text-zinc-400 max-w-full overflow-x-auto"
-          dangerouslySetInnerHTML={{ __html: marked.parse(agent.description) as string }} />
-      ) : undefined}
+      subtitle={!editing ? agent.description : undefined}
       actions={!editing ? (
         <button onClick={() => setEditing(true)}
           className="text-xs text-zinc-400 dark:text-zinc-500 active:text-zinc-900 dark:active:text-zinc-100 shrink-0">
