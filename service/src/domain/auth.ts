@@ -5,7 +5,7 @@ import { type Db } from '../database.js'
 import * as database from '../database.js'
 import type { Account } from '../tables.js'
 import type { Config } from '../config.js'
-import { badRequest } from '../errors.js'
+import { badRequest, forbidden } from '../errors.js'
 import * as validate from '../validate.js'
 import * as github from '../connections/github.js'
 
@@ -25,6 +25,14 @@ export async function authCallback(
   if (!stateCookie || stateCookie !== input.state) throw badRequest('invalid oauth state')
   const token = await github.oauthExchangeCode(config, input.code)
   const user  = await github.fetchUser(token)
+
+  // Effective allowlist = ALLOWED_GITHUB_LOGINS ∪ OWNER_GITHUB_LOGIN. Empty
+  // means no one signs in. Fail-closed so a fresh deploy with neither var
+  // set doesn't accept the whole internet.
+  const allowed = new Set<string>(config.allowedGithubLogins)
+  if (config.ownerGitHubLogin) allowed.add(config.ownerGitHubLogin)
+  if (!allowed.has(user.login)) throw forbidden('account not authorized')
+
   const account = database.accountUpsertByGithubId(db, user)
 
   const sessionId = randomBytes(32).toString('hex')

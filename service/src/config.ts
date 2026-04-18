@@ -28,6 +28,14 @@ const schema = z.object({
   gitHubAppId:              z.coerce.number().int().positive().optional(),
   gitHubAppPrivateKeyPath:  z.string().optional(),
   ownerGitHubLogin:         z.string().optional(),
+  // Allowlist of GitHub logins permitted to sign in. The effective allowlist
+  // is the union of this list and ownerGitHubLogin. If empty, no one can
+  // sign in — fail-closed by design so an unset config doesn't open
+  // registration to the whole internet.
+  allowedGithubLogins:      z.preprocess(
+    v => typeof v === 'string' ? v.split(',').map(s => s.trim()).filter(Boolean) : v,
+    z.array(z.string()).default([]),
+  ),
   // z.coerce.boolean uses Boolean(), which makes the string "false" truthy.
   // Preprocess so the env var actually behaves like a boolean.
   cookieSecure:             z.preprocess(
@@ -53,6 +61,7 @@ const parsed = schema.parse({
   gitHubAppId:             process.env.GITHUB_APP_ID,
   gitHubAppPrivateKeyPath: process.env.GITHUB_APP_PRIVATE_KEY_PATH,
   ownerGitHubLogin:        process.env.OWNER_GITHUB_LOGIN,
+  allowedGithubLogins:     process.env.ALLOWED_GITHUB_LOGINS,
   cookieSecure:            process.env.COOKIE_SECURE,
   sessionMaxAgeSec:        process.env.SESSION_MAX_AGE_SEC,
 })
