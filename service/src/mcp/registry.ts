@@ -1,12 +1,6 @@
-// MCP server registry. Two groups:
-//
-//   builtIns      — one instance per agent session (foundry/github/sandbox/browser).
-//   byConnectionKind — one instance per connection row of a matching kind
-//                      (e.g. cloudflare). Mounted as `<kind>:<connection.name>`.
-//
-// Each server module exports `info` (metadata for the agent-tool-selection
-// UI), `buildSdk(ctx, allowed?)` (Claude Agent SDK adapter), and
-// `buildAi(ctx)` (Vercel ai SDK adapter).
+// MCP server registry. Each server module exports `info` (server metadata)
+// and `tools: ToolDef[]` (SDK-agnostic tool definitions). The loop files
+// wrap tools for their respective SDK at runtime.
 
 import * as foundry     from './foundry.js'
 import * as github      from './github.js'
@@ -39,13 +33,6 @@ export const SERVER_IDS = [
 ] as const
 export type  McpServerId = typeof SERVER_IDS[number]
 
-export interface ToolDef {
-  name:        string
-  description: string
-  schema:      import('zod').ZodType
-  handler:     (ctx: any, args: any) => any
-}
-
 export type McpCategory = 'core' | 'code' | 'infra' | 'data' | 'product' | 'growth'
 
 export interface McpServerInfo {
@@ -53,6 +40,13 @@ export interface McpServerInfo {
   name:        string
   description: string
   category:    McpCategory
+}
+
+export interface ToolDef {
+  name:        string
+  description: string
+  schema:      import('zod').ZodType
+  handler:     (ctx: any, args: any) => any
 }
 
 // Agent tool selection shape. `null` means "all servers, all tools".
