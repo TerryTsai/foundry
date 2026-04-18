@@ -7,6 +7,7 @@ import type { Config } from '../config.js'
 import type { Agent as AgentDef, Ticket, Session } from '../tables.js'
 
 import { use, type SessionContext, type SessionStep } from './compose.js'
+import * as sandboxToken from '../domain/sandboxToken.js'
 
 import { withCrashSafe }            from './middleware/crash-safe.js'
 import { withSessionBookkeeping }   from './middleware/session-bookkeeping.js'
@@ -62,13 +63,24 @@ export async function runSession(
   const sessionRow = database.sessionGet(db, sessionId)
   if (!sessionRow) throw new Error(`session ${sessionId} not found`)
 
+  // Mint a per-session bearer token. Sandbox tools curl the host with this;
+  // requireAuth resolves it back to (session → ticket → project → owner).
+  // TTL covers the longest reasonable session run; revoked on completion.
+  const sandboxTok = sandboxToken.mint(db, sessionId,
+    Math.max(config.sandboxTimeout * 2, 30 * 60 * 1000))
+
   const ctx: SessionContext = {
     db, config, session: sessionRow, ticket, agent,
     systemPrompt: '', userPrompt: '', workDir: '',
+    sandboxToken: sandboxTok,
     shouldStop: () => false,
     startedAt: Date.now(),
   }
 
-  const stack = role === 'verifier' ? runVerifier : runProducer
-  await stack(ctx)
+  try {
+    const stack = role === 'verifier' ? runVerifier : runProducer
+    await stack(ctx)
+  } finally {
+    sandboxToken.revoke(db, sessionId)
+  }
 }

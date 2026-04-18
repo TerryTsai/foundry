@@ -60,8 +60,10 @@ export function agentList(db: Db, filters: z.infer<typeof validate.agentList>): 
   return database.agentAll(db, base)
 }
 
-export function agentGet(db: Db, id: string): Agent {
-  return mustExist(database.agentGet(db, id))
+export function agentGet(db: Db, accountId: string, id: string): Agent {
+  const row = mustExist(database.agentGet(db, id))
+  if (row.account_id !== accountId) throw notFound()
+  return row
 }
 
 export function agentCreate(db: Db, accountId: string, input: z.infer<typeof validate.agentCreate>): Agent {

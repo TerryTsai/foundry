@@ -24,6 +24,7 @@ export interface SessionContext {
   systemPrompt: string
   userPrompt:   string
   workDir:      string
+  sandboxToken: string   // per-session bearer; minted in runSession, revoked on terminal status
   shouldStop:   () => boolean
   result?:      LoopResult
   startedAt:    number

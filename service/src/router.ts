@@ -10,6 +10,7 @@ import {
   ticketCancel, ticketDependencyChain,
   commentList, commentCreate, tagList, tagAdd, tagRemove, verdictList,
 } from './domain/tickets.js'
+import { ticketOwned, sessionOwned } from './domain/projects.js'
 import { agentMcpList, agentList, agentGet, agentCreate, agentUpdate, agentRemove } from './domain/agents.js'
 import { sessionGet, sessionStatus, sessionKill, sessionActivities, sessionByTicket, sessionListAll } from './domain/sessions.js'
 import { executionList, executionGet, executionBySession, executionCreate, executionKill, executionStream } from './domain/executions.js'
@@ -28,13 +29,12 @@ function accountId(req: Request): string {
   return req.account.id
 }
 
-// Auth session account preferred; falls back to explicit query param for
-// internal bearer-token calls (MCP tools curling back into the service).
+// All authenticated requests now carry req.account — sandbox tokens
+// resolve to the session's owner via requireAuth, so we no longer need
+// the legacy ?accountId= query fallback. Retained as a thin alias to
+// minimize the diff in the route table; it just delegates to accountId.
 function accountIdOrQuery(req: Request): string {
-  if (req.account) return req.account.id
-  const qid = (req.data as any)?.accountId ?? req.query.accountId
-  if (typeof qid === 'string' && qid.length > 0) return qid
-  throw unauthorized()
+  return accountId(req)
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -141,21 +141,21 @@ export function connectionRoutes(db: Db) {
 
 export function ticketRoutes(db: Db) {
   const r = Router()
-  r.get   ('/',            parse(validate.ticketList, 'query'), run(req => ticketList(db, req.data)),                            send())
-  r.post  ('/',            parse(validate.ticketCreate),        run(req => ticketCreate(db, req.data)),                          send(201))
-  r.get   ('/:id',                                              run(req => ticketGet(db, req.params.id)),                        send())
-  r.put   ('/:id',         parse(validate.ticketUpdate),        run(req => ticketUpdate(db, req.params.id, req.data)),           send())
-  r.post  ('/:id/cancel',                                        run(req => ticketCancel(db, req.params.id)),                     send())
-  r.get   ('/:id/chain',                                        run(req => ticketDependencyChain(db, req.params.id)),            send())
-  r.get   ('/:id/verdict',                                      run(req => verdictList(db, req.params.id)),                      send())
-  r.get   ('/:id/comment',                                      run(req => commentList(db, req.params.id)),                      send())
-  r.post  ('/:id/comment', parse(validate.commentCreate),       run(req => commentCreate(db, req.params.id, req.data)),          send(201))
-  r.get   ('/:id/session',                                      run(req => sessionByTicket(db, req.params.id)),                  send())
-  r.get   ('/:id/event',                                        run(req => database.eventByEntity(db, 'ticket', req.params.id)), send())
-  r.get   ('/:id/usage',                                        run(req => ticketUsage(db, req.params.id)),                      send())
-  r.get   ('/:id/tag',                                          run(req => tagList(db, req.params.id)),                           send())
-  r.post  ('/:id/tag',              parse(validate.tagCreate),  run(req => tagAdd(db, req.params.id, req.data.tag)),              send(201))
-  r.delete('/:id/tag/:tag',                                     run(req => tagRemove(db, req.params.id, req.params.tag)),         send())
+  r.get   ('/',            parse(validate.ticketList, 'query'), run(req => ticketList(db, accountIdOrQuery(req), req.data)),                            send())
+  r.post  ('/',            parse(validate.ticketCreate),        run(req => ticketCreate(db, accountIdOrQuery(req), req.data)),                          send(201))
+  r.get   ('/:id',                                              run(req => ticketGet(db, accountIdOrQuery(req), req.params.id)),                        send())
+  r.put   ('/:id',         parse(validate.ticketUpdate),        run(req => ticketUpdate(db, accountIdOrQuery(req), req.params.id, req.data)),           send())
+  r.post  ('/:id/cancel',                                        run(req => ticketCancel(db, accountIdOrQuery(req), req.params.id)),                     send())
+  r.get   ('/:id/chain',                                        run(req => ticketDependencyChain(db, accountIdOrQuery(req), req.params.id)),            send())
+  r.get   ('/:id/verdict',                                      run(req => verdictList(db, accountIdOrQuery(req), req.params.id)),                      send())
+  r.get   ('/:id/comment',                                      run(req => commentList(db, accountIdOrQuery(req), req.params.id)),                      send())
+  r.post  ('/:id/comment', parse(validate.commentCreate),       run(req => commentCreate(db, accountIdOrQuery(req), req.params.id, req.data)),          send(201))
+  r.get   ('/:id/session',                                      run(req => sessionByTicket(db, accountIdOrQuery(req), req.params.id)),                  send())
+  r.get   ('/:id/event',                                        run(req => { ticketOwned(db, req.params.id, accountIdOrQuery(req)); return database.eventByEntity(db, 'ticket', req.params.id) }), send())
+  r.get   ('/:id/usage',                                        run(req => { ticketOwned(db, req.params.id, accountIdOrQuery(req)); return ticketUsage(db, req.params.id) }),                      send())
+  r.get   ('/:id/tag',                                          run(req => tagList(db, accountIdOrQuery(req), req.params.id)),                           send())
+  r.post  ('/:id/tag',              parse(validate.tagCreate),  run(req => tagAdd(db, accountIdOrQuery(req), req.params.id, req.data.tag)),              send(201))
+  r.delete('/:id/tag/:tag',                                     run(req => tagRemove(db, accountIdOrQuery(req), req.params.id, req.params.tag)),         send())
   return r
 }
 
@@ -169,34 +169,34 @@ export function agentRoutes(db: Db, config: Config) {
   r.get   ('/mcp',                                                              run(req => agentMcpList(db, accountIdOrQuery(req))),                             send())
   r.get   ('/',                         parse(validate.agentList, 'query'),     run(req => agentList(db, { accountId: accountIdOrQuery(req) })),                  send())
   r.post  ('/',                         parse(validate.agentCreate),            run(req => agentCreate(db, accountId(req), req.data)),                            send(201))
-  r.get   ('/:id',                                                              run(req => agentGet(db, req.params.id)),                                         send())
-  r.get   ('/:id/usage',                                                        run(req => agentUsage(db, req.params.id)),                                       send())
+  r.get   ('/:id',                                                              run(req => agentGet(db, accountIdOrQuery(req), req.params.id)),                                         send())
+  r.get   ('/:id/usage',                                                        run(req => { agentGet(db, accountIdOrQuery(req), req.params.id); return agentUsage(db, req.params.id) }),                                       send())
   r.put   ('/:id',                      parse(validate.agentUpdate),            run(req => agentUpdate(db, accountId(req), req.params.id, req.data)),             send())
   r.delete('/:id',                                                              run(req => agentRemove(db, accountId(req), req.params.id)),                       send())
-  r.get   ('/:id/session/:sid',                                                 run(req => sessionGet(db, req.params.sid)),                                      send())
-  r.get   ('/:id/session/:sid/status',                                          run(req => sessionStatus(db, req.params.sid)),                                   send())
-  r.delete('/:id/session/:sid',                                                 run(req => sessionKill(db, req.params.sid)),                                     send())
-  r.get   ('/:id/session/:sid/activity',                                        run(req => sessionActivities(db, req.params.sid)),                               send())
+  r.get   ('/:id/session/:sid',                                                 run(req => sessionGet(db, accountIdOrQuery(req), req.params.sid)),                                      send())
+  r.get   ('/:id/session/:sid/status',                                          run(req => sessionStatus(db, accountIdOrQuery(req), req.params.sid)),                                   send())
+  r.delete('/:id/session/:sid',                                                 run(req => sessionKill(db, accountIdOrQuery(req), req.params.sid)),                                     send())
+  r.get   ('/:id/session/:sid/activity',                                        run(req => sessionActivities(db, accountIdOrQuery(req), req.params.sid)),                               send())
   return r
 }
 
 export function sessionRoutes(db: Db) {
   const r = Router()
-  r.get('/',               run(()  => sessionListAll(db)),                       send())
-  r.get('/:id',            run(req => sessionGet(db, req.params.id)),            send())
-  r.get('/:id/activity',   run(req => sessionActivities(db, req.params.id)),     send())
-  r.get('/:id/execution',  run(req => executionBySession(db, req.params.id)),    send())
-  r.get('/:id/usage',      run(req => sessionUsage(db, req.params.id)),          send())
+  r.get('/',               run(req => sessionListAll(db, accountIdOrQuery(req))),                       send())
+  r.get('/:id',            run(req => sessionGet(db, accountIdOrQuery(req), req.params.id)),            send())
+  r.get('/:id/activity',   run(req => sessionActivities(db, accountIdOrQuery(req), req.params.id)),     send())
+  r.get('/:id/execution',  run(req => executionBySession(db, accountIdOrQuery(req), req.params.id)),    send())
+  r.get('/:id/usage',      run(req => { sessionOwned(db, req.params.id, accountIdOrQuery(req)); return sessionUsage(db, req.params.id) }),          send())
   return r
 }
 
 export function executionRoutes(db: Db, config: Config) {
   const r = Router()
-  r.get   ('/',           run(()  => executionList(db)),                                                                          send())
+  r.get   ('/',           run(req => executionList(db, accountIdOrQuery(req))),                                                                          send())
   r.post  ('/',           parse(validate.executionCreate), run(req => { const { id } = executionCreate(db, config, req.data); return { id } }), send(201))
-  r.get   ('/:id',        run(req => executionGet(db, req.params.id)),                                                            send())
-  r.delete('/:id',        run(req => executionKill(db, req.params.id)),                                                           send())
-  r.get   ('/:id/output', (req, res, next) => { try { executionStream(db, req.params.id, res) } catch (e) { next(e) } })
+  r.get   ('/:id',        run(req => executionGet(db, accountIdOrQuery(req), req.params.id)),                                                            send())
+  r.delete('/:id',        run(req => executionKill(db, accountIdOrQuery(req), req.params.id)),                                                           send())
+  r.get   ('/:id/output', (req, res, next) => { try { executionStream(db, accountIdOrQuery(req), req.params.id, res) } catch (e) { next(e) } })
   return r
 }
 

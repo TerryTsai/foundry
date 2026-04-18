@@ -6,11 +6,12 @@
 // waiting longest gets the next slot. Prevents starvation across
 // producers and verifiers.
 
+import { eq } from 'drizzle-orm'
 import { type Db } from '../database.js'
 import * as database from '../database.js'
+import * as schema from '../tables.js'
 import type { Agent as AgentDef, Ticket } from '../tables.js'
 import { now } from '../util.js'
-import { ticketList } from './tickets.js'
 import { agentList } from './agents.js'
 
 function parseVerifiers(raw: string | null): string[] {
@@ -173,14 +174,18 @@ export async function reconcilerTick(db: Db): Promise<void> {
   for (const proj of database.projectsActive(db)) {
     const allAgents = agentList(db, { accountId: proj.owner_id })
 
-    const running = ticketList(db, { projectId: proj.id, status: 'running' })
+    // Reconciler is the system runtime — bypasses the user-scoped
+    // ticketList helper and queries the table directly per project.
+    const ticketsByStatus = (status: string) =>
+      database.ticketAll(db, [eq(schema.ticket.project_id, proj.id), eq(schema.ticket.status, status)])
+    const running = ticketsByStatus('running')
     const slots = { remaining: proj.max_agents - running.length }
 
     // Gather non-terminal tickets, sort by last event time ASC (FIFO)
     const nonTerminal = [
-      ...ticketList(db, { projectId: proj.id, status: 'running' }),
-      ...ticketList(db, { projectId: proj.id, status: 'waiting' }),
-      ...ticketList(db, { projectId: proj.id, status: 'created' }),
+      ...running,
+      ...ticketsByStatus('waiting'),
+      ...ticketsByStatus('created'),
     ].sort((a, b) => lastEventTime(db, a.id).localeCompare(lastEventTime(db, b.id)))
 
     for (const ticket of nonTerminal) {

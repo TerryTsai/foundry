@@ -21,11 +21,12 @@ export interface ConnCtx {
 }
 
 import type { Connection } from '../tables.js'
+import { decryptSecret } from '../crypto/secrets.js'
 
 export function parseConn(conn: Connection): { secrets: Record<string, string>; connConfig: Record<string, unknown> } {
   let secrets:    Record<string, string>  = {}
   let connConfig: Record<string, unknown> = {}
-  try { secrets    = JSON.parse(conn.secrets) as Record<string, string>  } catch {}
+  try { secrets    = JSON.parse(decryptSecret(conn.secrets)) as Record<string, string>  } catch {}
   try { connConfig = JSON.parse(conn.config)  as Record<string, unknown> } catch {}
   return { secrets, connConfig }
 }
@@ -136,6 +137,10 @@ export interface RunCommandOptions {
    *  is a scratch that gets copied back to /work on success. */
   artifactsIn?:  { src: string; dest: string }[]
   artifactsOut?: { src: string; dest: string }[]
+  /** Files staged into /foundry-secrets (read-only). Use for credentials
+   *  the command needs to read but that shouldn't be visible in
+   *  /proc/self/environ. Map keys are filenames under /foundry-secrets. */
+  secretFiles?: Record<string, string>
   /** tool_use block id from the SDK handler's `extra._meta`. Persisted
    *  on the execution row so the UI can correlate the sandbox-domain
    *  execution back to the agent-domain tool_use block that caused it. */
@@ -163,6 +168,7 @@ export function runCommand(
     mount:   options.mount ?? 'rw',
     artifactsIn:  options.artifactsIn,
     artifactsOut: options.artifactsOut,
+    secretFiles:  options.secretFiles,
     workspace,
   })
   const stdout: string[] = []

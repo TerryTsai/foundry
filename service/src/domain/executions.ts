@@ -8,19 +8,33 @@ import type { Config } from '../config.js'
 import { mustExist, assertStatus, now } from '../util.js'
 import { spawnRun, type RunHandle } from '../runtime/sandbox/podman.js'
 import { prepareWorkspace, finishExecution } from '../runtime/sandbox/workspace.js'
+import { executionOwned, sessionOwned } from './projects.js'
+import { eq } from 'drizzle-orm'
+import * as schema from '../tables.js'
 
 const activeRuns = new Map<string, RunHandle>()
 
-export function executionList(db: Db): Execution[] {
-  return database.executionAll(db).reverse().slice(0, 200)
+export function executionList(db: Db, accountId: string): Execution[] {
+  // Restrict to executions whose session sits in a project the requester
+  // owns. Walk the join in JS — execution volume is bounded (last 200).
+  const owned = database.projectAll(db, [eq(schema.project.owner_id, accountId)]).map(p => p.id)
+  if (owned.length === 0) return []
+  const ownedSet = new Set(owned)
+  return database.executionAll(db).reverse().filter(e => {
+    if (!e.session_id) return false
+    const s = database.sessionGet(db, e.session_id)
+    if (!s) return false
+    const t = database.ticketGet(db, s.ticket_id)
+    return t ? ownedSet.has(t.project_id) : false
+  }).slice(0, 200)
 }
 
-export function executionGet(db: Db, id: string): Execution {
-  return mustExist(database.executionGet(db, id))
+export function executionGet(db: Db, accountId: string, id: string): Execution {
+  return executionOwned(db, id, accountId)
 }
 
-export function executionBySession(db: Db, sessionId: string): Execution[] {
-  mustExist(database.sessionGet(db, sessionId))
+export function executionBySession(db: Db, accountId: string, sessionId: string): Execution[] {
+  sessionOwned(db, sessionId, accountId)
   return database.executionBySession(db, sessionId)
 }
 
@@ -38,10 +52,11 @@ export function executionCreate(db: Db, config: Config, input: {
   mount?:      'rw' | 'ro' | 'none'
   artifactsIn?:  { src: string; dest: string }[]
   artifactsOut?: { src: string; dest: string }[]
+  secretFiles?: Record<string, string>
 }): { id: string; emitter: RunHandle['emitter'] } {
   const { command, session_id, tool_name, tool_input, tool_use_id,
           timeout_ms = config.sandboxTimeout, memory_mb,
-          network = false, env = {}, mount = 'rw', artifactsIn, artifactsOut } = input
+          network = false, env = {}, mount = 'rw', artifactsIn, artifactsOut, secretFiles } = input
   const row = database.executionInsert(db, {
     session_id:  session_id  ?? null,
     tool_name:   tool_name   ?? null,
@@ -52,9 +67,9 @@ export function executionCreate(db: Db, config: Config, input: {
   })
   backfillActivityExecutionId(db, row.id, tool_use_id, session_id)
 
-  const dirs = prepareWorkspace({ executionId: row.id, workspace: input.workspace, artifactsIn, artifactsOut })
+  const dirs = prepareWorkspace({ executionId: row.id, workspace: input.workspace, artifactsIn, artifactsOut, secretFiles })
   const handle = spawnRun({
-    command, workspace: dirs.workspace, statsDir: dirs.statsDir,
+    command, workspace: dirs.workspace, statsDir: dirs.statsDir, secretsDir: dirs.secretsDir,
     image: config.sandboxImage, env, network, mount,
     isolated: dirs.isolated, inputDir: dirs.inputDir, outputDir: dirs.outputDir,
     timeoutMs:  timeout_ms,
@@ -89,16 +104,17 @@ function backfillActivityExecutionId(db: Db, executionId: string, toolUseId?: st
   `)
 }
 
-export function executionKill(db: Db, id: string): { ok: true } {
-  assertStatus(mustExist(database.executionGet(db, id)), 'running', 'execution is not active')
+export function executionKill(db: Db, accountId: string, id: string): { ok: true } {
+  const row = executionOwned(db, id, accountId)
+  assertStatus(row, 'running', 'execution is not active')
   const handle = activeRuns.get(id)
   if (handle) { handle.kill(); activeRuns.delete(id) }
   database.executionUpdate(db, id, { status: 'cancelled', exit_code: -1, ended_at: now() })
   return { ok: true }
 }
 
-export function executionStream(db: Db, id: string, res: Response): void {
-  const row = mustExist(database.executionGet(db, id))
+export function executionStream(db: Db, accountId: string, id: string, res: Response): void {
+  const row = executionOwned(db, id, accountId)
   res.setHeader('Content-Type', 'text/event-stream')
   res.setHeader('Cache-Control', 'no-cache')
   res.setHeader('Connection', 'keep-alive')

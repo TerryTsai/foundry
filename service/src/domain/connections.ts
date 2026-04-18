@@ -9,6 +9,7 @@ import { mustExist, now, timestamps } from '../util.js'
 import { conflict, badRequest, notFound } from '../errors.js'
 import * as providers from '../connections/registry.js'
 import * as validate from '../validate.js'
+import { encryptSecret, decryptSecret } from '../crypto/secrets.js'
 
 // Masked shape returned by the API — secrets are never serialized directly.
 // A preview of the first password field is shown so the UI can help operators
@@ -24,7 +25,7 @@ function maskConnection(c: Connection): MaskedConnection {
   const { secrets, ...rest } = c
   let preview: string | null = null
   try {
-    const parsed = JSON.parse(secrets) as Record<string, unknown>
+    const parsed = JSON.parse(decryptSecret(secrets)) as Record<string, unknown>
     const provider = providers.providerGet(c.kind)
     const passwordKeys = provider
       ? provider.credentials.filter(f => f.type === 'password').map(f => f.key)
@@ -33,7 +34,7 @@ function maskConnection(c: Connection): MaskedConnection {
       const v = parsed[k]
       if (typeof v === 'string' && v.length > 0) { preview = maskKey(v); break }
     }
-  } catch { /* secrets not JSON — leave preview null */ }
+  } catch { /* secrets not JSON or decryption failed — leave preview null */ }
   return { ...rest, api_key_preview: preview }
 }
 
@@ -73,7 +74,7 @@ export function connectionCreate(db: Db, accountId: string, input: z.infer<typeo
     kind:       input.kind,
     name:       input.name,
     config:     JSON.stringify(config),
-    secrets:    JSON.stringify(secrets),
+    secrets:    encryptSecret(JSON.stringify(secrets)),
     ...timestamps(),
   })
   return maskConnection(row)
@@ -85,7 +86,7 @@ export function connectionUpdate(db: Db, accountId: string, id: string, input: z
   const data: Record<string, unknown> = { updated_at: now() }
   if (input.name    !== undefined) data.name    = input.name
   if (input.config  !== undefined) data.config  = JSON.stringify(input.config)
-  if (input.secrets !== undefined) data.secrets = JSON.stringify(input.secrets)
+  if (input.secrets !== undefined) data.secrets = encryptSecret(JSON.stringify(input.secrets))
   return maskConnection(database.connectionUpdate(db, id, data))
 }
 

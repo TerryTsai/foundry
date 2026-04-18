@@ -5,12 +5,17 @@ import { existsSync } from 'fs'
 import { execSync } from 'child_process'
 import { config } from './config.js'
 import { createDatabase } from './database.js'
+import { assertKeyConfigured } from './crypto/secrets.js'
 import {
   authRoutes, projectRoutes, connectionRoutes, ticketRoutes,
   agentRoutes, sessionRoutes, executionRoutes, analyticsRoutes,
 } from './router.js'
-import { errors, requireAuth } from './middleware.js'
+import { errors, rateLimit, requireAuth } from './middleware.js'
 import { reconcilerGlobalStart, reconcilerStopAll, shutdownDrain } from './domain/reconciler.js'
+
+// Fail fast if FOUNDRY_ENCRYPTION_KEY is missing or malformed — better here
+// than on the first connection write.
+assertKeyConfigured()
 
 const db  = createDatabase(config.dbPath)
 const app = express()
@@ -20,6 +25,10 @@ app.use(express.json())
 // ── Public routes (no auth) ──
 app.get('/health', (_req, res) => res.json({ ok: true }))
 app.get('/health/detail', (_req, res) => res.json({ ok: true, uptime: process.uptime(), version: '1.0.0' }))
+
+// Rate-limit the auth surface — prevents brute force on the OAuth state /
+// callback endpoints. Bucket per IP. Public so it lives ABOVE requireAuth.
+app.use('/auth', rateLimit({ windowMs: 5 * 60 * 1000, max: 30, bucket: 'auth' }))
 app.use('/auth', authRoutes(db, config))
 
 // ── Static web app (production) ──
@@ -52,6 +61,14 @@ if (existsSync(webDist)) {
 
 // ── Authenticated routes ──
 app.use(requireAuth(db, config))
+
+// Per-account write throttle. Bucket key is account id (req.account.id is
+// set by requireAuth). 600/min comfortably covers sandbox bursts; cookie
+// callers won't notice.
+app.use(rateLimit({
+  windowMs: 60 * 1000, max: 600, bucket: 'write',
+  keyFn: (req) => req.account?.id ?? req.ip ?? 'anon',
+}))
 
 app.use('/project',    projectRoutes(db))
 app.use('/connection', connectionRoutes(db))

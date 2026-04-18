@@ -17,6 +17,49 @@ export function projectGetOwned(db: Db, id: string, accountId: string): schema.P
   return row
 }
 
+// Cross-resource ownership: throws notFound (not forbidden) if the project
+// is missing or owned by a different account. Use as a guard whenever a
+// child resource (ticket, session, execution, agent) is read or mutated.
+export function assertProjectOwner(db: Db, projectId: string, accountId: string): void {
+  const row = database.projectGet(db, projectId)
+  if (!row || row.owner_id !== accountId) throw notFound()
+}
+
+// Resolves a ticket and asserts the requester owns its project. Returns
+// the ticket so callers don't double-fetch.
+export function ticketOwned(db: Db, ticketId: string, accountId: string): schema.Ticket {
+  const t = database.ticketGet(db, ticketId)
+  if (!t) throw notFound()
+  assertProjectOwner(db, t.project_id, accountId)
+  return t
+}
+
+// Same for sessions: walks session → ticket → project.
+export function sessionOwned(db: Db, sessionId: string, accountId: string): schema.Session {
+  const s = database.sessionGet(db, sessionId)
+  if (!s) throw notFound()
+  const t = database.ticketGet(db, s.ticket_id)
+  if (!t) throw notFound()
+  assertProjectOwner(db, t.project_id, accountId)
+  return s
+}
+
+// Same for executions: walks execution → session → ticket → project.
+// Executions without a session_id (rare, only ad-hoc executionCreate) are
+// treated as account-scoped and rejected for any non-owner.
+export function executionOwned(db: Db, executionId: string, accountId: string): schema.Execution {
+  const e = database.executionGet(db, executionId)
+  if (!e) throw notFound()
+  if (e.session_id) {
+    const s = database.sessionGet(db, e.session_id)
+    if (!s) throw notFound()
+    const t = database.ticketGet(db, s.ticket_id)
+    if (!t) throw notFound()
+    assertProjectOwner(db, t.project_id, accountId)
+  }
+  return e
+}
+
 export function projectList(db: Db, accountId: string, filters: z.infer<typeof validate.projectList>): schema.Project[] {
   const conditions = [eq(schema.project.owner_id, accountId)]
   if (filters.status) conditions.push(eq(schema.project.status, filters.status))

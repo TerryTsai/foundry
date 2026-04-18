@@ -26,6 +26,7 @@ export interface FoundryCtx {
   accountId:  string   // owner of the project — used for agent/connection lookups
   ticketId:   string   // parent ticket — used as parent_id when agent creates sub-tickets
   agentName:  string   // used as author of comments and created_by for new tickets
+  sandboxToken: string // per-session bearer token; resolves to this session's account on the host side
   toolUseId?: string   // per-call: BetaMessage tool_use block id. Set by the sdkTool wrapper from extra._meta["claudecode/toolUseId"]; passed to runCommand so every resulting execution row carries its correlation back to the agent-domain message.
 }
 
@@ -88,13 +89,23 @@ const thinkArgs        = z.object({
 // session cookie. mount='none' because foundry tools don't need workspace
 // state; network=true because they need to reach the host.
 
+// Bearer-token requests have no session cookie, so handlers fall back to
+// `?accountId=` to resolve identity. Inject the calling sandbox's owning
+// account on every internal call so the protected route handlers can
+// enforce ownership. (Phase 5 replaces this with a per-session token.)
+function withAccount(ctx: FoundryCtx, path: string): string {
+  const sep = path.includes('?') ? '&' : '?'
+  return `${path}${sep}accountId=${encodeURIComponent(ctx.accountId)}`
+}
+
 async function apiGet(ctx: FoundryCtx, toolName: string, toolInput: unknown, path: string) {
-  const command = `curl -sf -H "Authorization: Bearer $INTERNAL_TOKEN" "http://host.containers.internal:${ctx.config.port}${path}"`
+  const url = withAccount(ctx, path)
+  const command = `curl -sf -H "Authorization: Bearer $(cat /foundry-secrets/token)" "http://host.containers.internal:${ctx.config.port}${url}"`
   const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace,
     command, toolName, toolInput, {
       network: true,
       mount:   'none',
-      env:     { INTERNAL_TOKEN: ctx.config.internalApiToken },
+      secretFiles: { token: ctx.sandboxToken },
       toolUseId: ctx.toolUseId,
     })
   if (r.exitCode !== 0) return { error: r.stderr || r.stdout || `API call failed (exit ${r.exitCode})` }
@@ -102,12 +113,13 @@ async function apiGet(ctx: FoundryCtx, toolName: string, toolInput: unknown, pat
 }
 
 async function apiPost(ctx: FoundryCtx, toolName: string, toolInput: unknown, path: string, body: string) {
-  const command = `curl -sf -X POST -H "Authorization: Bearer $INTERNAL_TOKEN" -H "Content-Type: application/json" -d ${esc(body)} "http://host.containers.internal:${ctx.config.port}${path}"`
+  const url = withAccount(ctx, path)
+  const command = `curl -sf -X POST -H "Authorization: Bearer $(cat /foundry-secrets/token)" -H "Content-Type: application/json" -d ${esc(body)} "http://host.containers.internal:${ctx.config.port}${url}"`
   const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace,
     command, toolName, toolInput, {
       network: true,
       mount:   'none',
-      env:     { INTERNAL_TOKEN: ctx.config.internalApiToken },
+      secretFiles: { token: ctx.sandboxToken },
       toolUseId: ctx.toolUseId,
     })
   if (r.exitCode !== 0) return { error: r.stderr || r.stdout || `API call failed (exit ${r.exitCode})` }
@@ -115,12 +127,13 @@ async function apiPost(ctx: FoundryCtx, toolName: string, toolInput: unknown, pa
 }
 
 async function apiDelete(ctx: FoundryCtx, toolName: string, toolInput: unknown, path: string) {
-  const command = `curl -sf -X DELETE -H "Authorization: Bearer $INTERNAL_TOKEN" "http://host.containers.internal:${ctx.config.port}${path}"`
+  const url = withAccount(ctx, path)
+  const command = `curl -sf -X DELETE -H "Authorization: Bearer $(cat /foundry-secrets/token)" "http://host.containers.internal:${ctx.config.port}${url}"`
   const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace,
     command, toolName, toolInput, {
       network: true,
       mount:   'none',
-      env:     { INTERNAL_TOKEN: ctx.config.internalApiToken },
+      secretFiles: { token: ctx.sandboxToken },
       toolUseId: ctx.toolUseId,
     })
   if (r.exitCode !== 0) return { error: r.stderr || r.stdout || `API call failed (exit ${r.exitCode})` }
@@ -198,7 +211,7 @@ async function handleTicketTagRemove(ctx: FoundryCtx, args: z.infer<typeof ticke
 }
 
 async function handleAgentsList(ctx: FoundryCtx, _args: z.infer<typeof agentsListArgs>) {
-  return apiGet(ctx, 'agentsList', _args, `/agent?accountId=${ctx.accountId}`)
+  return apiGet(ctx, 'agentsList', _args, `/agent`)
 }
 
 async function handleSessionList(ctx: FoundryCtx, args: z.infer<typeof sessionListArgs>) {
@@ -207,7 +220,7 @@ async function handleSessionList(ctx: FoundryCtx, args: z.infer<typeof sessionLi
 }
 
 async function handleConnectionList(ctx: FoundryCtx, _args: z.infer<typeof connectionListArgs>) {
-  return apiGet(ctx, 'connectionList', _args, `/connection?accountId=${ctx.accountId}`)
+  return apiGet(ctx, 'connectionList', _args, `/connection`)
 }
 
 async function handleThink(ctx: FoundryCtx, args: z.infer<typeof thinkArgs>) {

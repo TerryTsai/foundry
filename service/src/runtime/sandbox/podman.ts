@@ -13,6 +13,10 @@ export interface RunOptions {
   command:    string
   workspace:  string
   statsDir:   string       // host-side tmpdir for stats file — mounted into the container
+  /** Host-side dir staged with secret files (e.g. per-session sandbox
+   *  token). Mounted read-only at /foundry-secrets in the container so
+   *  the values don't appear in /proc/self/environ. */
+  secretsDir: string | null
   image:      string
   env:        Record<string, string>
   network:    boolean
@@ -77,7 +81,7 @@ function wrapCommand(command: string): string {
 }
 
 function podmanArgs(opts: RunOptions): string[] {
-  const { workspace, statsDir, image, env, network, mount, isolated, inputDir, outputDir, memoryMb, cpus, pidsLimit, nofileSoft, nofileHard, tmpfsMb, command } = opts
+  const { workspace, statsDir, secretsDir, image, env, network, mount, isolated, inputDir, outputDir, memoryMb, cpus, pidsLimit, nofileSoft, nofileHard, tmpfsMb, command } = opts
   const envArgs = Object.entries(env).flatMap(([k, v]) => ['-e', `${k}=${v}`])
   // Isolated mode: /work is NOT mounted. /input (ro) and /output (rw)
   // expose the artifact allowlist. cwd defaults to /tmp (writable tmpfs)
@@ -100,6 +104,7 @@ function podmanArgs(opts: RunOptions): string[] {
     '--cap-drop', 'ALL', '--read-only',
     '--tmpfs', `/tmp:rw,size=${tmpfsMb}m`, '--tmpfs', `/run:rw,size=8m`,
     '-v', `${statsDir}:/foundry-stats`,   // stats file written here, read by host after exit
+    ...(secretsDir ? ['-v', `${secretsDir}:/foundry-secrets:ro`] : []),
     ...workspaceArgs,
     ...envArgs,
     image, 'sh', '-c', wrapCommand(command),

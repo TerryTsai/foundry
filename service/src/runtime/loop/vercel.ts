@@ -45,7 +45,7 @@ function buildTools(ctx: SessionContext): ToolSet {
   const agentDef   = ctx.agent
   const ticketData = ctx.ticket
   const result: ToolSet = {
-    ...toAiTools(foundryServer.tools, { db, config, sessionId, workspace: workDir, projectId: ticketData.project_id, accountId: agentDef.account_id, ticketId: ticketData.id, agentName: agentDef.name }),
+    ...toAiTools(foundryServer.tools, { db, config, sessionId, workspace: workDir, projectId: ticketData.project_id, accountId: agentDef.account_id, ticketId: ticketData.id, agentName: agentDef.name, sandboxToken: ctx.sandboxToken }),
     ...toAiTools(githubServer.tools,  { db, config, sessionId, workspace: workDir, ticket: ticketData, agentName: agentDef.name }),
     ...toAiTools(sandboxServer.tools, { db, config, sessionId, workspace: workDir }),
     ...toAiTools(browserServer.tools, { db, config, sessionId, workspace: workDir }),

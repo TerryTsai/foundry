@@ -5,32 +5,55 @@ import * as database from '../database.js'
 import * as schema from '../tables.js'
 import type { Ticket, Tag, Comment, Verdict } from '../tables.js'
 import { mustExist, pick, now, timestamps } from '../util.js'
-import { conflict } from '../errors.js'
+import { conflict, notFound } from '../errors.js'
 import * as validate from '../validate.js'
-import { eq } from 'drizzle-orm'
+import { eq, and, inArray } from 'drizzle-orm'
+import { assertProjectOwner, ticketOwned } from './projects.js'
 
 export interface DependencyChainEntry {
   id: string; title: string; description: string
   agent_id: string | null; status: string
 }
 
-export function ticketList(db: Db, filters: z.infer<typeof validate.ticketList>): Ticket[] {
+// All ticket queries are scoped to projects the requester owns. The
+// underlying database.ticketAll path filters by raw conditions, so we
+// pre-resolve the requester's owned project ids and add an inArray
+// constraint.
+function ownedProjectIds(db: Db, accountId: string): string[] {
+  return database.projectAll(db, [eq(schema.project.owner_id, accountId)]).map(p => p.id)
+}
+
+export function ticketList(db: Db, accountId: string, filters: z.infer<typeof validate.ticketList>): Ticket[] {
+  const owned = ownedProjectIds(db, accountId)
+  if (owned.length === 0) return []
+  // If the caller scoped by projectId, verify they own it; otherwise
+  // restrict to owned projects.
+  if (filters.projectId && !owned.includes(filters.projectId)) return []
+  const projectScope = filters.projectId
+    ? eq(schema.ticket.project_id, filters.projectId)
+    : inArray(schema.ticket.project_id, owned)
   const conditions = [
-    filters.projectId ? eq(schema.ticket.project_id, filters.projectId) : null,
-    filters.agentId   ? eq(schema.ticket.agent_id,   filters.agentId)   : null,
-    filters.status    ? eq(schema.ticket.status,     filters.status)    : null,
+    projectScope,
+    filters.agentId ? eq(schema.ticket.agent_id, filters.agentId) : null,
+    filters.status  ? eq(schema.ticket.status,   filters.status)  : null,
   ].filter(Boolean) as any[]
   if (filters.tag) return database.ticketsByTag(db, filters.tag, conditions)
   return database.ticketAll(db, conditions)
 }
 
-export function ticketGet(db: Db, id: string): Ticket {
-  return mustExist(database.ticketGet(db, id))
+export function ticketGet(db: Db, accountId: string, id: string): Ticket {
+  return ticketOwned(db, id, accountId)
 }
 
-export function ticketCreate(db: Db, input: z.infer<typeof validate.ticketCreate>): Ticket {
+export function ticketCreate(db: Db, accountId: string, input: z.infer<typeof validate.ticketCreate>): Ticket {
   const { project_id, agent_id, title, description, priority, depends_on, created_by } = input
-  if (depends_on) mustExist(database.ticketGet(db, depends_on), 'depends_on ticket not found')
+  // Caller must own the target project.
+  assertProjectOwner(db, project_id, accountId)
+  if (depends_on) {
+    const dep = mustExist(database.ticketGet(db, depends_on), 'depends_on ticket not found')
+    // Cross-project dependency should still respect ownership.
+    assertProjectOwner(db, dep.project_id, accountId)
+  }
   const row = database.ticketInsert(db, {
     project_id,
     agent_id:   agent_id ?? null,
@@ -46,8 +69,8 @@ export function ticketCreate(db: Db, input: z.infer<typeof validate.ticketCreate
   return row
 }
 
-export function ticketUpdate(db: Db, id: string, input: z.infer<typeof validate.ticketUpdate>): Ticket {
-  const t = mustExist(database.ticketGet(db, id))
+export function ticketUpdate(db: Db, accountId: string, id: string, input: z.infer<typeof validate.ticketUpdate>): Ticket {
+  const t = ticketOwned(db, id, accountId)
   if (t.status !== 'created') throw conflict('ticket can only be edited while in created state')
   if (input.title !== undefined || input.description !== undefined) {
     const sessions = database.sessionByTicket(db, id)
@@ -56,8 +79,8 @@ export function ticketUpdate(db: Db, id: string, input: z.infer<typeof validate.
   return database.ticketUpdate(db, id, { ...pick(input, 'title', 'description', 'agent_id', 'priority'), updated_at: now() })
 }
 
-export function ticketCancel(db: Db, id: string): Ticket {
-  const t = mustExist(database.ticketGet(db, id))
+export function ticketCancel(db: Db, accountId: string, id: string): Ticket {
+  const t = ticketOwned(db, id, accountId)
   if (t.status === 'finished' || t.status === 'cancelled') {
     throw conflict('ticket is already terminal')
   }
@@ -71,7 +94,10 @@ export function ticketCancel(db: Db, id: string): Ticket {
   return mustExist(database.ticketGet(db, id))
 }
 
-export function ticketDependencyChain(db: Db, id: string): DependencyChainEntry[] {
+export function ticketDependencyChain(db: Db, accountId: string, id: string): DependencyChainEntry[] {
+  // Anchor must be owned; we then walk the chain. A dep chain may legally
+  // cross projects, but every step is checked against the same owner.
+  ticketOwned(db, id, accountId)
   const chain: Ticket[] = []
   let current: Ticket | undefined = mustExist(database.ticketGet(db, id))
   const visited = new Set<string>()
@@ -80,7 +106,13 @@ export function ticketDependencyChain(db: Db, id: string): DependencyChainEntry[
     visited.add(current.id)
     chain.unshift(current)
     if (!current.depends_on) break
-    current = database.ticketGet(db, current.depends_on)
+    const next = database.ticketGet(db, current.depends_on)
+    if (!next) break
+    // Depending on a ticket in another owner's project would leak titles.
+    // 404 the offending step rather than throw — chain just truncates.
+    const depProject = database.projectGet(db, next.project_id)
+    if (!depProject || depProject.owner_id !== accountId) break
+    current = next
   }
   return chain.map(t => ({
     id: t.id, title: t.title, description: t.description,
@@ -111,31 +143,32 @@ export function ticketPriorHistory(db: Db, ticketId: string, sessionId: string, 
 
 // ── Comments ──
 
-export function commentList(db: Db, ticketId: string): Comment[] {
-  mustExist(database.ticketGet(db, ticketId))
+export function commentList(db: Db, accountId: string, ticketId: string): Comment[] {
+  ticketOwned(db, ticketId, accountId)
   return database.commentByTicket(db, ticketId)
 }
 
-export function commentCreate(db: Db, ticketId: string, input: { author: string; body: string; session_id?: string }): Comment {
-  mustExist(database.ticketGet(db, ticketId))
+export function commentCreate(db: Db, accountId: string, ticketId: string, input: { author: string; body: string; session_id?: string }): Comment {
+  ticketOwned(db, ticketId, accountId)
   return database.commentInsert(db, { ticket_id: ticketId, session_id: input.session_id ?? null, author: input.author, body: input.body, created_at: now() })
 }
 
 // ── Verdicts ──
 
-export function verdictList(db: Db, ticketId: string): Verdict[] {
-  mustExist(database.ticketGet(db, ticketId))
+export function verdictList(db: Db, accountId: string, ticketId: string): Verdict[] {
+  ticketOwned(db, ticketId, accountId)
   return database.verdictByTicket(db, ticketId)
 }
 
 // ── Tags ──
 
-export function tagList(db: Db, ticketId: string): Tag[] {
+export function tagList(db: Db, accountId: string, ticketId: string): Tag[] {
+  ticketOwned(db, ticketId, accountId)
   return database.ticketTagList(db, ticketId)
 }
 
-export function tagAdd(db: Db, ticketId: string, tag: string): Tag {
-  mustExist(database.ticketGet(db, ticketId))
+export function tagAdd(db: Db, accountId: string, ticketId: string, tag: string): Tag {
+  ticketOwned(db, ticketId, accountId)
   try {
     return database.ticketTagInsert(db, ticketId, tag)
   } catch (err: any) {
@@ -147,6 +180,7 @@ export function tagAdd(db: Db, ticketId: string, tag: string): Tag {
   }
 }
 
-export function tagRemove(db: Db, ticketId: string, tag: string): void {
+export function tagRemove(db: Db, accountId: string, ticketId: string, tag: string): void {
+  ticketOwned(db, ticketId, accountId)
   database.ticketTagRemove(db, ticketId, tag)
 }

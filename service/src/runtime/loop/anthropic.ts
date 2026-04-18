@@ -14,6 +14,7 @@ import * as database from '../../database.js'
 import type { Connection } from '../../tables.js'
 import { asText, parseConn, toolUseId } from '../../mcp/shared.js'
 import { now, mustExist } from '../../util.js'
+import { encryptSecret, decryptSecret } from '../../crypto/secrets.js'
 
 import type { SessionContext, LoopResult } from '../compose.js'
 import { filterTools, parseToolSelection, byConnectionKind, type ToolDef } from '../../mcp/registry.js'
@@ -35,12 +36,12 @@ function resolveSubscriptionToken(db: Db, conn: Connection): string {
     const raw  = readFileSync(credPath, 'utf-8')
     const cred = (JSON.parse(raw) as { claudeAiOauth?: { accessToken?: string; expiresAt?: number } }).claudeAiOauth
     if (cred?.accessToken && cred.expiresAt && cred.expiresAt > Date.now()) {
-      const stored = JSON.parse(conn.secrets) as Record<string, unknown>
+      const stored = JSON.parse(decryptSecret(conn.secrets)) as Record<string, unknown>
       if (stored.access_token !== cred.accessToken) {
         stored.access_token = cred.accessToken
         stored.api_key      = cred.accessToken
         database.connectionUpdate(db, conn.id, {
-          secrets:    JSON.stringify(stored),
+          secrets:    encryptSecret(JSON.stringify(stored)),
           updated_at: new Date().toISOString(),
         })
       }
@@ -48,7 +49,7 @@ function resolveSubscriptionToken(db: Db, conn: Connection): string {
     }
   } catch { /* file missing */ }
   try {
-    const secrets = JSON.parse(conn.secrets) as Record<string, unknown>
+    const secrets = JSON.parse(decryptSecret(conn.secrets)) as Record<string, unknown>
     const v = secrets.access_token ?? secrets.api_key
     if (typeof v === 'string' && v) return v
   } catch { /* malformed */ }
@@ -140,7 +141,7 @@ function buildMcpServers(ctx: SessionContext) {
   const selection  = parseToolSelection(agentDef.tools)
   const mcpServers: Record<string, ReturnType<typeof createSdkMcpServer>> = {}
 
-  const foundryCtx = { db, config, sessionId, workspace: workDir, projectId: ticketData.project_id, accountId: agentDef.account_id, ticketId: ticketData.id, agentName: agentDef.name }
+  const foundryCtx = { db, config, sessionId, workspace: workDir, projectId: ticketData.project_id, accountId: agentDef.account_id, ticketId: ticketData.id, agentName: agentDef.name, sandboxToken: ctx.sandboxToken }
   const githubCtx  = { db, config, sessionId, workspace: workDir, ticket: ticketData, agentName: agentDef.name }
   const sandboxCtx = { db, config, sessionId, workspace: workDir }
 

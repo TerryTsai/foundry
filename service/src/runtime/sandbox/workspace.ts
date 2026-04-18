@@ -3,7 +3,7 @@
 // dirs, copy artifacts in, then (on exit) copy artifacts out, clean up,
 // and write the execution row.
 
-import { mkdirSync, cpSync, rmSync } from 'fs'
+import { mkdirSync, cpSync, rmSync, writeFileSync, chmodSync } from 'fs'
 import { join, dirname } from 'path'
 
 import { type Db } from '../../database.js'
@@ -24,11 +24,15 @@ export interface ArtifactSpec {
 }
 
 export interface ExecutionDirs {
-  workspace: string
-  statsDir:  string
-  inputDir:  string | null
-  outputDir: string | null
-  isolated:  boolean
+  workspace:  string
+  statsDir:   string
+  inputDir:   string | null
+  outputDir:  string | null
+  /** Per-execution dir staged with secret files (e.g. sandbox token).
+   *  Mounted read-only at /foundry-secrets so secret values aren't visible
+   *  in /proc/self/environ. Null when no secret files were requested. */
+  secretsDir: string | null
+  isolated:   boolean
 }
 
 function copyIn(baseSrc: string, a: ArtifactSpec, baseDst: string): void {
@@ -43,6 +47,7 @@ export function prepareWorkspace(input: {
   workspace?:    string
   artifactsIn?:  ArtifactSpec[]
   artifactsOut?: ArtifactSpec[]
+  secretFiles?:  Record<string, string>
 }): ExecutionDirs {
   const workspace = input.workspace ?? `/tmp/foundry-exec-${input.executionId}`
   const statsDir  = `/tmp/foundry-stats-${input.executionId}`
@@ -57,7 +62,20 @@ export function prepareWorkspace(input: {
     for (const a of input.artifactsIn!) copyIn(workspace, a, inputDir)
   }
   if (outputDir) mkdirSync(outputDir, { recursive: true })
-  return { workspace, statsDir, inputDir, outputDir, isolated }
+
+  let secretsDir: string | null = null
+  if (input.secretFiles && Object.keys(input.secretFiles).length > 0) {
+    secretsDir = `/tmp/foundry-secrets-${input.executionId}`
+    mkdirSync(secretsDir, { recursive: true })
+    chmodSync(secretsDir, 0o700)
+    for (const [name, content] of Object.entries(input.secretFiles)) {
+      const path = join(secretsDir, name)
+      writeFileSync(path, content)
+      chmodSync(path, 0o400)
+    }
+  }
+
+  return { workspace, statsDir, inputDir, outputDir, secretsDir, isolated }
 }
 
 // Copy container /output artifacts back into the host workspace. Called on
@@ -92,7 +110,7 @@ export function finishExecution(
   db: Db, ctx: ExitCtx, code: number, stats: ContainerStats | null,
 ): void {
   if (code === 0) collectOutputs(ctx.dirs.workspace, ctx.dirs.outputDir, ctx.artifactsOut)
-  cleanupDirs(ctx.dirs.inputDir, ctx.dirs.outputDir, ctx.dirs.statsDir)
+  cleanupDirs(ctx.dirs.inputDir, ctx.dirs.outputDir, ctx.dirs.statsDir, ctx.dirs.secretsDir)
   database.executionUpdate(db, ctx.executionId, {
     status:         code === 0 ? 'finished' : 'failed',
     exit_code:      code,

@@ -1,6 +1,7 @@
 import type { Request, Response, NextFunction, RequestHandler, ErrorRequestHandler } from 'express'
 import type { ZodType } from 'zod'
-import { badRequest, isAppError, unauthorized } from './errors.js'
+import { appError, badRequest, isAppError, unauthorized } from './errors.js'
+import * as sandboxToken from './domain/sandboxToken.js'
 import type { Account } from './tables.js'
 import * as database from './database.js'
 import type { Db } from './database.js'
@@ -47,20 +48,37 @@ export function serializeCookie(name: string, value: string, opts: {
 // ── Auth ──
 // Two credentials accepted:
 //   1. `foundry_session` cookie — real users via GitHub OAuth.
-//   2. `Authorization: Bearer <config.internalApiToken>` — sandbox-hosted
-//      tool calls (foundry introspection, integrations) that curl back
-//      into the service from inside a podman container. Presenting the
-//      token authenticates the request but does NOT populate req.account,
-//      so any handler that calls accountId(req) still 401s — only the
-//      project-scoped tool endpoints (ticket list/get/create, agent list,
-//      etc.) work without an owner identity.
+//   2. `Authorization: Bearer sb_…` — per-session sandbox token. Resolves
+//      session → ticket → project → owner so subsequent handlers see
+//      req.account exactly like a normal cookie request. Sandbox tools
+//      cannot read or modify resources outside their own session's
+//      project. The legacy global INTERNAL_API_TOKEN path is no longer
+//      accepted; bearer requests must present a live sandbox token.
 
-export const requireAuth = (db: Db, config: Config): RequestHandler =>
+export const requireAuth = (db: Db, _config: Config): RequestHandler =>
   (req: Request, _res: Response, next: NextFunction) => {
-    // Internal bearer token — sandbox tools curling back into the service.
     const authHeader = req.headers.authorization
-    if (authHeader?.startsWith('Bearer ') && authHeader.slice(7) === config.internalApiToken) {
-      return next()
+    if (authHeader?.startsWith('Bearer ')) {
+      const token = authHeader.slice(7)
+      // Per-session sandbox token. Resolves session → ticket → project →
+      // account so subsequent handlers see req.account just like a normal
+      // cookie request. This is the path Phase 4+ uses; the legacy
+      // global token below remains for back-compat until Phase 5.
+      if (token.startsWith('sb_')) {
+        const tokRow = sandboxToken.resolve(db, token)
+        if (!tokRow) return next(unauthorized())
+        const session = database.sessionGet(db, tokRow.session_id)
+        if (!session) return next(unauthorized())
+        const ticket = database.ticketGet(db, session.ticket_id)
+        if (!ticket) return next(unauthorized())
+        const proj = database.projectGet(db, ticket.project_id)
+        if (!proj || !proj.owner_id) return next(unauthorized())
+        const account = database.accountGet(db, proj.owner_id)
+        if (!account) return next(unauthorized())
+        req.account = account
+        return next()
+      }
+      return next(unauthorized())
     }
     // Session cookie — real user.
     const sid = parseCookie(req.headers.cookie, 'foundry_session')
@@ -111,6 +129,40 @@ export const sendText: RequestHandler =
   (_req: Request, res: Response) => {
     res.type('text/plain').send(res.locals.result)
   }
+
+// ── Rate Limiting ──
+//
+// Tiny in-memory limiter. Key = req.ip + bucket name. One Map per limiter,
+// pruned lazily on access. Single-process design — fine for the home-server
+// deploy; would need shared state across instances. Phase 0 ships the
+// middleware unmounted; Phase 7 turns it on.
+
+interface Bucket { count: number; resetAt: number }
+
+export function rateLimit(opts: {
+  windowMs: number
+  max:      number
+  keyFn?:   (req: Request) => string
+  bucket?:  string
+}): RequestHandler {
+  const buckets = new Map<string, Bucket>()
+  const keyFn   = opts.keyFn ?? ((req: Request) => req.ip ?? 'unknown')
+  const tag     = opts.bucket ?? 'default'
+  return (req, _res, next) => {
+    const key = `${tag}:${keyFn(req)}`
+    const nowMs = Date.now()
+    let b = buckets.get(key)
+    if (!b || b.resetAt < nowMs) {
+      b = { count: 0, resetAt: nowMs + opts.windowMs }
+      buckets.set(key, b)
+    }
+    b.count += 1
+    if (b.count > opts.max) {
+      return next(appError(429, 'rate limit exceeded'))
+    }
+    next()
+  }
+}
 
 // ── Error Handler ──
 

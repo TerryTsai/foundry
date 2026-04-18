@@ -1,18 +1,25 @@
 import { type Db } from '../database.js'
 import * as database from '../database.js'
+import * as schema from '../tables.js'
 import type { Activity, Session } from '../tables.js'
 import { mustExist, assertStatus, now } from '../util.js'
+import { notFound } from '../errors.js'
+import { sessionOwned, ticketOwned } from './projects.js'
+import { eq, inArray } from 'drizzle-orm'
 
-export function sessionGet(db: Db, id: string) {
+export function sessionGet(db: Db, accountId: string, id: string) {
+  sessionOwned(db, id, accountId)
   return mustExist(database.sessionGetAggregated(db, id))
 }
 
-export function sessionStatus(db: Db, id: string): { status: string } {
-  return { status: mustExist(database.sessionGet(db, id)).status }
+export function sessionStatus(db: Db, accountId: string, id: string): { status: string } {
+  const s = sessionOwned(db, id, accountId)
+  return { status: s.status }
 }
 
-export function sessionKill(db: Db, id: string): { ok: true } {
-  assertStatus(mustExist(database.sessionGet(db, id)), 'running', 'session is not running')
+export function sessionKill(db: Db, accountId: string, id: string): { ok: true } {
+  const s = sessionOwned(db, id, accountId)
+  assertStatus(s, 'running', 'session is not running')
   database.sessionUpdate(db, id, { status: 'cancelled', error: 'killed', ended_at: now() })
   database.eventInsert(db, {
     entity_type: 'session', entity_id: id,
@@ -23,11 +30,13 @@ export function sessionKill(db: Db, id: string): { ok: true } {
   return { ok: true }
 }
 
-export function sessionActivities(db: Db, sessionId: string): Activity[] {
-  mustExist(database.sessionGet(db, sessionId))
+export function sessionActivities(db: Db, accountId: string, sessionId: string): Activity[] {
+  sessionOwned(db, sessionId, accountId)
   return database.activityBySession(db, sessionId)
 }
 
+// Internal — runtime emits activity rows for sessions it just dispatched.
+// No HTTP boundary, no ownership check; trust the caller.
 export function activityCreate(db: Db, input: {
   session_id:   string
   turn_id?:     string | null
@@ -57,11 +66,18 @@ export function activityCreate(db: Db, input: {
   })
 }
 
-export function sessionByTicket(db: Db, ticketId: string) {
-  mustExist(database.ticketGet(db, ticketId))
+export function sessionByTicket(db: Db, accountId: string, ticketId: string) {
+  ticketOwned(db, ticketId, accountId)
   return database.sessionByTicket(db, ticketId)
 }
 
-export function sessionListAll(db: Db) {
-  return database.sessionListWithAgent(db)
+export function sessionListAll(db: Db, accountId: string) {
+  // Restrict to sessions whose ticket belongs to a project the requester
+  // owns. Pre-compute the set of allowed project ids.
+  const owned = database.projectAll(db, [eq(schema.project.owner_id, accountId)]).map(p => p.id)
+  if (owned.length === 0) return []
+  return database.sessionListWithAgent(db).filter(s => {
+    const t = database.ticketGet(db, s.ticket_id)
+    return t ? owned.includes(t.project_id) : false
+  })
 }

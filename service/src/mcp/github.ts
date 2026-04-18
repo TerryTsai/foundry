@@ -336,13 +336,14 @@ async function handleGitPullRequest(ctx: GithubCtx, args: z.infer<typeof gitPull
       return { ok: false, error: `PR create response not parseable: ${errMsg(err)}` }
     }
 
-    const { commentCreate } = await import('../domain/tickets.js')
-    commentCreate(ctx.db, ctx.ticket.id, {
+    const dbMod = await import('../database.js')
+    dbMod.commentInsert(ctx.db, {
+      ticket_id:  ctx.ticket.id,
+      session_id: ctx.sessionId,
       author:     ctx.agentName,
       body:       `PR opened: ${prUrl}`,
-      session_id: ctx.sessionId,
+      created_at: new Date().toISOString(),
     })
-
     const result: PublishResult = { branch, prUrl }
     return { ok: true, ...result }
   } catch (err) {
@@ -491,11 +492,13 @@ async function handleGitMerge(ctx: GithubCtx, args: z.infer<typeof gitMergeArgs>
       return { ok: false, error: `merge failed (HTTP ${mergeRes.status}): ${mergeErr.slice(0, 300)}. PR is open at ${prUrl} — resolve conflicts and merge manually, or call gitRebase and retry.` }
     }
 
-    const { commentCreate } = await import('../domain/tickets.js')
-    commentCreate(ctx.db, ctx.ticket.id, {
+    const dbMod = await import('../database.js')
+    dbMod.commentInsert(ctx.db, {
+      ticket_id:  ctx.ticket.id,
+      session_id: ctx.sessionId,
       author:     ctx.agentName,
       body:       `Merged: ${prUrl}`,
-      session_id: ctx.sessionId,
+      created_at: new Date().toISOString(),
     })
 
     return { ok: true, merged: true, branch, prUrl }

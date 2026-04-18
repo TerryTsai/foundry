@@ -7,6 +7,7 @@ import * as database from '../../database.js'
 import type { Agent as AgentDef } from '../../tables.js'
 import { mustExist } from '../../util.js'
 import { badRequest } from '../../errors.js'
+import { decryptSecret } from '../../crypto/secrets.js'
 
 // Model factory table — one entry per provider kind that can serve as an
 // LLM. The Claude Agent SDK path (kind 'anthropic-subscription') bypasses
@@ -27,7 +28,7 @@ export const modelFactoryByKind: Record<string, ModelFactory | undefined> = {
 
 function secretFor(conn: { secrets: string }, field: string): string {
   try {
-    const parsed = JSON.parse(conn.secrets) as Record<string, unknown>
+    const parsed = JSON.parse(decryptSecret(conn.secrets)) as Record<string, unknown>
     const v = parsed[field]
     if (typeof v !== 'string' || !v) throw new Error(`missing ${field}`)
     return v
