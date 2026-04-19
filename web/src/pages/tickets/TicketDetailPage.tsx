@@ -181,7 +181,7 @@ export function TicketDetailPage() {
         { label: 'duration', value: usage.duration_ms > 0 ? fmtDuration(usage.duration_ms) : null },
         { label: 'tags',     value: !editing ? <TagSection ticketId={ticket.id} /> : null, primary: true },
       ]}
-      composer={{ placeholder: 'Comment', onSubmit: handleAddComment }}
+      composer={{ placeholder: 'comment', onSubmit: handleAddComment }}
     >
       {editing && (
         <div className="space-y-4">
