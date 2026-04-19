@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { User, Bot, Info, Zap, Eye } from 'lucide-react'
 import { ticketApi, commentApi } from '../../api.js'
+import { pushToast } from '../../components/Toaster.js'
 import {
   ticketGetOpts, ticketCommentsOpts, ticketUsageOpts, ticketTagsOpts,
   ticketVerdictsOpts, ticketSessionsOpts, agentListOpts, qk,
@@ -153,6 +154,7 @@ export function TicketDetailPage() {
     mutationFn: () => ticketApi.cancel(tid),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: qk.ticket.all() })
+      pushToast({ kind: 'success', message: 'Ticket cancelled' })
       navigate(`/p/${projectId}/tickets`)
     },
   })
@@ -235,7 +237,13 @@ export function TicketDetailPage() {
 
       {!editing && ticket.status !== 'finished' && ticket.status !== 'cancelled' && (
         <div className="pt-2 border-t border-zinc-200 dark:border-zinc-800/60">
-          <ActionButton label="cancel ticket" variant="destructive" onClick={() => { if (confirm('Cancel this ticket?')) cancelMutation.mutate() }} className="w-full" />
+          <ActionButton
+            label={cancelMutation.isPending ? 'cancelling…' : 'cancel ticket'}
+            variant="destructive"
+            disabled={cancelMutation.isPending}
+            onClick={() => cancelMutation.mutate()}
+            className="w-full"
+          />
         </div>
       )}
     </DetailShell>
