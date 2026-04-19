@@ -26,12 +26,12 @@ export function SettingsLayout() {
   const isIndex = !!useMatch('/settings')
 
   return (
-    <div className="flex flex-col h-dvh bg-white dark:bg-zinc-950">
+    <div className="bg-white dark:bg-zinc-950 min-h-dvh">
       <AppHeader><span className="text-sm text-zinc-500 dark:text-zinc-400">Settings</span></AppHeader>
 
-      <div className="flex flex-1 min-h-0">
-        {/* ── Desktop sidebar ───────────────────────────────────────────────── */}
-        <aside className="hidden lg:flex flex-col w-48 shrink-0 border-r border-zinc-200 dark:border-zinc-800/60 pt-3 gap-0.5">
+      <div className="flex min-w-0">
+        {/* ── Desktop sidebar (sticky) ──────────────────────────────────────── */}
+        <aside className="hidden lg:flex flex-col w-48 shrink-0 border-r border-zinc-200 dark:border-zinc-800/60 pt-3 gap-0.5 sticky top-12 self-start h-[calc(100dvh-3rem)] overflow-y-auto">
           {navItems.map(({ to, label, Icon }) => (
             <NavLink
               key={to}
@@ -51,13 +51,13 @@ export function SettingsLayout() {
         </aside>
 
         {/* ── Outlet — always on desktop, hidden on mobile at index ─────────── */}
-        <div className={`flex-1 min-h-0 min-w-0 overflow-y-auto ${isIndex ? 'hidden lg:block' : 'block'}`}>
+        <div className={`flex-1 min-w-0 ${isIndex ? 'hidden lg:block' : 'block'}`}>
           <Outlet />
         </div>
 
         {/* ── Mobile full-screen nav list — only at bare /settings index ───── */}
         {isIndex && (
-          <div className="lg:hidden flex-1 flex flex-col min-h-0 overflow-y-auto px-4 pt-4">
+          <div className="lg:hidden flex-1 px-4 pt-4">
             <div className="[&>:last-child>*]:border-b-0">
               {navItems.map(({ to, label, subtitle }) => (
                 <Link key={to} to={to} className="block">

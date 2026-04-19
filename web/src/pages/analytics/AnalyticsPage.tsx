@@ -453,12 +453,13 @@ export function AnalyticsPage() {
   if (!data) return null
 
   return (
-    <div className="flex flex-col h-dvh bg-white dark:bg-zinc-950">
+    <div className="bg-white dark:bg-zinc-950 min-h-dvh">
       <AppHeader><span className="text-sm text-zinc-500 dark:text-zinc-400">Analytics</span></AppHeader>
 
-      {/* Filter bar — identical markup + classes to the tickets filter pane so
-          it visually anchors the page the same way. */}
-      <div className="shrink-0 flex items-center h-11 border-b border-zinc-200 dark:border-zinc-800/60">
+      {/* Filter bar — sticky directly under the app header so it stays on
+          screen while the page scrolls. Same visual grammar as the tickets
+          filter pane. */}
+      <div className="sticky top-12 z-20 bg-white dark:bg-zinc-950 flex items-center h-11 border-b border-zinc-200 dark:border-zinc-800/60">
         <div className="flex items-center gap-2 flex-1 min-w-0 overflow-x-auto no-scrollbar px-4">
           <MultiSelect label="Range"   options={RANGE_LABELS}    selected={range}   onChange={setRange} />
           {projectOptions.length > 1 && (
@@ -470,35 +471,33 @@ export function AnalyticsPage() {
         </div>
       </div>
 
-      <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
-        <PageShell onRefresh={handleRefresh}>
-          <div className={`space-y-8 max-w-3xl mx-auto pb-8 transition-opacity ${loading ? 'opacity-50' : 'opacity-100'}`}>
+      <PageShell onRefresh={handleRefresh}>
+        <div className={`space-y-8 max-w-3xl mx-auto pb-8 transition-opacity ${loading ? 'opacity-50' : 'opacity-100'}`}>
 
-        <Section title="summary">
-          <SummarySection data={data.summary} />
-        </Section>
-
-        <Section title="daily activity">
-          <DailyChart daily={data.daily} />
-        </Section>
-
-        <Section title="agents">
-          <AgentBlocks agents={data.agents} tools={data.tools} />
-        </Section>
-
-        {data.tags.length > 0 && (
-          <Section title="activity by tag">
-            <TagTable tags={data.tags} />
+          <Section title="summary">
+            <SummarySection data={data.summary} />
           </Section>
-        )}
 
-        <Section title="ticket throughput">
-          <TicketThroughput summary={data.summary} />
-        </Section>
+          <Section title="daily activity">
+            <DailyChart daily={data.daily} />
+          </Section>
 
-          </div>
-        </PageShell>
-      </div>
+          <Section title="agents">
+            <AgentBlocks agents={data.agents} tools={data.tools} />
+          </Section>
+
+          {data.tags.length > 0 && (
+            <Section title="activity by tag">
+              <TagTable tags={data.tags} />
+            </Section>
+          )}
+
+          <Section title="ticket throughput">
+            <TicketThroughput summary={data.summary} />
+          </Section>
+
+        </div>
+      </PageShell>
     </div>
   )
 }

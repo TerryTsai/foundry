@@ -211,10 +211,10 @@ export function TicketsSplitLayout() {
   //   else    → full-screen outlet (drill-in behaviour, same as before)
 
   return (
-    <div className="flex h-full min-w-0">
+    <div className="flex min-w-0">
 
-      {/* ── Desktop left panel ─────────────────────────────────────────────── */}
-      <aside className="hidden lg:flex flex-col w-80 shrink-0 border-r border-zinc-200 dark:border-zinc-800/60">
+      {/* ── Desktop left panel (sticky, own scroll) ────────────────────────── */}
+      <aside className="hidden lg:flex flex-col w-80 shrink-0 border-r border-zinc-200 dark:border-zinc-800/60 sticky top-12 self-start h-[calc(100dvh-3rem)]">
 
         {/* Filter bar + New link */}
         <div className="shrink-0 flex items-center h-11 border-b border-zinc-200 dark:border-zinc-800/60">
@@ -230,7 +230,7 @@ export function TicketsSplitLayout() {
           </Link>
         </div>
 
-        {/* Ticket rows */}
+        {/* Ticket rows — scroll within the sticky aside */}
         <div className="flex-1 overflow-y-auto px-4 pt-4">
           {renderRows(true)}
         </div>
@@ -238,27 +238,24 @@ export function TicketsSplitLayout() {
 
       {/* ── Right panel / outlet ───────────────────────────────────────────── */}
       {/* Always visible on desktop. On mobile: visible only when NOT at index. */}
-      <div className={`flex-1 flex flex-col min-h-0 min-w-0 ${isIndex ? 'hidden lg:flex' : 'flex'}`}>
+      <div className={`flex-1 min-w-0 ${isIndex ? 'hidden lg:block' : 'block'}`}>
         <Outlet context={shellCtx} />
       </div>
 
       {/* ── Mobile full-screen list ────────────────────────────────────────── */}
-      {/* Only rendered on mobile when we're at the bare index route. */}
+      {/* Only rendered on mobile when we're at the bare index route.
+          Filter bar is sticky under the app header; list flows with doc. */}
       {isIndex && (
-        <div className="lg:hidden flex flex-1 flex-col min-h-0 min-w-0">
-          {/* Filter bar */}
-          <div className="shrink-0 flex items-center gap-2 px-4 h-11 border-b border-zinc-200 dark:border-zinc-800/60 overflow-x-auto no-scrollbar">
+        <div className="lg:hidden flex-1 min-w-0">
+          <div className="sticky top-12 z-10 bg-white dark:bg-zinc-950 flex items-center gap-2 px-4 h-11 border-b border-zinc-200 dark:border-zinc-800/60 overflow-x-auto no-scrollbar">
             {filterChips}
           </div>
-          {/* List inside PageShell for FAB + pull-to-refresh */}
-          <div className="flex-1 min-h-0 min-w-0">
-            <PageShell
-              action={{ label: 'Ticket', onPress: `/p/${projectId}/tickets/new` }}
-              onRefresh={async () => { revalidate() }}
-            >
-              {renderRows(false)}
-            </PageShell>
-          </div>
+          <PageShell
+            action={{ label: 'Ticket', onPress: `/p/${projectId}/tickets/new` }}
+            onRefresh={async () => { revalidate() }}
+          >
+            {renderRows(false)}
+          </PageShell>
         </div>
       )}
 

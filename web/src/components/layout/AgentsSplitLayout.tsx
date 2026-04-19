@@ -47,9 +47,9 @@ export function AgentsSplitLayout() {
   }
 
   return (
-    <div className="flex h-full min-w-0">
-      {/* ── Desktop left panel ─────────────────────────────────────────────── */}
-      <aside className="hidden lg:flex flex-col w-80 shrink-0 border-r border-zinc-200 dark:border-zinc-800/60">
+    <div className="flex min-w-0">
+      {/* ── Desktop left panel (sticky, own scroll) ────────────────────────── */}
+      <aside className="hidden lg:flex flex-col w-80 shrink-0 border-r border-zinc-200 dark:border-zinc-800/60 sticky top-12 self-start h-[calc(100dvh-3rem)]">
         <div className="shrink-0 flex items-center h-11 border-b border-zinc-200 dark:border-zinc-800/60">
           <span className="flex-1 min-w-0 px-4 text-sm font-medium text-zinc-700 dark:text-zinc-300">
             Agents
@@ -68,21 +68,19 @@ export function AgentsSplitLayout() {
       </aside>
 
       {/* ── Right panel / outlet ───────────────────────────────────────────── */}
-      <div className={`flex-1 flex flex-col min-h-0 min-w-0 ${isIndex ? 'hidden lg:flex' : 'flex'}`}>
+      <div className={`flex-1 min-w-0 ${isIndex ? 'hidden lg:block' : 'block'}`}>
         <Outlet />
       </div>
 
       {/* ── Mobile full-screen list ────────────────────────────────────────── */}
       {isIndex && (
-        <div className="lg:hidden flex flex-1 flex-col min-h-0 min-w-0">
-          <div className="flex-1 min-h-0 min-w-0">
-            <PageShell
-              action={{ label: 'Agent', onPress: '/settings/agents/new' }}
-              onRefresh={async () => { await queryClient.invalidateQueries({ queryKey: qk.agent.all() }) }}
-            >
-              {renderRows(false)}
-            </PageShell>
-          </div>
+        <div className="lg:hidden flex-1 min-w-0">
+          <PageShell
+            action={{ label: 'Agent', onPress: '/settings/agents/new' }}
+            onRefresh={async () => { await queryClient.invalidateQueries({ queryKey: qk.agent.all() }) }}
+          >
+            {renderRows(false)}
+          </PageShell>
         </div>
       )}
     </div>

@@ -24,10 +24,10 @@ export function Shell() {
   }
 
   return (
-    <div className="flex flex-col h-dvh bg-white dark:bg-zinc-950">
+    <div className="bg-white dark:bg-zinc-950 min-h-dvh">
       <AppHeader><ProjectSwitcher current={project ?? null} projectId={projectId!} /></AppHeader>
-      <main className="flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden">
-        <ScrollRestoration />
+      <ScrollRestoration />
+      <main className="min-w-0">
         <Outlet context={{ project: project ?? null, projectId: projectId!, revalidate }} />
       </main>
     </div>
