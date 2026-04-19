@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link, useLoaderData, useParams, useRevalidator } from 'react-router-dom'
 import { marked } from 'marked'
-import { MessageSquare, Brain, FileText, Scale, ChevronRight } from 'lucide-react'
+import { MessageSquare, Brain, FileText, Scale } from 'lucide-react'
 import type { Session, Execution, Activity, UsageRollup, Ticket } from '../../types.js'
 import { fmtDuration, fmtBytes } from '../../lib/format.js'
 import { toolIcon, toolLabel } from '../../lib/tool-display.js'
@@ -97,21 +97,9 @@ function TextBody({ text }: { text: string }) {
   )
 }
 
-function ThoughtBody({ text }: { text: string }) {
-  const [open, setOpen] = useState(false)
+function MarkdownBody({ text }: { text: string }) {
   return (
-    <>
-      <button
-        onClick={() => setOpen(v => !v)}
-        className="flex items-center gap-1 font-mono text-[10px] uppercase tracking-wide text-zinc-500 dark:text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
-      >
-        <ChevronRight size={12} className={`transition-transform ${open ? 'rotate-90' : ''}`} />
-        thinking · {text.length.toLocaleString()} chars
-      </button>
-      {open && (
-        <pre className="mt-2 pl-4 border-l-2 border-zinc-200 dark:border-zinc-800 font-mono text-xs text-zinc-400 dark:text-zinc-500 whitespace-pre-wrap leading-relaxed select-text">{text}</pre>
-      )}
-    </>
+    <div className="prose-zinc text-sm max-w-full overflow-x-auto" dangerouslySetInnerHTML={{ __html: marked.parse(text) as string }} />
   )
 }
 
@@ -169,12 +157,12 @@ function ActivityEntry({ a, execByToolUseId, execHref }: {
   let body: React.ReactNode = null
   let sub: { to: string; label: string } | undefined
 
-  if (a.kind === 'prompt' || a.kind === 'said') {
+  if (a.kind === 'said') {
     const t = typeof payload.text === 'string' ? payload.text : ''
     body = t ? <TextBody text={t} /> : null
-  } else if (a.kind === 'thought') {
+  } else if (a.kind === 'prompt' || a.kind === 'thought') {
     const t = typeof payload.text === 'string' ? payload.text : ''
-    body = t ? <ThoughtBody text={t} /> : null
+    body = t ? <MarkdownBody text={t} /> : null
   } else if (a.kind === 'tool_call') {
     body = <ToolCallBody input={payload.input} exec={exec} />
     if (exec) sub = { to: execHref(exec.id), label: 'execution' }
