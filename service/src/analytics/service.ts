@@ -117,9 +117,11 @@ export function analytics(db: Db, accountId: string, opts: { days: number; proje
     ORDER BY cost_usd DESC
   `)
 
+  // Tags now live as a JSON array on ticket.tags. Unnest via json_each
+  // so each (ticket, tag) pair becomes a row.
   const tags = db.all<TagRow>(sql`
     SELECT
-      tt.tag,
+      tj.value AS tag,
       COUNT(DISTINCT t.id) AS tickets,
       COUNT(DISTINCT CASE WHEN t.status = 'finished' THEN t.id END) AS tickets_done,
       COUNT(DISTINCT CASE WHEN t.status = 'failed' THEN t.id END) AS tickets_failed,
@@ -128,15 +130,14 @@ export function analytics(db: Db, accountId: string, opts: { days: number; proje
       COALESCE(SUM(m_agg.tokens_in), 0) AS tokens_in,
       COALESCE(SUM(m_agg.tokens_out), 0) AS tokens_out,
       COALESCE(SUM(s.duration_ms), 0) AS duration_ms
-    FROM tag tt
-    JOIN ticket t ON tt.ticket_id = t.id
+    FROM ticket t, json_each(t.tags) AS tj
     LEFT JOIN session s ON s.ticket_id = t.id AND date(s.started_at) >= ${cutoff}
     LEFT JOIN (
       SELECT session_id, SUM(tokens_in) AS tokens_in, SUM(tokens) AS tokens_out
       FROM activity GROUP BY session_id
     ) m_agg ON m_agg.session_id = s.id
     WHERE t.project_id IN (${projList})
-    GROUP BY tt.tag
+    GROUP BY tj.value
     ORDER BY tickets DESC
   `)
 
