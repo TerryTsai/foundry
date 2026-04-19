@@ -1,19 +1,21 @@
 import { useState, useCallback } from 'react'
 import { useLocation } from 'react-router-dom'
 
-// useState variant that persists per-location in sessionStorage so that
-// UI toggles (expand/collapse, open panels) survive back-nav remounts.
-// Cleared when the tab closes.
+// useState variant that persists per-history-entry in sessionStorage so
+// that UI toggles (expand/collapse, open panels) survive back-nav
+// remounts but reset on fresh forward-nav — matching browser-standard
+// scroll behavior.
 //
-// Key is the caller's local id scoped to the current pathname. Two
-// components on the same page using the same local id will share state
-// — callers should namespace per-instance when needed.
+// Keyed by location.key so each history entry has its own state. A
+// forward-nav to a previously-visited URL mints a new key → fresh state.
+// Back-nav returns to the old key → state rehydrates. Cleared when the
+// tab closes.
 export function usePersistedState<T>(
   localKey: string,
   initial: T,
 ): [T, (next: T | ((prev: T) => T)) => void] {
-  const { pathname } = useLocation()
-  const storageKey = `ui:${pathname}:${localKey}`
+  const { key } = useLocation()
+  const storageKey = `ui:${key}:${localKey}`
   const [state, setState] = useState<T>(() => {
     try {
       const raw = sessionStorage.getItem(storageKey)
