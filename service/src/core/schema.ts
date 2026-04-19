@@ -194,7 +194,11 @@ export const activity = sqliteTable('activity', {
   order_index:  integer('order_index').notNull().default(0),
   payload:      text('payload').notNull(),          // JSON, shape per kind
   tool_use_id:  text('tool_use_id'),                // required for kind='tool_call'
-  execution_id: text('execution_id'),               // required for kind='tool_call' (new rows)
+  // Nullable — populated only when the execution and activity rows
+  // race-losing to each other causes the link to be missed at write
+  // time. Prefer joining activity ↔ execution via tool_use_id (carried
+  // by both rows from the SDK) rather than this column.
+  execution_id: text('execution_id'),
   tokens_in:    integer('tokens_in'),
   tokens:       integer('tokens'),
   created_at:   text('created_at').notNull(),
@@ -203,13 +207,21 @@ export const activity = sqliteTable('activity', {
 export type Activity = typeof activity.$inferSelect
 export type NewActivity = typeof activity.$inferInsert
 
-// Note: tool_use_id was duplicated here and on activity. The activity
-// row already carries tool_use_id, and execution_id on activity links
-// the two. One direction is enough — execution → activity is via the
-// execution_id back-reference if you need it.
 export const execution = sqliteTable('execution', {
   id:              text('id').primaryKey(),
   session_id:      text('session_id'),
+  // ⚠️ DO NOT DROP as "redundant with activity.tool_use_id".
+  // Both rows carry tool_use_id on purpose: activity ↔ execution is a
+  // natural join on this column. The SDK writes activity rows and MCP
+  // executions on independent async paths that can race. Stamping
+  // tool_use_id on both sides means neither one has to update the other
+  // after the fact, so whichever lands first, the join still works.
+  // Removing this column was attempted once (schema simplification in
+  // 86f7761) and replaced with a backfill UPDATE from the execution
+  // side — which silently failed under the race, leaving activity rows
+  // with execution_id=NULL permanently. See service/src/core/db.ts
+  // migration block 6 for the restore.
+  tool_use_id:     text('tool_use_id'),
   tool_name:       text('tool_name'),
   tool_input:      text('tool_input'),
   command:         text('command').notNull(),

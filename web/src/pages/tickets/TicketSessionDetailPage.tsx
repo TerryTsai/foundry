@@ -156,9 +156,9 @@ function ReconcileBody({ payload }: { payload: Record<string, unknown> }) {
   )
 }
 
-function ActivityEntry({ a, execById, execHref }: {
+function ActivityEntry({ a, execByToolUseId, execHref }: {
   a: Activity
-  execById: Map<string, Execution>
+  execByToolUseId: Map<string, Execution>
   execHref: (id: string) => string
 }) {
   const payload = parsePayload(a.payload)
@@ -173,7 +173,8 @@ function ActivityEntry({ a, execById, execHref }: {
     const t = typeof payload.text === 'string' ? payload.text : ''
     body = t ? <ThoughtBody text={t} /> : null
   } else if (a.kind === 'tool_call') {
-    const exec = a.execution_id ? execById.get(a.execution_id) : undefined
+    // Join on tool_use_id — stamped on both sides at write time, no race.
+    const exec = a.tool_use_id ? execByToolUseId.get(a.tool_use_id) : undefined
     body = <ToolCallBody input={payload.input} exec={exec} />
     if (exec) sub = { to: execHref(exec.id), label: 'execution' }
   } else if (a.kind === 'reconcile') {
@@ -212,8 +213,8 @@ export function TicketSessionDetailPage() {
   const execPath = (eId: string) => `/p/${projectId}/tickets/${ticketId}/sessions/${sessionId}/executions/${eId}`
   const ticketPath = `/p/${projectId}/tickets/${ticketId}`
 
-  const execById = new Map<string, Execution>()
-  for (const e of executions) execById.set(e.id, e)
+  const execByToolUseId = new Map<string, Execution>()
+  for (const e of executions) if (e.tool_use_id) execByToolUseId.set(e.tool_use_id, e)
 
   return (
     <DetailShell
@@ -254,7 +255,7 @@ export function TicketSessionDetailPage() {
         {activities.length === 0
           ? <EmptyState message="no activity" />
           : activities.map(a => (
-              <ActivityEntry key={a.id} a={a} execById={execById} execHref={execPath} />
+              <ActivityEntry key={a.id} a={a} execByToolUseId={execByToolUseId} execHref={execPath} />
             ))
         }
       </div>

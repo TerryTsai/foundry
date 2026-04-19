@@ -1,5 +1,4 @@
 import type { Response } from 'express'
-import { sql } from 'drizzle-orm'
 
 import { type Db } from '../core/db.js'
 import * as database from '../core/db.js'
@@ -57,6 +56,10 @@ export function executionCreate(db: Db, config: Config, input: {
   const { command, session_id, tool_name, tool_input, tool_use_id,
           timeout_ms = config.sandboxTimeout, memory_mb,
           network = false, env = {}, mount = 'rw', artifactsIn, artifactsOut, secretFiles } = input
+  // tool_use_id is the natural join key to the matching activity row.
+  // Both tables stamp it at write time — no UPDATE needed, no race.
+  // Do NOT treat this as "redundant with activity.tool_use_id" (see
+  // schema.ts on execution for the long version).
   const row = database.executionInsert(db, {
     session_id:  session_id  ?? null,
     tool_name:   tool_name   ?? null,
@@ -65,7 +68,6 @@ export function executionCreate(db: Db, config: Config, input: {
     command, status: 'running', timeout_ms, memory_mb: memory_mb ?? null,
     started_at: now(),
   })
-  backfillActivityExecutionId(db, row.id, tool_use_id, session_id)
 
   const dirs = prepareWorkspace({ executionId: row.id, workspace: input.workspace, artifactsIn, artifactsOut, secretFiles })
   const handle = spawnRun({
@@ -91,17 +93,6 @@ export function executionCreate(db: Db, config: Config, input: {
     activeRuns.delete(row.id)
   })
   return { id: row.id, emitter: handle.emitter }
-}
-
-// Link a pre-existing tool_call activity row to the new execution. The
-// runner writes the activity when the model streams the tool_use block,
-// before the MCP handler fires — so the link needs filling in.
-function backfillActivityExecutionId(db: Db, executionId: string, toolUseId?: string, sessionId?: string): void {
-  if (!toolUseId || !sessionId) return
-  db.run(sql`
-    UPDATE activity SET execution_id = ${executionId}
-     WHERE session_id = ${sessionId} AND tool_use_id = ${toolUseId} AND execution_id IS NULL
-  `)
 }
 
 export function executionKill(db: Db, accountId: string, id: string): { ok: true } {

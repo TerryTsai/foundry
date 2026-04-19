@@ -103,15 +103,11 @@ export function createDatabase(path: string): Db {
     sqlite.exec(`ALTER TABLE session DROP COLUMN system_prompt`)
   }
 
-  // 4) Drop execution.tool_use_id — duplicated by activity.tool_use_id.
-  //    SQLite refuses to drop a column referenced by an index, so the
-  //    legacy idx_execution_tool_use_id has to go first.
-  if (hasColumn(sqlite, 'execution', 'tool_use_id')) {
-    sqlite.exec(`
-      DROP INDEX IF EXISTS idx_execution_tool_use_id;
-      ALTER TABLE execution DROP COLUMN tool_use_id;
-    `)
-  }
+  // 4) [REVERTED] Previously dropped execution.tool_use_id as
+  //    "redundant". It wasn't — it's the natural join key between
+  //    activity and execution, and removing it forced a backfill
+  //    UPDATE that lost races. Restored below in block 6. Kept as a
+  //    numbered tombstone so the blocks read as a chronological log.
 
   // 5) Verdicts move from kind='verdict' activity rows onto the session
   //    itself — one verdict per verifier session, so columns fit 1:1.
@@ -134,6 +130,23 @@ export function createDatabase(path: string): Db {
           ORDER BY a.created_at LIMIT 1
         );
       DELETE FROM activity WHERE kind = 'verdict';
+    `)
+  }
+
+  // 6) Restore execution.tool_use_id. Both activity and execution rows
+  //    need to carry it so the two can be joined without an UPDATE on
+  //    either side (see schema.ts for the full rationale). Backfill
+  //    from the activity row that already points at each execution.
+  if (!hasColumn(sqlite, 'execution', 'tool_use_id')) {
+    sqlite.exec(`
+      ALTER TABLE execution ADD COLUMN tool_use_id TEXT;
+      UPDATE execution SET tool_use_id = (
+        SELECT a.tool_use_id FROM activity a
+        WHERE a.execution_id = execution.id
+          AND a.tool_use_id IS NOT NULL
+        LIMIT 1
+      );
+      CREATE INDEX IF NOT EXISTS idx_execution_tool_use_id ON execution(tool_use_id);
     `)
   }
 
