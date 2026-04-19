@@ -15,6 +15,7 @@
 import { z } from 'zod'
 
 import type { Db } from '../../../core/db.js'
+import * as database from '../../../core/db.js'
 import type { Config } from '../../../core/config.js'
 import { esc, runCommand } from '../../../integrations/shared.js'
 
@@ -175,16 +176,14 @@ async function handleTicketCreate(ctx: FoundryCtx, args: z.infer<typeof ticketCr
   return apiPost(ctx, 'ticketCreate', args, '/ticket', payload)
 }
 
-// Verdict is recorded as an activity row (kind='verdict') on the verifier's
-// session. The verify dance reads it back via verdictBySession; the next
-// producer sees prior verdicts on the ticket in its system prompt (assembled
-// by the runner).
+// Verdict is written onto the verifier's session row (verdict_pass /
+// verdict_reason). The verify dance reads it back via verdictBySession;
+// the next producer sees prior verdicts on the ticket in its system
+// prompt (assembled by the runner).
 async function handleVerdictReport(ctx: FoundryCtx, args: z.infer<typeof verdictReportArgs>) {
-  const { activityCreate } = await import('../../../sessions/service.js')
-  activityCreate(ctx.db, {
-    session_id: ctx.sessionId,
-    kind:       'verdict',
-    payload:    { pass: args.pass, reason: args.reason },
+  database.sessionUpdate(ctx.db, ctx.sessionId, {
+    verdict_pass:   args.pass,
+    verdict_reason: args.reason,
   })
   return { ok: true, recorded: { pass: args.pass } }
 }

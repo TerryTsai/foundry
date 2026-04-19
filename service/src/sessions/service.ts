@@ -40,7 +40,7 @@ export function sessionActivities(db: Db, accountId: string, sessionId: string):
 export function activityCreate(db: Db, input: {
   session_id:   string
   turn_id?:     string | null
-  kind:         'prompt' | 'thought' | 'said' | 'tool_call' | 'reconcile' | 'verdict'
+  kind:         'prompt' | 'thought' | 'said' | 'tool_call' | 'reconcile'
   order_index?: number
   payload:      unknown
   tool_use_id?: string

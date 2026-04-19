@@ -148,15 +148,21 @@ export type NewAgent = typeof agent.$inferInsert
 // ════════════════════════════════════════════════════════════════════════════
 
 export const session = sqliteTable('session', {
-  id:            text('id').primaryKey(),
-  ticket_id:     text('ticket_id').notNull(),
-  agent_id:      text('agent_id').notNull().references(() => agent.id),
-  status:        text('status').notNull().default('running'),
-  error:         text('error'),
-  cost_usd:      real('cost_usd'),
-  duration_ms:   integer('duration_ms'),
-  started_at:    text('started_at').notNull(),
-  ended_at:      text('ended_at'),
+  id:             text('id').primaryKey(),
+  ticket_id:      text('ticket_id').notNull(),
+  agent_id:       text('agent_id').notNull().references(() => agent.id),
+  status:         text('status').notNull().default('running'),
+  error:          text('error'),
+  cost_usd:       real('cost_usd'),
+  duration_ms:    integer('duration_ms'),
+  // Verifier-only. Producer sessions always leave these NULL. Written
+  // by the verdictReport tool (or the synthetic-fail pipeline when a
+  // verifier ends silently or crashes). One verdict per verifier
+  // session — a column fits the 1:1 cardinality cleanly.
+  verdict_pass:   integer('verdict_pass', { mode: 'boolean' }),
+  verdict_reason: text('verdict_reason'),
+  started_at:     text('started_at').notNull(),
+  ended_at:       text('ended_at'),
 })
 
 export type Session = typeof session.$inferSelect
@@ -174,11 +180,8 @@ export type Session = typeof session.$inferSelect
 //               for new rows (enforced by service layer). Historical
 //               rows from before the correlation column may have NULL.
 //   reconcile — system modelUsage delta at session close
-//   verdict   — verifier session's pass/fail report. Payload:
-//               { pass: boolean, reason: string }. Read by the
-//               reconciler's finish-on-all-pass / retry-after-fail
-//               policies. Replaces the former verdict table; the
-//               session's agent is the verifier (session.agent_id).
+//   (Verdicts live on session.verdict_pass / session.verdict_reason,
+//   not as an activity row.)
 //
 // Tokens: the full turn's input/output totals sit on the FIRST activity
 // of each turn (lowest order_index for a turn_id). Others carry NULL

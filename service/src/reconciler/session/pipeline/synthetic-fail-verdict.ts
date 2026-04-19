@@ -5,7 +5,6 @@
 // review, never implicit approval.
 
 import * as database from '../../../core/db.js'
-import { activityCreate } from '../../../sessions/service.js'
 import type { Middleware } from './compose.js'
 
 export const withSyntheticFailVerdict: Middleware = (next) => async (ctx) => {
@@ -20,10 +19,9 @@ export const withSyntheticFailVerdict: Middleware = (next) => async (ctx) => {
       const reason = ctx.result
         ? 'verifier ended without reporting a verdict'
         : 'verifier crashed before reporting a verdict'
-      activityCreate(ctx.db, {
-        session_id: ctx.session.id,
-        kind:       'verdict',
-        payload:    { pass: false, reason },
+      database.sessionUpdate(ctx.db, ctx.session.id, {
+        verdict_pass:   false,
+        verdict_reason: reason,
       })
     }
   }

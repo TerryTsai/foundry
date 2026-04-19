@@ -113,6 +113,30 @@ export function createDatabase(path: string): Db {
     `)
   }
 
+  // 5) Verdicts move from kind='verdict' activity rows onto the session
+  //    itself — one verdict per verifier session, so columns fit 1:1.
+  //    Adds columns, backfills from activity, deletes the activity rows.
+  if (!hasColumn(sqlite, 'session', 'verdict_pass')) {
+    sqlite.exec(`
+      ALTER TABLE session ADD COLUMN verdict_pass INTEGER;
+      ALTER TABLE session ADD COLUMN verdict_reason TEXT;
+      UPDATE session SET
+        verdict_pass = (
+          SELECT json_extract(a.payload, '$.pass')
+          FROM activity a
+          WHERE a.session_id = session.id AND a.kind = 'verdict'
+          ORDER BY a.created_at LIMIT 1
+        ),
+        verdict_reason = (
+          SELECT json_extract(a.payload, '$.reason')
+          FROM activity a
+          WHERE a.session_id = session.id AND a.kind = 'verdict'
+          ORDER BY a.created_at LIMIT 1
+        );
+      DELETE FROM activity WHERE kind = 'verdict';
+    `)
+  }
+
   return drizzle(sqlite, { schema })
 }
 
@@ -400,17 +424,19 @@ export function agentRemove(d: Db, id: string): void {
 // the execution table via subquery — every tool invocation goes through
 // executionCreate.
 const sessionWithAgentColumns = {
-  id:            schema.session.id,
-  ticket_id:     schema.session.ticket_id,
-  agent_id:      schema.session.agent_id,
-  agent_name:    schema.agent.name,
-  model:         schema.agent.model,       // agent is immutable, so reading from agent is stable
-  status:        schema.session.status,
-  error:         schema.session.error,
-  cost_usd:      schema.session.cost_usd,
-  duration_ms:   schema.session.duration_ms,
-  started_at:    schema.session.started_at,
-  ended_at:      schema.session.ended_at,
+  id:             schema.session.id,
+  ticket_id:      schema.session.ticket_id,
+  agent_id:       schema.session.agent_id,
+  agent_name:     schema.agent.name,
+  model:          schema.agent.model,       // agent is immutable, so reading from agent is stable
+  status:         schema.session.status,
+  error:          schema.session.error,
+  cost_usd:       schema.session.cost_usd,
+  duration_ms:    schema.session.duration_ms,
+  verdict_pass:   schema.session.verdict_pass,
+  verdict_reason: schema.session.verdict_reason,
+  started_at:     schema.session.started_at,
+  ended_at:       schema.session.ended_at,
   tokens_in:  sql<number | null>`SUM(${schema.activity.tokens_in})`.as('tokens_in'),
   tokens_out: sql<number | null>`SUM(${schema.activity.tokens})`.as('tokens_out'),
   step_count: sql<number | null>`NULLIF(COUNT(DISTINCT ${schema.activity.turn_id}), 0)`.as('step_count'),
@@ -559,52 +585,44 @@ export function executionBySession(d: Db, sessionId: string): Execution[] {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// VERDICT (lives in activity now — kind='verdict' with payload {pass, reason})
+// VERDICT (lives on session.verdict_pass / session.verdict_reason)
 // ════════════════════════════════════════════════════════════════════════════
 
 export interface VerdictRow {
-  id:         string
+  id:         string       // session.id (1:1)
   session_id: string
-  agent_id:   string       // resolved from session.agent_id
-  ticket_id:  string       // resolved from session.ticket_id
+  agent_id:   string
+  ticket_id:  string
   pass:       boolean
   reason:     string
-  created_at: string
+  created_at: string       // session.ended_at ?? session.started_at
 }
 
-function activityToVerdict(d: Db, a: Activity): VerdictRow | null {
-  let body: { pass?: unknown; reason?: unknown }
-  try { body = JSON.parse(a.payload) } catch { return null }
-  if (typeof body.pass !== 'boolean') return null
-  const sess = d.select({ ticket_id: schema.session.ticket_id, agent_id: schema.session.agent_id })
-    .from(schema.session).where(eq(schema.session.id, a.session_id)).get() as { ticket_id: string; agent_id: string } | undefined
-  if (!sess) return null
+function sessionToVerdict(s: Session): VerdictRow | null {
+  if (s.verdict_pass === null || s.verdict_pass === undefined) return null
   return {
-    id: a.id, session_id: a.session_id,
-    agent_id: sess.agent_id, ticket_id: sess.ticket_id,
-    pass: body.pass,
-    reason: typeof body.reason === 'string' ? body.reason : '',
-    created_at: a.created_at,
+    id:         s.id,
+    session_id: s.id,
+    agent_id:   s.agent_id,
+    ticket_id:  s.ticket_id,
+    pass:       Boolean(s.verdict_pass),
+    reason:     s.verdict_reason ?? '',
+    created_at: s.ended_at ?? s.started_at,
   }
 }
 
 export function verdictByTicket(d: Db, ticketId: string): VerdictRow[] {
-  // activity → session → ticket
-  const rows = d.select({ a: schema.activity }).from(schema.activity)
-    .innerJoin(schema.session, eq(schema.activity.session_id, schema.session.id))
-    .where(and(eq(schema.activity.kind, 'verdict'), eq(schema.session.ticket_id, ticketId)))
-    .orderBy(schema.activity.created_at)
-    .all() as Array<{ a: Activity }>
-  return rows.map(r => activityToVerdict(d, r.a)).filter((v): v is VerdictRow => v != null)
+  const sessions = d.select().from(schema.session)
+    .where(eq(schema.session.ticket_id, ticketId))
+    .orderBy(schema.session.started_at)
+    .all() as Session[]
+  return sessions.map(sessionToVerdict).filter((v): v is VerdictRow => v != null)
 }
 
 export function verdictBySession(d: Db, sessionId: string): VerdictRow | undefined {
-  const a = d.select().from(schema.activity)
-    .where(and(eq(schema.activity.session_id, sessionId), eq(schema.activity.kind, 'verdict')))
-    .orderBy(schema.activity.created_at)
-    .get() as Activity | undefined
-  if (!a) return undefined
-  return activityToVerdict(d, a) ?? undefined
+  const s = sessionGet(d, sessionId)
+  if (!s) return undefined
+  return sessionToVerdict(s) ?? undefined
 }
 
 // ════════════════════════════════════════════════════════════════════════════
