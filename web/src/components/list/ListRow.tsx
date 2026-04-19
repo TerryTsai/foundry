@@ -10,10 +10,7 @@ interface ListRowProps {
 }
 
 export function ListRow({ title, subtitle, status, active, mono, onPress }: ListRowProps) {
-  // Hover fill: radial gradient centered on the row, fading smoothly
-  // to transparent in all directions. Zero hard edges. Press (active)
-  // uses a flat fill for crisp press feedback.
-  const cls = `w-full text-left border-b border-zinc-200 dark:border-zinc-800/50 py-3.5 flex items-center gap-3 hover:bg-[radial-gradient(80%_100%_at_center,theme(colors.zinc.100/60%),transparent)] dark:hover:bg-[radial-gradient(80%_100%_at_center,theme(colors.zinc.800/50%),transparent)] active:bg-zinc-100 dark:active:bg-zinc-900/70 ${
+  const cls = `w-full text-left border-b border-zinc-200 dark:border-zinc-800/50 py-3.5 flex items-center gap-3 active:bg-zinc-100 dark:active:bg-zinc-900/70 ${
     active ? 'bg-zinc-50 dark:bg-zinc-900/50' : ''
   }`
 
