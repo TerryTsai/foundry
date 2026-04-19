@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate, useLoaderData, useRevalidator } from 'react-router-dom'
-import { User, Bot, Info, Check, X, Clock, Zap } from 'lucide-react'
+import { User, Bot, Info, Clock, Zap } from 'lucide-react'
 import { ticketApi, commentApi, bustCache } from '../../api.js'
 import { ActivityRow } from '../../components/detail/ActivityRow.js'
 import { SectionLabel } from '../../components/detail/SectionLabel.js'
@@ -66,19 +66,15 @@ function TagSection({ ticketId, initialTags }: { ticketId: string; initialTags: 
   )
 }
 
-// ── Timeline: merge sessions, verdicts, events into one chronological stream ──
+// ── Timeline: ticket state transitions + sessions, chronologically ──
 
 interface TimelineEntry {
   id: string
   time: string
-  kind: 'session' | 'verdict' | 'event'
   icon: React.ReactNode
   label: string
   status?: string
-  meta?: string
-  body?: string
   sub?: { to: string; label: string }
-  expandable?: boolean
 }
 
 function cap(s: string): string {
@@ -86,7 +82,7 @@ function cap(s: string): string {
 }
 
 function buildTimeline(
-  sessions: Session[], verdicts: Verdict[], events: Event[],
+  sessions: Session[], events: Event[],
   agentNameById: (id: string) => string, projectId: string, ticketId: string,
 ): TimelineEntry[] {
   const entries: TimelineEntry[] = []
@@ -95,36 +91,28 @@ function buildTimeline(
     entries.push({
       id: `s-${s.id}`,
       time: s.started_at,
-      kind: 'session',
       icon: <Zap size={14} />,
       label: cap(s.agent_name ?? agentNameById(s.agent_id)),
       status: s.status,
-      body: [s.duration_ms ? fmtDuration(s.duration_ms) : null, s.cost_usd ? `$${s.cost_usd.toFixed(4)}` : null, s.tool_calls ? `${s.tool_calls} tools` : null].filter(Boolean).join(' · ') || undefined,
       sub: { to: `/p/${projectId}/tickets/${ticketId}/sessions/${s.id}`, label: 'session' },
     })
   }
 
-  for (const v of verdicts) {
-    entries.push({
-      id: `v-${v.id}`,
-      time: v.created_at,
-      kind: 'verdict',
-      icon: v.pass ? <Check size={14} className="text-emerald-500" /> : <X size={14} className="text-red-500" />,
-      label: cap(agentNameById(v.agent_id)),
-      status: v.pass ? 'pass' : 'fail',
-      body: v.reason,
-    })
-  }
-
   for (const e of events) {
+    if (e.entity_type !== 'ticket') continue
+    let label = cap(e.kind.replace(/_/g, ' '))
+    if (e.kind === 'status_changed') {
+      try {
+        const d = JSON.parse(e.data) as { from?: string; to?: string }
+        if (d.from && d.to) label = `${d.from} → ${d.to}`
+      } catch { /* fall back to default label */ }
+    }
     entries.push({
       id: `e-${e.id}`,
       time: e.created_at,
-      kind: 'event',
       icon: <Clock size={14} className="text-zinc-500" />,
-      label: cap(e.kind.replace(/_/g, ' ')),
+      label,
       status: e.caused_by,
-      expandable: false,
     })
   }
 
@@ -176,7 +164,7 @@ export function TicketDetailPage() {
   const ts = (s: string) => new Date(s).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
   const agentNameById = (id: string) => agents.find(a => a.id === id)?.name ?? id
 
-  const timeline = buildTimeline(sessions, verdicts, events, agentNameById, projectId, ticket.id)
+  const timeline = buildTimeline(sessions, events, agentNameById, projectId, ticket.id)
 
   return (
     <DetailShell
@@ -221,9 +209,8 @@ export function TicketDetailPage() {
             label={e.label}
             status={e.status}
             meta={ts(e.time)}
-            body={e.body}
             sub={e.sub}
-            expandable={e.expandable}
+            expandable={false}
           />
         ))}
       </div>
