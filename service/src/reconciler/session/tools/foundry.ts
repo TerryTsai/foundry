@@ -15,7 +15,6 @@
 import { z } from 'zod'
 
 import type { Db } from '../../../core/db.js'
-import * as database from '../../../core/db.js'
 import type { Config } from '../../../core/config.js'
 import { esc, runCommand } from '../../../integrations/shared.js'
 
@@ -177,15 +176,13 @@ async function handleTicketCreate(ctx: FoundryCtx, args: z.infer<typeof ticketCr
 }
 
 // Verdict is written onto the verifier's session row (verdict_pass /
-// verdict_reason). The verify dance reads it back via verdictBySession;
-// the next producer sees prior verdicts on the ticket in its system
-// prompt (assembled by the runner).
+// verdict_reason) via the normal sandbox → HTTP round trip, so the tool
+// call gets the same execution-row treatment as every other tool. The
+// verify dance reads it back via verdictBySession; the next producer
+// sees prior verdicts on the ticket in its system prompt.
 async function handleVerdictReport(ctx: FoundryCtx, args: z.infer<typeof verdictReportArgs>) {
-  database.sessionUpdate(ctx.db, ctx.sessionId, {
-    verdict_pass:   args.pass,
-    verdict_reason: args.reason,
-  })
-  return { ok: true, recorded: { pass: args.pass } }
+  const payload = JSON.stringify({ pass: args.pass, reason: args.reason })
+  return apiPost(ctx, 'verdictReport', args, `/session/${ctx.sessionId}/verdict`, payload)
 }
 
 async function handleTicketComment(ctx: FoundryCtx, args: z.infer<typeof ticketCommentArgs>) {

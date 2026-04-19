@@ -17,6 +17,17 @@ export function sessionStatus(db: Db, accountId: string, id: string): { status: 
   return { status: s.status }
 }
 
+export function verdictSet(
+  db: Db, accountId: string, id: string, input: { pass: boolean; reason: string },
+): { ok: true; recorded: { pass: boolean } } {
+  sessionOwned(db, id, accountId)
+  database.sessionUpdate(db, id, {
+    verdict_pass:   input.pass,
+    verdict_reason: input.reason,
+  })
+  return { ok: true, recorded: { pass: input.pass } }
+}
+
 export function sessionKill(db: Db, accountId: string, id: string): { ok: true } {
   const s = sessionOwned(db, id, accountId)
   assertStatus(s, 'running', 'session is not running')
