@@ -3,7 +3,7 @@ import type { Db } from '../core/db.js'
 import { parse, run, send } from '../core/http.js'
 import { accountId } from '../core/account-id.js'
 import * as validate from './schema.js'
-import * as providers from '../agent-runtime/providers/registry.js'
+import * as providers from '../integrations/registry.js'
 import { connectionList, connectionGet, connectionCreate, connectionUpdate, connectionRemove } from './service.js'
 
 export function connectionRoutes(db: Db) {

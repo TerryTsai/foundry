@@ -6,7 +6,7 @@ import * as validate from './schema.js'
 import { agentMcpList, agentList, agentGet, agentCreate, agentUpdate, agentRemove } from './service.js'
 import { sessionGet, sessionStatus, sessionKill, sessionActivities } from '../sessions/service.js'
 import { agentUsage } from '../analytics/usage.js'
-import { TOOL_NAMES } from '../agent-runtime/tools/registry.js'
+import { TOOL_NAMES } from '../reconciler/session/tools/registry.js'
 
 export function agentRoutes(db: Db) {
   const r = Router()

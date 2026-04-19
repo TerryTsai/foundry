@@ -1,204 +1,74 @@
-// Reconciler: one loop, 5s interval. Replaces both the scheduler and
-// the orchestrator. Evaluates every non-terminal ticket per active
-// project and advances state based on conditions.
+// Reconciler — the only background process. Every 5s, walks each active
+// project's non-terminal tickets and consults an ordered list of
+// policies. First policy that takes an action wins for that ticket;
+// subsequent policies in the list don't run for it this tick. Edit the
+// POLICIES list to change reconciler behavior — that's the whole
+// interface.
 //
-// Dispatch order: FIFO by last event timestamp — whatever has been
-// waiting longest gets the next slot. Prevents starvation across
-// producers and verifiers.
+// All session execution lives under ./session/. The reconciler's job is
+// purely "what should run next"; it never executes a session itself.
 
 import { eq } from 'drizzle-orm'
 import { type Db } from '../core/db.js'
 import * as database from '../core/db.js'
 import * as schema from '../core/schema.js'
-import type { Agent as AgentDef, Ticket } from '../core/schema.js'
 import { now } from '../core/util.js'
 import { agentList } from '../agents/service.js'
 
-function parseVerifiers(raw: string | null): string[] {
-  if (!raw) return []
-  try {
-    const v = JSON.parse(raw)
-    return Array.isArray(v) ? v.filter(x => typeof x === 'string') : []
-  } catch { return [] }
-}
+import { dispatchProducer }         from './policies/dispatch-producer.js'
+import { settleRunning }            from './policies/settle-running.js'
+import { dispatchRecoveryProducer } from './policies/dispatch-recovery-producer.js'
+import { finishWithoutVerifiers }   from './policies/finish-without-verifiers.js'
+import { dispatchVerifier }         from './policies/dispatch-verifier.js'
+import { finishOnAllPass }          from './policies/finish-on-all-pass.js'
+import { retryAfterFail }           from './policies/retry-after-fail.js'
 
-function lastEventTime(db: Db, ticketId: string): string {
-  const ev = database.eventLatest(db, 'ticket', ticketId)
-  return ev?.created_at ?? '1970-01-01T00:00:00.000Z'
-}
+// Order matters — earlier policies pre-empt later ones for the same
+// ticket. Most policies have mutually exclusive guards (status +
+// verdicts state), so reordering rarely changes behavior. The exception:
+// finish-on-all-pass and retry-after-fail both apply to "all verifiers
+// done" — finish runs first because all-pass is the happy path; retry
+// takes whatever falls through.
+const POLICIES = [
+  dispatchProducer,            // created → dispatch producer (slot allowing)
+  settleRunning,               // running with no live session → waiting
+  dispatchRecoveryProducer,    // waiting + no producer ever → dispatch one
+  finishWithoutVerifiers,      // waiting + no verifiers configured → settle
+  dispatchVerifier,            // waiting → dispatch a missing verifier
+  finishOnAllPass,             // waiting + all verifiers passed → finished
+  retryAfterFail,              // waiting + any verifier failed → reset + new producer
+]
 
-function hasRunningSession(db: Db, ticketId: string): boolean {
-  return database.sessionRunningForTicket(db, ticketId).length > 0
-}
-
-function transition(db: Db, ticketId: string, from: string, to: string, causedBy: string, data?: Record<string, unknown>): boolean {
-  if (!database.ticketTransition(db, ticketId, from, to)) return false
-  database.eventInsert(db, {
-    entity_type: 'ticket', entity_id: ticketId,
-    kind: 'status_changed',
-    data: JSON.stringify({ from, to, ...data }),
-    caused_by: causedBy,
-  })
-  return true
-}
-
-function dispatchSession(db: Db, ticket: Ticket, agent: AgentDef, role: 'producer' | 'verifier'): void {
-  const sess = database.sessionInsert(db, {
-    ticket_id: ticket.id, agent_id: agent.id,
-    status: 'running', started_at: now(),
-  })
-  database.eventInsert(db, {
-    entity_type: 'session', entity_id: sess.id,
-    kind: 'started',
-    data: JSON.stringify({ role, ticket_id: ticket.id, agent_name: agent.name }),
-    caused_by: 'reconciler',
-  })
-  // Fire-and-forget: the session runner emits events when done.
-  import('../agent-runtime/session.js').then(({ runSession }) =>
-    runSession(db, (globalThis as any).__foundryConfig, sess.id, agent, ticket, role)
-      .catch((err: unknown) => console.error(`session ${sess.id} crashed:`, err))
-  )
-}
-
-// ── Per-ticket evaluation ──
-
-function evaluateCreated(db: Db, ticket: Ticket, agents: AgentDef[], slots: { remaining: number }): void {
-  if (slots.remaining <= 0) return
-  if (!ticket.agent_id) return
-  const agent = agents.find(a => a.id === ticket.agent_id)
-  if (!agent) return
-
-  if (ticket.depends_on) {
-    const dep = database.ticketGet(db, ticket.depends_on)
-    if (!dep || dep.status !== 'finished') return
-  }
-
-  if (!transition(db, ticket.id, 'created', 'running', 'reconciler')) return
-  slots.remaining--
-  dispatchSession(db, { ...ticket, status: 'running' }, agent, 'producer')
-}
-
-function evaluateRunning(db: Db, ticket: Ticket): void {
-  if (hasRunningSession(db, ticket.id)) return
-  transition(db, ticket.id, 'running', 'waiting', 'reconciler')
-}
-
-function evaluateWaiting(db: Db, ticket: Ticket, agents: AgentDef[], slots: { remaining: number }): void {
-  const agent = agents.find(a => a.id === ticket.agent_id)
-  if (!agent) return
-
-  const verifierIds = parseVerifiers(agent.verifiers)
-  const verdicts = database.verdictByTicket(db, ticket.id)
-
-  // Find the latest producer session to determine the current round.
-  const sessions = database.sessionsByTicketRaw(db, ticket.id)
-  const producerSessions = sessions.filter(s => {
-    // A producer session is one run by the ticket's assigned agent
-    return s.agent_id === ticket.agent_id
-  })
-  const latestProducer = producerSessions[producerSessions.length - 1]
-  if (!latestProducer) {
-    // No producer has ever run — dispatch one
-    if (slots.remaining <= 0) return
-    if (!transition(db, ticket.id, 'waiting', 'running', 'reconciler', { reason: 'retry' })) return
-    slots.remaining--
-    dispatchSession(db, { ...ticket, status: 'running' }, agent, 'producer')
-    return
-  }
-
-  // No verifiers configured — producer finishing = ticket finished
-  if (verifierIds.length === 0) {
-    if (latestProducer.status === 'finished') {
-      transition(db, ticket.id, 'waiting', 'finished', 'reconciler')
-    } else if (latestProducer.status === 'failed') {
-      transition(db, ticket.id, 'waiting', 'failed', 'reconciler')
-    }
-    return
-  }
-
-  // Find verifier sessions from this round (started after latest producer)
-  const verifierSessions = sessions.filter(s =>
-    s.agent_id !== ticket.agent_id && s.started_at >= latestProducer.started_at
-  )
-
-  // Dispatch any missing verifiers
-  const dispatchedVerifierAgentIds = new Set(verifierSessions.map(s => s.agent_id))
-  for (const vid of verifierIds) {
-    if (dispatchedVerifierAgentIds.has(vid)) continue
-    const verifier = agents.find(a => a.id === vid)
-    if (!verifier) continue
-    if (slots.remaining <= 0) return
-    if (!transition(db, ticket.id, 'waiting', 'running', 'reconciler', { reason: 'verifier', verifier_name: verifier.name })) return
-    slots.remaining--
-    dispatchSession(db, { ...ticket, status: 'running' }, verifier, 'verifier')
-    return
-  }
-
-  // All verifiers dispatched — check if all done
-  const allVerifiersDone = verifierSessions.length >= verifierIds.length &&
-    verifierSessions.every(s => s.status !== 'running')
-
-  if (!allVerifiersDone) return
-
-  // Read verdicts for this round
-  const roundVerdicts = verifierSessions
-    .map(s => database.verdictBySession(db, s.id))
-    .filter((v): v is NonNullable<typeof v> => v != null)
-
-  if (roundVerdicts.length < verifierIds.length) {
-    // Not all verdicts in (some verifiers may have been cancelled)
-    // Treat missing verdicts as fails
-  }
-
-  const allPass = roundVerdicts.length > 0 && roundVerdicts.every(v => v.pass)
-
-  if (allPass) {
-    const verifierNames = roundVerdicts.map(v => agents.find(x => x.id === v.agent_id)?.name ?? v.agent_id)
-    transition(db, ticket.id, 'waiting', 'finished', 'reconciler', { verified_by: verifierNames })
-  } else {
-    // Any fail — cycle back to waiting for next producer round
-    transition(db, ticket.id, 'waiting', 'waiting', 'reconciler', { reason: 'verdict_fail' })
-    // Dispatch new producer if slot available
-    if (slots.remaining > 0) {
-      if (transition(db, ticket.id, 'waiting', 'running', 'reconciler', { reason: 'retry' })) {
-        slots.remaining--
-        dispatchSession(db, { ...ticket, status: 'running' }, agent, 'producer')
-      }
-    }
-  }
-}
-
-// ── Sweep ──
+// ── tick ─────────────────────────────────────────────────────────────
 
 export async function reconcilerTick(db: Db): Promise<void> {
-  for (const proj of database.projectsActive(db)) {
-    const allAgents = agentList(db, { accountId: proj.owner_id })
-
-    // Reconciler is the system runtime — bypasses the user-scoped
-    // ticketList helper and queries the table directly per project.
+  for (const project of database.projectsActive(db)) {
+    // build per-project context once
+    const agents = agentList(db, { accountId: project.owner_id })
     const ticketsByStatus = (status: string) =>
-      database.ticketAll(db, [eq(schema.ticket.project_id, proj.id), eq(schema.ticket.status, status)])
+      database.ticketAll(db, [eq(schema.ticket.project_id, project.id), eq(schema.ticket.status, status)])
     const running = ticketsByStatus('running')
-    const slots = { remaining: proj.max_agents - running.length }
+    const slots   = { remaining: project.max_agents - running.length }
 
-    // Gather non-terminal tickets, sort by last event time ASC (FIFO)
-    const nonTerminal = [
-      ...running,
-      ...ticketsByStatus('waiting'),
-      ...ticketsByStatus('created'),
-    ].sort((a, b) => lastEventTime(db, a.id).localeCompare(lastEventTime(db, b.id)))
+    // FIFO across non-terminal tickets — whatever waited longest goes first
+    const queue = [...running, ...ticketsByStatus('waiting'), ...ticketsByStatus('created')]
+      .sort((a, b) => {
+        const ea = database.eventLatest(db, 'ticket', a.id)?.created_at ?? '1970-01-01'
+        const eb = database.eventLatest(db, 'ticket', b.id)?.created_at ?? '1970-01-01'
+        return ea.localeCompare(eb)
+      })
 
-    for (const ticket of nonTerminal) {
-      switch (ticket.status) {
-        case 'created': evaluateCreated(db, ticket, allAgents, slots); break
-        case 'running': evaluateRunning(db, ticket); break
-        case 'waiting': evaluateWaiting(db, ticket, allAgents, slots); break
+    // walk each ticket through the policy list — first match acts, rest skip
+    for (const ticket of queue) {
+      const ctx = { db, project, agents, ticket, slots }
+      for (const policy of POLICIES) {
+        if (policy(ctx) === 'acted') break
       }
     }
   }
 }
 
-// ── Lifecycle ──
+// ── lifecycle ────────────────────────────────────────────────────────
 
 let globalInterval: ReturnType<typeof setInterval> | null = null
 

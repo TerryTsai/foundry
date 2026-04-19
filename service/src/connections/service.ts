@@ -7,7 +7,7 @@ import * as schema from '../core/schema.js'
 import type { Connection } from '../core/schema.js'
 import { mustExist, now, timestamps } from '../core/util.js'
 import { conflict, badRequest, notFound } from '../core/errors.js'
-import * as providers from '../agent-runtime/providers/registry.js'
+import * as providers from '../integrations/registry.js'
 import * as validate from './schema.js'
 import { encryptSecret, decryptSecret } from '../connections/secrets-crypto.js'
 
