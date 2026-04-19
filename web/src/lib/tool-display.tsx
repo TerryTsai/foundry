@@ -67,7 +67,7 @@ const TOOL_META: Record<string, ToolMeta> = {
   sessionList:   { label: _ => 'session list', icon: ListTree },
   connectionList:{ label: _ => 'connection list', icon: Activity },
   think:         { label: _ => 'think', icon: Brain },
-  verdictReport: { label: i => `verdict: ${i.pass ? 'pass' : 'fail'}${asString(i.reason) ? ` — ${truncate(asString(i.reason)!, 60)}` : ''}`, icon: Gavel },
+  verdictReport: { label: i => `verdict ${i.pass ? 'pass' : 'fail'}`, icon: Gavel },
 
   // ── cloudflare ──
   whoami:           { label: _ => 'cloudflare whoami', icon: ShieldCheck },
