@@ -14,16 +14,18 @@ package decides *what* to run; this package runs it.
                           └──────┬───────┘
                                  │
                        ┌─────────▼─────────┐
-                       │  pipeline/ stack  │   wraps the engine in onion middleware:
+                       │  pipeline/ stack  │   onion middleware, outermost first:
                        │                   │     crashSafe → bookkeeping → activityBackfill
                        │                   │       → ticketFailOnCrash | syntheticFailVerdict
                        │                   │       → workspace → systemPrompt
                        │                   │       → openingPrompt → cooperativeCancel
+                       │                   │       → engine  (innermost — picks the SDK
+                       │                   │                  and runs it)
                        └─────────┬─────────┘
                                  │
                           ┌──────▼──────┐
-                          │  engines/   │   pick the SDK (claude-agent-sdk vs vercel-ai)
-                          │             │   and run the model in its agent loop
+                          │  engines/   │   anthropic.ts (Claude Agent SDK) or
+                          │             │   vercel.ts (Vercel AI SDK) drives the model
                           └──────┬──────┘
                           model emits tool_use
                                  │
