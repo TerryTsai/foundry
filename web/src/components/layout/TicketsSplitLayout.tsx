@@ -51,7 +51,7 @@ export function TicketsIndexPlaceholder() {
 export function TicketsSplitLayout() {
   const shellCtx = useShell()
   const { projectId, revalidate } = shellCtx
-  const { data: tickets = [] } = useQuery(ticketListOpts({ projectId }))
+  const { data: tickets = [], isPending: ticketsPending } = useQuery(ticketListOpts({ projectId }))
   const { data: agents = [] }  = useQuery(agentListOpts())
   const { ticketId } = useParams<{ ticketId: string }>()
 
@@ -173,11 +173,7 @@ export function TicketsSplitLayout() {
   // ── Ticket row list (shared between desktop & mobile) ─────────────────────
 
   function renderRows(hideChevron: boolean) {
-    if (tagLoading) return (
-      <div className="flex items-center justify-center py-10">
-        <span className="text-xs text-zinc-400 dark:text-zinc-600 animate-pulse">filtering…</span>
-      </div>
-    )
+    if (tagLoading || ticketsPending) return null
     if (filtered.length === 0) return <EmptyState message="no tickets" />
     return (
       <div className="[&>:last-child>*]:border-b-0">

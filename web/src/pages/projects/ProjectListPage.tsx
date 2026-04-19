@@ -6,7 +6,7 @@ import { ListRow } from '../../components/list/ListRow.js'
 import { EmptyState } from '../../components/list/EmptyState.js'
 
 export function ProjectListPage() {
-  const { data: projects = [] } = useQuery(projectListOpts())
+  const { data: projects, isPending } = useQuery(projectListOpts())
   const queryClient = useQueryClient()
 
   return (
@@ -14,7 +14,8 @@ export function ProjectListPage() {
       action={{ label: 'Project', onPress: '/settings/projects/new' }}
       onRefresh={async () => { await queryClient.invalidateQueries({ queryKey: qk.project.all() }) }}
     >
-      {projects.length === 0
+      {isPending ? null
+        : !projects || projects.length === 0
         ? <EmptyState message="no projects" />
         : <div className="[&>:last-child>*]:border-b-0">{projects.map(p => (
           <Link key={p.id} to={`/p/${p.id}/tickets`} className="block">

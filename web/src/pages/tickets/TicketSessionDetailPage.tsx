@@ -175,7 +175,7 @@ export function TicketSessionDetailPage() {
   const { data: session } = useQuery(sessionGetOpts(sessionId!))
   const { data: agents = [] }     = useQuery(agentListOpts())
   const { data: executions = [] } = useQuery(sessionExecutionsOpts(sessionId!))
-  const { data: activities = [] } = useQuery(sessionActivitiesOpts(sessionId!))
+  const { data: activities = [], isPending: activitiesPending } = useQuery(sessionActivitiesOpts(sessionId!))
   const { data: usage }           = useQuery(sessionUsageOpts(sessionId!))
 
   const agentName = session?.agent_name ?? agents.find(a => a.id === session?.agent_id)?.name ?? session?.agent_id ?? ''
@@ -233,7 +233,8 @@ export function TicketSessionDetailPage() {
           → tool_call → ... → reconcile. Linear scan for audit. */}
       <div>
         <SectionLabel label={`activity (${activities.length})`} onRefresh={refreshActivity} />
-        {activities.length === 0
+        {activitiesPending ? null
+          : activities.length === 0
           ? <EmptyState message="no activity" />
           : activities.map(a => (
               <ActivityEntry key={a.id} a={a} execByToolUseId={execByToolUseId} execHref={execPath} />

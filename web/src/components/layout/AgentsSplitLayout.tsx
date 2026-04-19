@@ -17,7 +17,7 @@ export function AgentsIndexPlaceholder() {
 
 // ── Split layout ────────────────────────────────────────────────────────────
 export function AgentsSplitLayout() {
-  const { data: agents = [] } = useQuery(agentListOpts())
+  const { data: agents, isPending } = useQuery(agentListOpts())
   const { agentId } = useParams<{ agentId: string }>()
   const queryClient = useQueryClient()
 
@@ -26,9 +26,10 @@ export function AgentsSplitLayout() {
 
   // ── Shared row list ────────────────────────────────────────────────────────
   function renderRows(hideChevron: boolean) {
+    if (isPending) return null
     return (
       <div className="[&>:last-child>*]:border-b-0">
-        {agents.length === 0 ? (
+        {!agents || agents.length === 0 ? (
           <EmptyState message="no agents" />
         ) : (
           agents.map(a => (

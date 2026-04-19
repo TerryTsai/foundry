@@ -6,7 +6,7 @@ import { ListRow } from '../../components/list/ListRow.js'
 import { EmptyState } from '../../components/list/EmptyState.js'
 
 export function ConnectionListPage() {
-  const { data: connections = [] } = useQuery(connectionListOpts())
+  const { data: connections, isPending } = useQuery(connectionListOpts())
   const queryClient = useQueryClient()
 
   return (
@@ -14,7 +14,8 @@ export function ConnectionListPage() {
       action={{ label: 'Connection', onPress: '/settings/connections/new' }}
       onRefresh={async () => { await queryClient.invalidateQueries({ queryKey: qk.connection.all() }) }}
     >
-      {connections.length === 0
+      {isPending ? null
+        : !connections || connections.length === 0
         ? <EmptyState message="no connections configured" />
         : <div className="[&>:last-child>*]:border-b-0">{connections.map(c => (
           <Link key={c.id} to={`/settings/connections/${c.id}`} className="block">
