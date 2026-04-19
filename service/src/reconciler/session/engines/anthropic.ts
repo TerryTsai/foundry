@@ -133,10 +133,21 @@ function upsertActivity(db: Db, params: {
   })
 }
 
-function toSdkServer(name: string, defs: ToolDef[], serverCtx: unknown, allowed: string[] | '*' | null | undefined) {
+function toSdkServer(
+  name: string, defs: ToolDef[], serverCtx: unknown, allowed: string[] | '*' | null | undefined,
+  isCancelled: () => boolean,
+) {
   const tu = (extra: unknown) => ({ ...(serverCtx as any), toolUseId: toolUseId(extra) })
   const all = defs.map(t =>
-    sdkTool(t.name, t.description, (t.schema as any).shape, async (a: any, x: unknown) => asText(await t.handler(tu(x), a)))
+    sdkTool(t.name, t.description, (t.schema as any).shape, async (a: any, x: unknown) => {
+      // The SDK dispatches MCP handlers as soon as the model emits a
+      // tool_use block, which can be AFTER we've already flipped the
+      // ticket to cancelled but BEFORE our for-await loop sees the
+      // corresponding assistant message and breaks. Guard here so no
+      // side effects fire post-cancel.
+      if (isCancelled()) return asText({ error: 'session cancelled' })
+      return asText(await t.handler(tu(x), a))
+    })
   )
   return createSdkMcpServer({ name, tools: filterTools(all, allowed) })
 }
@@ -149,14 +160,24 @@ function buildMcpServers(ctx: SessionContext) {
   const selection  = parseToolSelection(agentDef.tools)
   const mcpServers: Record<string, ReturnType<typeof createSdkMcpServer>> = {}
 
+  // Read fresh status from the DB on every tool dispatch — same check
+  // as withCooperativeCancel but applied at the handler boundary.
+  const isCancelled = () => {
+    const t = database.ticketGet(db, ticketData.id)
+    if (!t || t.status !== 'running') return true
+    const s = database.sessionGet(db, sessionId)
+    if (!s || s.status !== 'running') return true
+    return false
+  }
+
   const foundryCtx = { db, config, sessionId, workspace: workDir, projectId: ticketData.project_id, accountId: agentDef.account_id, ticketId: ticketData.id, agentName: agentDef.name, sandboxToken: ctx.sandboxToken }
   const githubCtx  = { db, config, sessionId, workspace: workDir, ticket: ticketData, agentName: agentDef.name }
   const sandboxCtx = { db, config, sessionId, workspace: workDir }
 
-  if (selection === null || 'foundry' in selection) mcpServers.foundry = toSdkServer('foundry', foundryServer.tools, foundryCtx, selection?.foundry)
-  if (selection === null || 'github'  in selection) mcpServers.github  = toSdkServer('github',  githubServer.tools,  githubCtx,  selection?.github)
-  if (selection === null || 'sandbox' in selection) mcpServers.sandbox = toSdkServer('sandbox', sandboxServer.tools, sandboxCtx, selection?.sandbox)
-  if (selection === null || 'browser' in selection) mcpServers.browser = toSdkServer('browser', browserServer.tools, sandboxCtx, selection?.browser)
+  if (selection === null || 'foundry' in selection) mcpServers.foundry = toSdkServer('foundry', foundryServer.tools, foundryCtx, selection?.foundry, isCancelled)
+  if (selection === null || 'github'  in selection) mcpServers.github  = toSdkServer('github',  githubServer.tools,  githubCtx,  selection?.github, isCancelled)
+  if (selection === null || 'sandbox' in selection) mcpServers.sandbox = toSdkServer('sandbox', sandboxServer.tools, sandboxCtx, selection?.sandbox, isCancelled)
+  if (selection === null || 'browser' in selection) mcpServers.browser = toSdkServer('browser', browserServer.tools, sandboxCtx, selection?.browser, isCancelled)
 
   const conns = database.connectionByAccount(db, agentDef.account_id)
   for (const conn of conns) {
@@ -166,7 +187,7 @@ function buildMcpServers(ctx: SessionContext) {
     if (selection !== null && !(key in selection)) continue
     const { secrets, connConfig } = parseConn(conn)
     const connCtx = { db, config, sessionId, workspace: workDir, secrets, connConfig, connectionName: conn.name }
-    mcpServers[key] = toSdkServer(key, mod.tools, connCtx, selection === null ? null : selection[key])
+    mcpServers[key] = toSdkServer(key, mod.tools, connCtx, selection === null ? null : selection[key], isCancelled)
   }
   return mcpServers
 }
