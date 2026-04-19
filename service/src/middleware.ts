@@ -60,20 +60,14 @@ export const requireAuth = (db: Db, _config: Config): RequestHandler =>
     const authHeader = req.headers.authorization
     if (authHeader?.startsWith('Bearer ')) {
       const token = authHeader.slice(7)
-      // Per-session sandbox token. Resolves session → ticket → project →
-      // account so subsequent handlers see req.account just like a normal
-      // cookie request. This is the path Phase 4+ uses; the legacy
-      // global token below remains for back-compat until Phase 5.
+      // Per-session sandbox JWT. Claims carry the resolved
+      // session/ticket/project/account chain — verifying the HMAC is the
+      // whole identity check, no DB lookup required. accountGet hydrates
+      // the full Account row for handlers that read more than `id`.
       if (token.startsWith('sb_')) {
-        const tokRow = sandboxToken.resolve(db, token)
-        if (!tokRow) return next(unauthorized())
-        const session = database.sessionGet(db, tokRow.session_id)
-        if (!session) return next(unauthorized())
-        const ticket = database.ticketGet(db, session.ticket_id)
-        if (!ticket) return next(unauthorized())
-        const proj = database.projectGet(db, ticket.project_id)
-        if (!proj || !proj.owner_id) return next(unauthorized())
-        const account = database.accountGet(db, proj.owner_id)
+        const claims = sandboxToken.resolve(db, token)
+        if (!claims) return next(unauthorized())
+        const account = database.accountGet(db, claims.aid)
         if (!account) return next(unauthorized())
         req.account = account
         return next()

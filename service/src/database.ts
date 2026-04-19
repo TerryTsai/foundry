@@ -64,16 +64,10 @@ export function createDatabase(path: string): Db {
     CREATE INDEX IF NOT EXISTS idx_event_entity    ON event(entity_type, entity_id);
     CREATE INDEX IF NOT EXISTS idx_event_entity_id ON event(entity_id);
 
-    CREATE TABLE IF NOT EXISTS sandbox_token (
-      id          TEXT PRIMARY KEY,
-      session_id  TEXT NOT NULL REFERENCES session(id) ON DELETE CASCADE,
-      token_hash  TEXT NOT NULL UNIQUE,
-      created_at  TEXT NOT NULL,
-      expires_at  TEXT NOT NULL,
-      revoked_at  TEXT
-    );
-    CREATE INDEX IF NOT EXISTS idx_sandbox_token_session  ON sandbox_token(session_id);
-    CREATE INDEX IF NOT EXISTS idx_sandbox_token_hash     ON sandbox_token(token_hash);
+    -- sandbox_token table dropped — per-session auth is now a stateless
+    -- HMAC JWT (see crypto/jwt.ts). Drop the legacy table on existing
+    -- deployments; it carries no state worth keeping.
+    DROP TABLE IF EXISTS sandbox_token;
   `)
 
   return drizzle(sqlite, { schema })

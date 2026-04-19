@@ -63,9 +63,10 @@ export async function runSession(
   const sessionRow = database.sessionGet(db, sessionId)
   if (!sessionRow) throw new Error(`session ${sessionId} not found`)
 
-  // Mint a per-session bearer token. Sandbox tools curl the host with this;
-  // requireAuth resolves it back to (session → ticket → project → owner).
-  // TTL covers the longest reasonable session run; revoked on completion.
+  // Mint a per-session bearer JWT. Sandbox tools curl the host with this;
+  // requireAuth verifies the signature and reads session/ticket/project/
+  // account from the claims. Stateless — no row to revoke; expiry is the
+  // upper bound on usable lifetime.
   const sandboxTok = sandboxToken.mint(db, sessionId,
     Math.max(config.sandboxTimeout * 2, 30 * 60 * 1000))
 
@@ -77,10 +78,6 @@ export async function runSession(
     startedAt: Date.now(),
   }
 
-  try {
-    const stack = role === 'verifier' ? runVerifier : runProducer
-    await stack(ctx)
-  } finally {
-    sandboxToken.revoke(db, sessionId)
-  }
+  const stack = role === 'verifier' ? runVerifier : runProducer
+  await stack(ctx)
 }

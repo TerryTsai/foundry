@@ -1,67 +1,41 @@
-import { createHash, randomBytes } from 'crypto'
-import { eq } from 'drizzle-orm'
-import { ulid } from 'ulid'
-
 import { type Db } from '../database.js'
-import * as schema from '../tables.js'
-import type { SandboxToken } from '../tables.js'
+import * as database from '../database.js'
+import { mustExist } from '../util.js'
+import {
+  signSessionJwt,
+  verifySessionJwt,
+  isSessionJwt,
+  type SessionClaims,
+} from '../crypto/jwt.js'
 
-// Per-session sandbox tokens. The mint() return value is the only place
-// the actual 32-byte token exists in plaintext; we store its SHA-256 so a
-// DB compromise still requires the live token to forge a request.
+// Per-session sandbox auth. Stateless JWT — no table, no lookup. Claims
+// carry session → ticket → project → account so requireAuth can populate
+// req.account directly from the signed payload.
 //
-// Format: sb_<base64url(32 random bytes)>
-//
-// Lifecycle:
-//   mint()    — called from runSession before podman spawn
-//   resolve() — called from requireAuth on every bearer request
-//   revoke()  — called when the session terminates (success / fail / kill)
-//
-// Resolution returns the linked session row so the middleware can chain
-// session → ticket → project → owner_id and populate req.account.
+// The sandbox receives the token via a mounted file (/foundry-secrets/token)
+// and sends it as `Authorization: Bearer <token>`. Signature is HMAC-SHA256
+// over the claims using FOUNDRY_ENCRYPTION_KEY.
 
-const PREFIX     = 'sb_'
-const TOKEN_LEN  = 32  // bytes of entropy
-const DEFAULT_TTL_MS = 30 * 60 * 1000  // 30 minutes; sandbox timeout default is 20
+const DEFAULT_TTL_MS = 30 * 60 * 1000  // 30 min; sandbox timeout default is 20
 
-function hash(token: string): string {
-  return createHash('sha256').update(token).digest('hex')
-}
-
-export function isSandboxToken(token: string): boolean {
-  return token.startsWith(PREFIX)
-}
+export { isSessionJwt as isSandboxToken }
 
 export function mint(db: Db, sessionId: string, ttlMs: number = DEFAULT_TTL_MS): string {
-  const raw   = randomBytes(TOKEN_LEN).toString('base64url')
-  const token = PREFIX + raw
-  const created = new Date()
-  const expires = new Date(created.getTime() + ttlMs)
-  db.insert(schema.sandboxToken).values({
-    id:         ulid(),
-    session_id: sessionId,
-    token_hash: hash(token),
-    created_at: created.toISOString(),
-    expires_at: expires.toISOString(),
-    revoked_at: null,
-  }).run()
-  return token
+  const session = mustExist(database.sessionGet(db, sessionId), `session '${sessionId}' not found`)
+  const ticket  = mustExist(database.ticketGet(db, session.ticket_id), `ticket '${session.ticket_id}' not found`)
+  const project = mustExist(database.projectGet(db, ticket.project_id), `project '${ticket.project_id}' not found`)
+  if (!project.owner_id) throw new Error(`project '${project.id}' has no owner — cannot mint sandbox token`)
+  const claims: SessionClaims = {
+    v:   1,
+    sid: session.id,
+    tid: ticket.id,
+    pid: project.id,
+    aid: project.owner_id,
+    exp: Math.floor((Date.now() + ttlMs) / 1000),
+  }
+  return signSessionJwt(claims)
 }
 
-export function resolve(db: Db, token: string): SandboxToken | undefined {
-  if (!isSandboxToken(token)) return undefined
-  const row = db.select().from(schema.sandboxToken)
-    .where(eq(schema.sandboxToken.token_hash, hash(token)))
-    .get() as SandboxToken | undefined
-  if (!row) return undefined
-  if (row.revoked_at) return undefined
-  if (new Date(row.expires_at) < new Date()) return undefined
-  return row
-}
-
-export function revoke(db: Db, sessionId: string): void {
-  db.update(schema.sandboxToken)
-    .set({ revoked_at: new Date().toISOString() })
-    .where(eq(schema.sandboxToken.session_id, sessionId))
-    .run()
+export function resolve(_db: Db, token: string): SessionClaims | undefined {
+  return verifySessionJwt(token) ?? undefined
 }

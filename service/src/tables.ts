@@ -169,22 +169,6 @@ export const session = sqliteTable('session', {
 
 export type Session = typeof session.$inferSelect
 
-// Per-session sandbox token. Minted when a session dispatches; the actual
-// 32-byte token is handed to the sandbox via a mounted file, only its hash
-// is stored. requireAuth resolves the hash → session → ticket → project →
-// account context, so bearer-token endpoints carry full identity instead
-// of relying on a query-string accountId.
-export const sandboxToken = sqliteTable('sandbox_token', {
-  id:         text('id').primaryKey(),
-  session_id: text('session_id').notNull().references(() => session.id, { onDelete: 'cascade' }),
-  token_hash: text('token_hash').notNull().unique(),
-  created_at: text('created_at').notNull(),
-  expires_at: text('expires_at').notNull(),
-  revoked_at: text('revoked_at'),
-})
-
-export type SandboxToken = typeof sandboxToken.$inferSelect
-
 // Flat event log. One row per block the model emitted, one row per
 // execution correlation. No container for "the turn" — the turn is
 // recovered by grouping on turn_id (the BetaMessage.id).
