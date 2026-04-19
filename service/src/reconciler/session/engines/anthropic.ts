@@ -224,8 +224,18 @@ export async function runEngine(ctx: SessionContext): Promise<LoopResult> {
         const merged   = mergeBlocks(prior, incoming)
         turnBlocks.set(turnId, merged)
 
-        const turnIn  = (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0)
-        const turnOut = u.output_tokens ?? 0
+        // When the turn used server-side tool loops, the top-level
+        // output_tokens counts only the final response — iterations holds
+        // each loop's usage. Same story for input on subscription
+        // backends. Sum iterations when present, fall back otherwise.
+        const iters = (u as { iterations?: Array<{ type?: string; input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number }> }).iterations
+        const msgIters = Array.isArray(iters) ? iters.filter(i => i.type === 'message' || i.type === undefined) : null
+        const turnIn  = msgIters && msgIters.length > 0
+          ? msgIters.reduce((s, i) => s + (i.input_tokens ?? 0) + (i.cache_read_input_tokens ?? 0) + (i.cache_creation_input_tokens ?? 0), 0)
+          : (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0)
+        const turnOut = msgIters && msgIters.length > 0
+          ? msgIters.reduce((s, i) => s + (i.output_tokens ?? 0), 0)
+          : (u.output_tokens ?? 0)
         const priorIn  = turnMaxIn .get(turnId) ?? 0
         const priorOut = turnMaxOut.get(turnId) ?? 0
         inputTokens  += Math.max(0, turnIn  - priorIn )
