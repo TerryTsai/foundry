@@ -1,5 +1,5 @@
-import { useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useEffect, useRef, useState } from 'react'
+import { Link, useLocation } from 'react-router-dom'
 
 const fabCls = 'absolute bottom-4 right-4 z-10 flex items-center gap-1.5 px-4 py-2 bg-sky-500/15 border border-sky-500/25 backdrop-blur-sm text-sky-600 dark:text-sky-300 text-sm font-medium rounded-full shadow-lg active:opacity-75 transition-opacity'
 
@@ -17,6 +17,32 @@ export function PageShell({ action, composer, onRefresh, children }: PageShellPr
   const [refreshing, setRefreshing] = useState(false)
   const [composing, setComposing] = useState(false)
   const [draft, setDraft] = useState('')
+
+  // React Router's <ScrollRestoration /> targets window — but our scroll
+  // container is this inner div, so it wouldn't reach us. Persist per-
+  // location scrollTop in sessionStorage so back/forward lands where you
+  // left. Keyed by location.key so repeat visits to the same URL (fresh
+  // navigation vs popstate) stay distinct.
+  const { key } = useLocation()
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    const storageKey = `scroll:${key}`
+    const saved = sessionStorage.getItem(storageKey)
+    if (saved) el.scrollTop = +saved
+    let raf = 0
+    const onScroll = () => {
+      cancelAnimationFrame(raf)
+      raf = requestAnimationFrame(() => {
+        sessionStorage.setItem(storageKey, String(el.scrollTop))
+      })
+    }
+    el.addEventListener('scroll', onScroll, { passive: true })
+    return () => {
+      el.removeEventListener('scroll', onScroll)
+      cancelAnimationFrame(raf)
+    }
+  }, [key])
 
   const handleTouchStart = (e: React.TouchEvent) => {
     startY.current = e.touches[0].clientY
