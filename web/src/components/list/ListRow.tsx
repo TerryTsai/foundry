@@ -10,7 +10,11 @@ interface ListRowProps {
 }
 
 export function ListRow({ title, subtitle, status, active, mono, onPress }: ListRowProps) {
-  const cls = `w-full text-left border-b border-zinc-200 dark:border-zinc-800/50 py-3.5 flex items-center gap-3 transition-colors duration-150 hover:bg-zinc-50/60 dark:hover:bg-zinc-900/40 active:bg-zinc-100 dark:active:bg-zinc-900/70 ${
+  // Hover fill uses a left-to-right gradient that fades to transparent
+  // on either side. Keeps the feedback present without a hard vertical
+  // line at the row edges. Active still uses a flat fill — press
+  // feedback benefits from full coverage.
+  const cls = `w-full text-left border-b border-zinc-200 dark:border-zinc-800/50 py-3.5 flex items-center gap-3 transition-[background,opacity] duration-150 hover:bg-gradient-to-r hover:from-transparent hover:via-zinc-100/70 hover:to-transparent dark:hover:via-zinc-900/50 active:bg-zinc-100 dark:active:bg-zinc-900/70 ${
     active ? 'bg-zinc-50 dark:bg-zinc-900/50' : ''
   }`
 

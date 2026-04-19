@@ -75,14 +75,14 @@ export function ActivityRow({ label, icon, status, meta, sub, body, mono, footer
       {isLink ? (
         <Link
           to={to!}
-          className="block py-3.5 transition-colors duration-150 hover:bg-zinc-50/60 dark:hover:bg-zinc-900/40 active:bg-zinc-100 dark:active:bg-zinc-900/70"
+          className="block py-3.5 transition-[background,opacity] duration-150 hover:bg-gradient-to-r hover:from-transparent hover:via-zinc-100/70 hover:to-transparent dark:hover:via-zinc-900/50 active:bg-zinc-100 dark:active:bg-zinc-900/70"
         >
           {row}
         </Link>
       ) : expandable ? (
         <button
           onClick={() => setExpanded(e => !e)}
-          className="w-full text-left py-3.5 transition-colors duration-150 hover:bg-zinc-50/60 dark:hover:bg-zinc-900/40 active:bg-zinc-100 dark:active:bg-zinc-900/70"
+          className="w-full text-left py-3.5 transition-[background,opacity] duration-150 hover:bg-gradient-to-r hover:from-transparent hover:via-zinc-100/70 hover:to-transparent dark:hover:via-zinc-900/50 active:bg-zinc-100 dark:active:bg-zinc-900/70"
         >
           {row}
         </button>
