@@ -159,14 +159,10 @@ export function TicketsSplitLayout() {
       >
         Inbox
       </button>
-      <MultiSelect label="Status"  options={[...STATUSES]}                    selected={statuses}       onChange={setStatuses} />
-      {uniqueAgentNames.length > 0 && (
-        <MultiSelect label="Agent" options={uniqueAgentNames}                 selected={agentFilter}    onChange={setAgentFilter} />
-      )}
-      <MultiSelect label="Created" options={DATE_OPTIONS}                     selected={createdFilter}  onChange={setCreatedFilter} />
-      {projectTags.length > 0 && (
-        <MultiSelect label="Tag" options={projectTags} selected={tagFilter} onChange={setTagFilter} />
-      )}
+      <MultiSelect label="Status"  options={[...STATUSES]}  selected={statuses}      onChange={setStatuses} />
+      <MultiSelect label="Agent"   options={uniqueAgentNames} selected={agentFilter} onChange={setAgentFilter} />
+      <MultiSelect label="Created" options={DATE_OPTIONS}    selected={createdFilter} onChange={setCreatedFilter} />
+      <MultiSelect label="Tag"     options={projectTags}     selected={tagFilter}    onChange={setTagFilter} />
     </>
   )
 

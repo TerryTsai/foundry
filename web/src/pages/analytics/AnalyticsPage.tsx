@@ -466,12 +466,8 @@ export function AnalyticsPage() {
       <div className="fixed top-12 inset-x-0 z-20 bg-white dark:bg-zinc-950 flex items-center h-11 border-b border-zinc-200 dark:border-zinc-800/60">
         <div className="flex items-center gap-2 flex-1 min-w-0 overflow-x-auto no-scrollbar px-4">
           <MultiSelect label="Range"   options={RANGE_LABELS}    selected={range}   onChange={setRange} />
-          {projectOptions.length > 1 && (
-            <MultiSelect label="Project" options={projectOptions} selected={project} onChange={setProject} />
-          )}
-          {agentOptions.length > 0 && (
-            <MultiSelect label="Agent"   options={agentOptions}   selected={agent}   onChange={setAgent} />
-          )}
+          <MultiSelect label="Project" options={projectOptions} selected={project} onChange={setProject} />
+          <MultiSelect label="Agent"   options={agentOptions}   selected={agent}   onChange={setAgent} />
         </div>
       </div>
 
