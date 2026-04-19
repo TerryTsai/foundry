@@ -1,6 +1,6 @@
-import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ChevronDown } from 'lucide-react'
+import { usePersistedState } from '../../lib/persisted-state.js'
 
 interface InfoRow {
   label: string
@@ -26,7 +26,7 @@ export function InfoGroup({ rows, primaryCount = 3 }: { rows: InfoRow[]; primary
     nonPrimarySeen++
   })
   const hasMore = visible.length > alwaysShown.size
-  const [expanded, setExpanded] = useState(false)
+  const [expanded, setExpanded] = usePersistedState('info-expanded', false)
 
   return (
     <div className="text-sm border-y border-zinc-200 dark:border-zinc-800 py-3">

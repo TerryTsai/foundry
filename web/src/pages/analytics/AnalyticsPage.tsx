@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { PageShell } from '../../components/layout/PageShell.js'
 import { AppHeader } from '../../components/layout/AppHeader.js'
+import { usePersistedState } from '../../lib/persisted-state.js'
 import {
   analyticsGetOpts, projectListOpts, agentListOpts, qk,
 } from '../../queries.js'
@@ -259,7 +260,9 @@ function ToolDetail({ tools }: { tools: AnalyticsTool[] }) {
 }
 
 function AgentBlocks({ agents, tools }: { agents: AnalyticsAgent[]; tools: AnalyticsTool[] }) {
-  const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  // Persisted as a string[] in sessionStorage; treated as a Set in render.
+  const [expandedIds, setExpandedIds] = usePersistedState<string[]>('agent-blocks-expanded', [])
+  const expanded = new Set(expandedIds)
   if (agents.length === 0) return (
     <p className="text-xs text-zinc-600 py-2">no agent activity in range</p>
   )
@@ -273,8 +276,10 @@ function AgentBlocks({ agents, tools }: { agents: AnalyticsAgent[]; tools: Analy
     const arr = toolsByAgent.get(t.agent_id) ?? []
     arr.push(t); toolsByAgent.set(t.agent_id, arr)
   }
-  const toggle = (id: string) => setExpanded(prev => {
-    const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n
+  const toggle = (id: string) => setExpandedIds(prev => {
+    const set = new Set(prev)
+    set.has(id) ? set.delete(id) : set.add(id)
+    return [...set]
   })
 
   return (

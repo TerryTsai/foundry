@@ -153,6 +153,7 @@ function ActivityEntry({ a, execByToolUseId, execHref }: {
 
   return (
     <ActivityRow
+      persistKey={a.id}
       icon={iconFor(a, payload)}
       label={labelFor(a, payload)}
       status={exec?.status ?? 'finished'}

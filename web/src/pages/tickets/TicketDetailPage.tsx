@@ -185,6 +185,7 @@ export function TicketDetailPage() {
         {comments.map(c => (
           <ActivityRow
             key={c.id}
+            persistKey={c.id}
             icon={c.author === 'founder' ? <User size={14} /> : c.author === 'system' ? <Info size={14} /> : <Bot size={14} />}
             label={c.body.split('\n')[0].slice(0, 80)}
             status={c.author}

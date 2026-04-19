@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { ChevronRight } from 'lucide-react'
 import { marked } from 'marked'
 import { StatusBadge } from '../StatusBadge.js'
+import { usePersistedState } from '../../lib/persisted-state.js'
 
 interface ActivityRowProps {
   label:   string
@@ -21,10 +22,15 @@ interface ActivityRowProps {
   /** When false, the row is static: no chevron, no toggle, no expanded
    *  section. Use for entries whose label says everything. Defaults true. */
   expandable?: boolean
+  /** Optional stable id; when present, expand/collapse survives back-nav. */
+  persistKey?: string
 }
 
-export function ActivityRow({ label, icon, status, meta, sub, body, mono, footer, children, expandable = true }: ActivityRowProps) {
-  const [expanded, setExpanded] = useState(false)
+export function ActivityRow({ label, icon, status, meta, sub, body, mono, footer, children, expandable = true, persistKey }: ActivityRowProps) {
+  const [expandedLocal, setExpandedLocal] = useState(false)
+  const [expandedPersisted, setExpandedPersisted] = usePersistedState(`row:${persistKey ?? ''}`, false)
+  const expanded = persistKey ? expandedPersisted : expandedLocal
+  const setExpanded = persistKey ? setExpandedPersisted : setExpandedLocal
 
   const row = (
     <div className="flex items-start gap-3">
