@@ -58,7 +58,8 @@ function TagSection({ ticketId, initialTags }: { ticketId: string; initialTags: 
       ))}
       {adding ? (
         <input ref={inputRef} value={value} onChange={e => setValue(e.target.value)} onKeyDown={handleKeyDown} onBlur={() => void commitAdd()} placeholder="tag name"
-          className="text-xs bg-transparent border-b border-zinc-500 dark:border-zinc-600 focus:border-zinc-700 dark:focus:border-zinc-400 outline-none px-1 w-20 text-zinc-700 dark:text-zinc-300 placeholder:text-zinc-400 dark:placeholder:text-zinc-600 transition-colors" />
+          style={{ fontSize: '16px' }}
+          className="bg-transparent border-b border-zinc-500 dark:border-zinc-600 focus:border-zinc-700 dark:focus:border-zinc-400 outline-none px-1 w-24 text-zinc-700 dark:text-zinc-300 placeholder:text-zinc-400 dark:placeholder:text-zinc-600 transition-colors" />
       ) : (
         <button onClick={() => setAdding(true)} className="text-xs text-zinc-400 dark:text-zinc-600 hover:text-zinc-600 dark:hover:text-zinc-400 transition-colors leading-none">+ tag</button>
       )}
@@ -120,7 +121,6 @@ export function TicketDetailPage() {
       type="ticket" id={ticket.id} title={ticket.title}
       status={ticket.status}
       subtitle={!editing ? ticket.description : undefined}
-      subtitleAside={!editing ? <TagSection ticketId={ticket.id} initialTags={initialTags} /> : undefined}
       actions={!editing && ticket.status === 'created' && verdicts.length === 0 ? (
         <button onClick={() => setEditing(true)} className="text-xs text-zinc-400 dark:text-zinc-500 active:text-zinc-900 dark:active:text-zinc-100 shrink-0">edit</button>
       ) : undefined}
@@ -133,6 +133,7 @@ export function TicketDetailPage() {
         { label: 'sessions', value: usage.session_count > 0 ? String(usage.session_count) : null },
         { label: 'tools',    value: usage.tool_calls > 0 ? String(usage.tool_calls) : null },
         { label: 'duration', value: usage.duration_ms > 0 ? fmtDuration(usage.duration_ms) : null },
+        { label: 'tags',     value: !editing ? <TagSection ticketId={ticket.id} initialTags={initialTags} /> : null },
       ]}
       composer={{ placeholder: 'Comment', onSubmit: handleAddComment }}
     >

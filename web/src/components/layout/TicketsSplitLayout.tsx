@@ -108,11 +108,15 @@ export function TicketsSplitLayout() {
     projectApi.tags(projectId).then(setProjectTags).catch(() => {})
   }, [projectId])
 
-  // OR-merge ticket lists for each selected tag.
+  // OR-merge ticket lists for each selected tag. Depend on a stable
+  // string key — a Set from getParam is a fresh instance every render
+  // and would re-fire this effect forever.
+  const tagKey = [...tagFilter].sort().join('|')
   useEffect(() => {
-    if (tagFilter.size === 0) { setTagTickets(null); return }
+    if (!tagKey) { setTagTickets(null); return }
+    const tags = tagKey.split('|')
     setTagLoading(true)
-    Promise.all([...tagFilter].map(tag => ticketApi.list({ projectId, tag })))
+    Promise.all(tags.map(tag => ticketApi.list({ projectId, tag })))
       .then(results => {
         const seen = new Set<string>()
         const merged: Ticket[] = []
@@ -122,7 +126,7 @@ export function TicketsSplitLayout() {
         setTagTickets(merged)
       })
       .finally(() => setTagLoading(false))
-  }, [tagFilter, projectId])
+  }, [tagKey, projectId])
 
   // Source: tag-filtered subset (from API) or all tickets from loader.
   const sourceTickets = tagTickets ?? tickets
