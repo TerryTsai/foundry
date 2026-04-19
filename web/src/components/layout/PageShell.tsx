@@ -54,7 +54,7 @@ export function PageShell({ action, composer, onRefresh, children }: PageShellPr
   }
 
   return (
-    <div className={`relative px-4 pt-4 ${hasAction ? 'pb-20' : 'pb-4'}`}>
+    <div className={`relative px-4 pt-4 ${hasAction ? 'pb-16' : 'pb-4'}`}>
       {refreshing && (
         <div className="text-center py-2 text-xs text-zinc-500 dark:text-zinc-600">...</div>
       )}

@@ -47,7 +47,7 @@ export function ticketGet(db: Db, accountId: string, id: string): Ticket {
 }
 
 export function ticketCreate(db: Db, accountId: string, input: z.infer<typeof validate.ticketCreate>): Ticket {
-  const { project_id, agent_id, title, description, priority, depends_on, created_by } = input
+  const { project_id, agent_id, title, description, depends_on, created_by } = input
   // Caller must own the target project.
   assertProjectOwner(db, project_id, accountId)
   if (depends_on) {
@@ -58,7 +58,7 @@ export function ticketCreate(db: Db, accountId: string, input: z.infer<typeof va
   const row = database.ticketInsert(db, {
     project_id,
     agent_id:   agent_id ?? null,
-    title, description, priority,
+    title, description,
     status:     'created',
     depends_on: depends_on ?? null,
     created_by, ...timestamps(),
@@ -77,7 +77,7 @@ export function ticketUpdate(db: Db, accountId: string, id: string, input: z.inf
     const sessions = database.sessionByTicket(db, id)
     if (sessions.length > 0) throw conflict('title and description are frozen once work has started — fork this ticket for scope changes')
   }
-  return database.ticketUpdate(db, id, { ...pick(input, 'title', 'description', 'agent_id', 'priority'), updated_at: now() })
+  return database.ticketUpdate(db, id, { ...pick(input, 'title', 'description', 'agent_id'), updated_at: now() })
 }
 
 export function ticketCancel(db: Db, accountId: string, id: string): Ticket {

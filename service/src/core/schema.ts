@@ -88,7 +88,6 @@ export const ticket = sqliteTable('ticket', {
   title:       text('title').notNull(),
   description: text('description').notNull(),
   status:      text('status').notNull().default('created'),
-  priority:    integer('priority').notNull().default(0),
   depends_on:  text('depends_on'),
   // JSON array of lowercased label strings. Replaces the standalone
   // tag table — at this scale (one founder, hundreds of tickets) the

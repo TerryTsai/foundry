@@ -12,7 +12,6 @@ export const ticketCreate = z.object({
   agent_id:    z.string().optional(),
   title:       z.string(),
   description: z.string(),
-  priority:    z.number().int().default(0),
   depends_on:  z.string().optional(),
   created_by:  z.string(),
 })
@@ -21,7 +20,6 @@ export const ticketUpdate = z.object({
   title:       z.string().optional(),
   description: z.string().optional(),
   agent_id:    z.string().optional(),
-  priority:    z.number().int().optional(),
 })
 
 export const tagCreate = z.object({

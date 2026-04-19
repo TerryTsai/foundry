@@ -150,6 +150,13 @@ export function createDatabase(path: string): Db {
     `)
   }
 
+  // 7) Drop ticket.priority — depends_on already sequences work; an
+  //    integer field that's almost always 0 is just one more concept
+  //    the founder has to think about.
+  if (hasColumn(sqlite, 'ticket', 'priority')) {
+    sqlite.exec(`ALTER TABLE ticket DROP COLUMN priority`)
+  }
+
   return drizzle(sqlite, { schema })
 }
 

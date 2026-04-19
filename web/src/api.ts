@@ -94,9 +94,9 @@ export const ticketApi = {
   },
   get: (id: string) => get<Ticket>(`/ticket/${id}`),
   chain: (id: string) => get<Ticket[]>(`/ticket/${id}/chain`),
-  create: (data: { project_id: string; title: string; description: string; agent_id?: string; priority?: number; depends_on?: string; created_by: string }) =>
+  create: (data: { project_id: string; title: string; description: string; agent_id?: string; depends_on?: string; created_by: string }) =>
     post<Ticket>('/ticket', data),
-  update: (id: string, data: { title?: string; description?: string; agent_id?: string; priority?: number }) =>
+  update: (id: string, data: { title?: string; description?: string; agent_id?: string }) =>
     put<Ticket>(`/ticket/${id}`, data),
   cancel: (id: string) => post<Ticket>(`/ticket/${id}/cancel`),
   usage: (id: string) => get<UsageRollup>(`/ticket/${id}/usage`),

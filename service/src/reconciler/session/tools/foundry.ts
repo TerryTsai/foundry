@@ -50,7 +50,6 @@ const ticketCreateArgs = z.object({
   title:       z.string().describe('Short title.'),
   description: z.string().describe('Full description, markdown allowed.'),
   agent_id:    z.string().optional().describe('Optional: assign to a specific agent by id. Use agentsList first to discover ids.'),
-  priority:    z.number().int().optional().describe('Optional priority (default 0).'),
   depends_on:  z.string().optional().describe('Optional: id of a ticket this one depends on. Will not dispatch until the dependency is finished.'),
 })
 
@@ -168,7 +167,6 @@ async function handleTicketCreate(ctx: FoundryCtx, args: z.infer<typeof ticketCr
     created_by:  ctx.agentName,
     title:       args.title,
     description: args.description,
-    priority:    args.priority ?? 0,
     ...(args.agent_id   ? { agent_id:   args.agent_id   } : {}),
     ...(args.depends_on ? { depends_on: args.depends_on } : {}),
   })

@@ -135,7 +135,6 @@ export function TicketDetailPage() {
         { label: 'agent',    value: agentName },
         { label: 'creator',  value: fmtActor(ticket.created_by) },
         { label: 'created',  value: ts(ticket.created_at) },
-        { label: 'priority', value: ticket.priority > 0 ? String(ticket.priority) : null },
         { label: 'updated',  value: ticket.updated_at !== ticket.created_at ? ts(ticket.updated_at) : null },
         { label: 'sessions', value: usage.session_count > 0 ? String(usage.session_count) : null },
         { label: 'tools',    value: usage.tool_calls > 0 ? String(usage.tool_calls) : null },

@@ -53,7 +53,6 @@ export interface Ticket {
   title: string
   description: string
   status: 'created' | 'waiting' | 'running' | 'finished' | 'failed' | 'cancelled'
-  priority: number
   depends_on: string | null
   created_by: string
   created_at: string
