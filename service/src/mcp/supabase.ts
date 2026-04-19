@@ -51,8 +51,8 @@ function buildQuery(filter?: Record<string, string>, extra: Record<string, strin
 
 async function api(ctx: SupabaseCtx, toolName: string, args: unknown, method: 'GET' | 'POST' | 'PATCH' | 'DELETE', path: string, body?: unknown, prefer?: string) {
   const headers: string[] = [
-    '-H "apikey: $KEY"',
-    '-H "Authorization: Bearer $KEY"',
+    '-H "apikey: $(cat /foundry-secrets/service-role-key)"',
+    '-H "Authorization: Bearer $(cat /foundry-secrets/service-role-key)"',
   ]
   if (body !== undefined) headers.push('-H "Content-Type: application/json"')
   if (prefer) headers.push(`-H "Prefer: ${prefer}"`)
@@ -61,7 +61,7 @@ async function api(ctx: SupabaseCtx, toolName: string, args: unknown, method: 'G
   const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace,
     cmd, toolName, args, {
       network: true, mount: 'none',
-      env: { KEY: ctx.secrets.service_role_key ?? '' },
+      secretFiles: { 'service-role-key': ctx.secrets.service_role_key ?? '' },
       toolUseId: ctx.toolUseId,
     })
   if (r.exitCode !== 0) return { ok: false as const, error: r.stderr || r.stdout || 'request failed' }

@@ -52,11 +52,11 @@ function formFields(obj: unknown, prefix = ''): string[] {
 
 async function api(ctx: StripeCtx, toolName: string, args: unknown, method: 'GET' | 'POST', path: string, form?: Record<string, unknown>) {
   const fields = form ? ` ${formFields(form).join(' ')}` : ''
-  const cmd = `curl -sf -X ${method} -u "$KEY:" "https://api.stripe.com/v1${path}"${fields}`
+  const cmd = `curl -sf -X ${method} -u "$(cat /foundry-secrets/secret-key):" "https://api.stripe.com/v1${path}"${fields}`
   const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace,
     cmd, toolName, args, {
       network: true, mount: 'none',
-      env: { KEY: ctx.secrets.secret_key ?? '' },
+      secretFiles: { 'secret-key': ctx.secrets.secret_key ?? '' },
       toolUseId: ctx.toolUseId,
     })
   if (r.exitCode !== 0) return { ok: false as const, error: r.stderr || r.stdout || 'request failed' }

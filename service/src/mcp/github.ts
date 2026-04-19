@@ -6,8 +6,8 @@
 // Execution model:
 //
 //   gitClone runs in a TIER-2 sandbox: fresh container, /work mounted
-//   read-write, INSTALL_TOKEN injected as an env var, network enabled.
-//   After clone completes, the embedded token is stripped from
+//   read-write, INSTALL_TOKEN read from a mounted secret file, network
+//   enabled. After clone completes, the embedded token is stripped from
 //   .git/config so subsequent tier-1 calls can't read it.
 //
 //   gitStatus/gitDiff/gitAdd/gitRemove/gitCommit run in the SESSION
@@ -172,6 +172,7 @@ async function handleGitClone(ctx: GithubCtx, args: z.infer<typeof gitCloneArgs>
     const command = [
       'set -e',
       'export GIT_TERMINAL_PROMPT=0',
+      'INSTALL_TOKEN="$(cat /foundry-secrets/install-token)"',
       'git clone "https://x-access-token:${INSTALL_TOKEN}@github.com/${OWNER}/${REPO}" /work 1>&2',
       'git -C /work remote set-url origin "https://github.com/${OWNER}/${REPO}.git"',
       'git -C /work config user.email foundry@localhost',
@@ -185,11 +186,11 @@ async function handleGitClone(ctx: GithubCtx, args: z.infer<typeof gitCloneArgs>
         network: true,
         mount:   'rw',
         env: {
-          INSTALL_TOKEN: installToken,
           OWNER:         owner,
           REPO:          name,
           SESSION_ID:    ctx.sessionId,
         },
+        secretFiles: { 'install-token': installToken },
         toolUseId: ctx.toolUseId,
       })
 
@@ -280,6 +281,7 @@ async function handleGitPullRequest(ctx: GithubCtx, args: z.infer<typeof gitPull
       'set -e',
       'cd /work',
       'export GIT_TERMINAL_PROMPT=0',
+      'INSTALL_TOKEN="$(cat /foundry-secrets/install-token)"',
       'BASE=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed "s|refs/remotes/origin/||" || echo main)',
       'AHEAD=$(git rev-list --count "${BASE}..HEAD")',
       'if [ "$AHEAD" -eq 0 ]; then',
@@ -304,12 +306,12 @@ async function handleGitPullRequest(ctx: GithubCtx, args: z.infer<typeof gitPull
         network: true,
         mount:   'ro',
         env: {
-          INSTALL_TOKEN: installToken,
           OWNER:         owner,
           REPO:          name,
           BRANCH:        branch,
           PR_BODY_JSON:  prBodyTemplate,
         },
+        secretFiles: { 'install-token': installToken },
         toolUseId: ctx.toolUseId,
       })
 
@@ -364,6 +366,7 @@ async function handleGitRebase(ctx: GithubCtx, _args: z.infer<typeof gitRebaseAr
       'set -e',
       'cd /work',
       'export GIT_TERMINAL_PROMPT=0',
+      'INSTALL_TOKEN="$(cat /foundry-secrets/install-token)"',
       'git fetch "https://x-access-token:${INSTALL_TOKEN}@github.com/${OWNER}/${REPO}" main:refs/remotes/origin/main 1>&2',
       'git rebase origin/main 1>&2',
       'echo ok',
@@ -374,10 +377,10 @@ async function handleGitRebase(ctx: GithubCtx, _args: z.infer<typeof gitRebaseAr
         network: true,
         mount:   'rw',
         env: {
-          INSTALL_TOKEN: installToken,
-          OWNER:         owner,
-          REPO:          name,
+          OWNER: owner,
+          REPO:  name,
         },
+        secretFiles: { 'install-token': installToken },
         toolUseId: ctx.toolUseId,
       })
 
@@ -405,6 +408,7 @@ async function handleGitMerge(ctx: GithubCtx, args: z.infer<typeof gitMergeArgs>
       'set -e',
       'cd /work',
       'export GIT_TERMINAL_PROMPT=0',
+      'INSTALL_TOKEN="$(cat /foundry-secrets/install-token)"',
       'BASE=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed "s|refs/remotes/origin/||" || echo main)',
       'AHEAD=$(git rev-list --count "${BASE}..HEAD")',
       'if [ "$AHEAD" -eq 0 ]; then',
@@ -428,12 +432,12 @@ async function handleGitMerge(ctx: GithubCtx, args: z.infer<typeof gitMergeArgs>
         network: true,
         mount:   'ro',
         env: {
-          INSTALL_TOKEN: installToken,
           OWNER:         owner,
           REPO:          name,
           BRANCH:        branch,
           PR_BODY_JSON:  prBodyTemplate,
         },
+        secretFiles: { 'install-token': installToken },
         toolUseId: ctx.toolUseId,
       })
 

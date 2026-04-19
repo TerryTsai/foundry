@@ -1,35 +1,42 @@
-FROM node:20-alpine
+FROM node:20-bookworm-slim
 
-RUN apk add --no-cache \
-    # core utilities
-    coreutils \
-    bash \
-    # search & file tools
-    grep \
-    findutils \
-    sed \
-    gawk \
-    # network tools
-    curl \
-    wget \
-    # web scraping
-    lynx \
-    # version control
-    git \
-    # build tools
-    make \
-    gcc \
-    g++ \
-    musl-dev \
-    # python
-    python3 \
-    py3-pip \
-    # common utilities
-    jq \
-    tar \
-    gzip \
-    unzip \
-    openssh-client
+# glibc-based base so binaries that ship with shared linkage (workerd,
+# wrangler's native bits, future ffmpeg/ripgrep/etc.) actually run.
+# Alpine + musl was the prior base; it broke wrangler R2 ops because
+# workerd dynamically links against glibc and spawn() returned ENOENT.
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        # core utilities
+        coreutils \
+        bash \
+        # search & file tools
+        grep \
+        findutils \
+        sed \
+        gawk \
+        # network tools
+        curl \
+        wget \
+        ca-certificates \
+        # web scraping
+        lynx \
+        # version control
+        git \
+        openssh-client \
+        # build tools
+        make \
+        gcc \
+        g++ \
+        # python
+        python3 \
+        python3-pip \
+        # common utilities
+        jq \
+        tar \
+        gzip \
+        unzip \
+        file \
+    && rm -rf /var/lib/apt/lists/*
 
 # Language-family tooling that agents commonly reach for in verification /
 # formatting steps. Installed globally so tsc, prettier, eslint, and tsx

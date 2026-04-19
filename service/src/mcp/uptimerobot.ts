@@ -31,11 +31,11 @@ const TYPE_CODE: Record<string, number> = { http: 1, keyword: 2, ping: 3, port: 
 async function api(ctx: UptimeCtx, toolName: string, args: unknown, path: string, fields: Record<string, string | number>) {
   const parts = Object.entries({ format: 'json', ...fields })
     .map(([k, v]) => `--data-urlencode ${JSON.stringify(`${k}=${v}`)}`)
-  const cmd = `curl -sf -X POST --data-urlencode "api_key=$KEY" ${parts.join(' ')} "https://api.uptimerobot.com/v2${path}"`
+  const cmd = `curl -sf -X POST --data-urlencode "api_key=$(cat /foundry-secrets/api-key)" ${parts.join(' ')} "https://api.uptimerobot.com/v2${path}"`
   const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace,
     cmd, toolName, args, {
       network: true, mount: 'none',
-      env: { KEY: ctx.secrets.api_key ?? '' },
+      secretFiles: { 'api-key': ctx.secrets.api_key ?? '' },
       toolUseId: ctx.toolUseId,
     })
   if (r.exitCode !== 0) return { ok: false as const, error: r.stderr || r.stdout || 'request failed' }

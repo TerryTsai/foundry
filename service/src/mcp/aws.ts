@@ -11,13 +11,20 @@ async function runAws(ctx: AwsCtx, toolName: string, args: unknown, command: str
   const region = (args as { region?: string }).region?.trim()
     ?? (typeof ctx.connConfig.region === 'string' ? ctx.connConfig.region.trim() : '')
   const regionFlag = region ? ` --region ${JSON.stringify(region)}` : ''
+  // aws-cli reads AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY from env.
+  // Source them from mounted files once so podman argv stays clean.
+  const wrapped = [
+    `export AWS_ACCESS_KEY_ID="$(cat /foundry-secrets/access-key-id)"`,
+    `export AWS_SECRET_ACCESS_KEY="$(cat /foundry-secrets/secret-access-key)"`,
+    `aws --output json${regionFlag} ${command}`,
+  ].join('\n')
   const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace,
-    `aws --output json${regionFlag} ${command}`, toolName, args, {
+    wrapped, toolName, args, {
       network: true, mount: 'rw',
-      env: {
-        AWS_ACCESS_KEY_ID:     ctx.secrets.access_key_id     ?? '',
-        AWS_SECRET_ACCESS_KEY: ctx.secrets.secret_access_key ?? '',
-        ...(region ? { AWS_DEFAULT_REGION: region } : {}),
+      env: region ? { AWS_DEFAULT_REGION: region } : {},
+      secretFiles: {
+        'access-key-id':     ctx.secrets.access_key_id     ?? '',
+        'secret-access-key': ctx.secrets.secret_access_key ?? '',
       },
       toolUseId: ctx.toolUseId,
     })
