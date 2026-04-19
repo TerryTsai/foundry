@@ -8,6 +8,7 @@ interface InfoRow {
   label: string
   value: React.ReactNode
   href?: string
+  primary?: boolean
 }
 
 interface DetailShellProps {

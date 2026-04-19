@@ -6,16 +6,20 @@ import { QueryClient } from '@tanstack/react-query'
 export const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      // Data is usable for 30s after fetch before being considered stale.
-      // Within that window, re-renders / re-mounts hit the cache without
-      // network I/O. After it, React Query refetches in the background.
-      staleTime: 30_000,
-      // Refetch whenever a component mounts with a stale query — covers
-      // back-nav, route change, any remount. This is what fixes the
-      // "everything is stale on back" problem.
-      refetchOnMount: 'always',
-      // Also refetch when the tab regains focus.
-      refetchOnWindowFocus: true,
+      // Trust the cache for navigation. staleTime Infinity means
+      // loaders (ensureQueryData) and mounting components never wait on
+      // a refetch just because some arbitrary clock elapsed.
+      staleTime: Infinity,
+      // Keep cached data around 30m after the last observer unmounts
+      // so revisits within a normal session hit the cache.
+      gcTime: 30 * 60 * 1000,
+      // On mount, refetch only if the query was explicitly invalidated
+      // (by a mutation or focus). Prevents double-fetching on every
+      // route change.
+      refetchOnMount: true,
+      // Always refresh on tab refocus — that's the user's signal that
+      // they're looking at this thing again and want it current.
+      refetchOnWindowFocus: 'always',
       retry: 1,
     },
   },

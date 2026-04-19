@@ -140,9 +140,8 @@ export function TicketDetailPage() {
         { label: 'sessions', value: usage.session_count > 0 ? String(usage.session_count) : null },
         { label: 'tools',    value: usage.tool_calls > 0 ? String(usage.tool_calls) : null },
         { label: 'duration', value: usage.duration_ms > 0 ? fmtDuration(usage.duration_ms) : null },
-        { label: 'tags',     value: !editing ? <TagSection ticketId={ticket.id} /> : null },
+        { label: 'tags',     value: !editing ? <TagSection ticketId={ticket.id} /> : null, primary: true },
       ]}
-      primaryCount={99}
       composer={{ placeholder: 'Comment', onSubmit: handleAddComment }}
     >
       {editing && (
