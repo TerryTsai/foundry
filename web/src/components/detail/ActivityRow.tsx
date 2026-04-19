@@ -75,19 +75,19 @@ export function ActivityRow({ label, icon, status, meta, sub, body, mono, footer
       {isLink ? (
         <Link
           to={to!}
-          className="block py-3 active:bg-zinc-100 dark:active:bg-zinc-900/70"
+          className="block py-3.5 active:bg-zinc-100 dark:active:bg-zinc-900/70"
         >
           {row}
         </Link>
       ) : expandable ? (
         <button
           onClick={() => setExpanded(e => !e)}
-          className="w-full text-left py-3 active:bg-zinc-100 dark:active:bg-zinc-900/70"
+          className="w-full text-left py-3.5 active:bg-zinc-100 dark:active:bg-zinc-900/70"
         >
           {row}
         </button>
       ) : (
-        <div className="py-3">{row}</div>
+        <div className="py-3.5">{row}</div>
       )}
 
       {expandable && expanded && (

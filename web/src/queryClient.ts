@@ -1,9 +1,24 @@
-import { QueryClient } from '@tanstack/react-query'
+import { QueryClient, QueryCache, MutationCache } from '@tanstack/react-query'
+import { pushToast } from './components/Toaster.js'
+
+function errMessage(err: unknown): string {
+  if (err instanceof Error) return err.message
+  return String(err)
+}
 
 // Single shared cache. Loaders warm it via ensureQueryData; components read
 // via useQuery. Mutations invalidate only the keys they affect — no more
 // blunt cache clears.
 export const queryClient = new QueryClient({
+  queryCache: new QueryCache({
+    // Background query errors surface as a toast instead of failing silently.
+    onError: (err) => pushToast({ kind: 'error', message: errMessage(err) }),
+  }),
+  mutationCache: new MutationCache({
+    // Mutation errors always surface unless the individual useMutation
+    // defines its own onError.
+    onError: (err) => pushToast({ kind: 'error', message: errMessage(err) }),
+  }),
   defaultOptions: {
     queries: {
       // Trust the cache for navigation. staleTime Infinity means

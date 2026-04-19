@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 
-const fabCls = 'fixed bottom-4 right-4 z-20 flex items-center gap-1.5 px-4 py-2 bg-sky-500/15 border border-sky-500/25 backdrop-blur-sm text-sky-600 dark:text-sky-300 text-sm font-medium rounded-full shadow-lg active:opacity-75 transition-opacity'
+const fabCls = 'fixed bottom-[calc(1rem+env(safe-area-inset-bottom))] right-4 z-20 flex items-center gap-1.5 px-4 py-2 bg-sky-500/15 border border-sky-500/25 backdrop-blur-sm text-sky-600 dark:text-sky-300 text-sm font-medium rounded-full shadow-lg active:opacity-75 transition-opacity'
 
 interface PageShellProps {
   action?: { label: string; onPress: string | (() => void) }
@@ -63,7 +63,7 @@ export function PageShell({ action, composer, onRefresh, children }: PageShellPr
       {showComposer && <div className="fixed inset-0 z-10" onClick={() => { setComposing(false); setDraft('') }} />}
 
       {showComposer ? (
-        <form onSubmit={handleComposerSubmit} className="fixed bottom-4 left-4 right-4 z-20 flex items-center gap-2 px-4 py-2 bg-sky-500/15 border border-sky-500/25 backdrop-blur-sm rounded-full shadow-lg">
+        <form onSubmit={handleComposerSubmit} className="fixed bottom-[calc(1rem+env(safe-area-inset-bottom))] left-4 right-4 z-20 flex items-center gap-2 px-4 py-2 bg-sky-500/15 border border-sky-500/25 backdrop-blur-sm rounded-full shadow-lg">
           <input
             value={draft}
             onChange={e => setDraft(e.target.value)}

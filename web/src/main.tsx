@@ -8,6 +8,7 @@ import { queryClient } from './queryClient.js'
 import { ThemeProvider } from './theme.js'
 import { BreadcrumbProvider } from './Breadcrumb.js'
 import { GlobalLoadingBar } from './components/layout/GlobalLoadingBar.js'
+import { Toaster } from './components/Toaster.js'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
@@ -15,6 +16,7 @@ createRoot(document.getElementById('root')!).render(
       <ThemeProvider>
         <BreadcrumbProvider>
           <GlobalLoadingBar />
+          <Toaster />
           <RouterProvider router={router} />
         </BreadcrumbProvider>
       </ThemeProvider>

@@ -9,6 +9,7 @@ import {
 import { MultiSelect } from '../primitives/MultiSelect.js'
 import { ListRow } from '../list/ListRow.js'
 import { EmptyState } from '../list/EmptyState.js'
+import { SkeletonList } from '../list/SkeletonRow.js'
 import { PageShell } from './PageShell.js'
 
 // ── Filter helpers (same logic as old TicketListPage) ──────────────────────
@@ -169,8 +170,13 @@ export function TicketsSplitLayout() {
   // ── Ticket row list (shared between desktop & mobile) ─────────────────────
 
   function renderRows() {
-    if (tagLoading || ticketsPending) return null
-    if (filtered.length === 0) return <EmptyState message="no tickets" />
+    if (tagLoading || ticketsPending) return <SkeletonList />
+    if (filtered.length === 0) return (
+      <EmptyState
+        message="no tickets"
+        action={{ label: 'create one', to: `/p/${projectId}/tickets/new` }}
+      />
+    )
     return (
       <div className="[&>:last-child>*]:border-b-0">
         {filtered.map(t => {
@@ -243,7 +249,7 @@ export function TicketsSplitLayout() {
             {filterChips}
           </div>
           <PageShell
-            action={{ label: 'Ticket', onPress: `/p/${projectId}/tickets/new` }}
+            action={{ label: 'ticket', onPress: `/p/${projectId}/tickets/new` }}
             onRefresh={async () => { revalidate() }}
           >
             {renderRows()}

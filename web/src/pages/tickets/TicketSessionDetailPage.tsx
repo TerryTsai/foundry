@@ -9,6 +9,7 @@ import { SectionLabel } from '../../components/detail/SectionLabel.js'
 import { ActivityRow } from '../../components/detail/ActivityRow.js'
 import { DetailShell } from '../../components/layout/DetailShell.js'
 import { EmptyState } from '../../components/list/EmptyState.js'
+import { SkeletonList } from '../../components/list/SkeletonRow.js'
 import { useBreadcrumbLabel } from '../../Breadcrumb.js'
 import { useShell } from '../../Shell.js'
 import {
@@ -233,7 +234,7 @@ export function TicketSessionDetailPage() {
           → tool_call → ... → reconcile. Linear scan for audit. */}
       <div>
         <SectionLabel label={`activity (${activities.length})`} onRefresh={refreshActivity} />
-        {activitiesPending ? null
+        {activitiesPending ? <SkeletonList />
           : activities.length === 0
           ? <EmptyState message="no activity" />
           : activities.map(a => (

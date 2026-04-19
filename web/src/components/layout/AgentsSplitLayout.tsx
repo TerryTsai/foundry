@@ -4,6 +4,7 @@ import { Plus } from 'lucide-react'
 import { agentListOpts, qk } from '../../queries.js'
 import { ListRow } from '../list/ListRow.js'
 import { EmptyState } from '../list/EmptyState.js'
+import { SkeletonList } from '../list/SkeletonRow.js'
 import { PageShell } from './PageShell.js'
 
 // ── Index placeholder (rendered in the right panel when no agent selected) ──
@@ -26,11 +27,11 @@ export function AgentsSplitLayout() {
 
   // ── Shared row list ────────────────────────────────────────────────────────
   function renderRows() {
-    if (isPending) return null
+    if (isPending) return <SkeletonList />
     return (
       <div className="[&>:last-child>*]:border-b-0">
         {!agents || agents.length === 0 ? (
-          <EmptyState message="no agents" />
+          <EmptyState message="no agents" action={{ label: 'create one', to: '/settings/agents/new' }} />
         ) : (
           agents.map(a => (
             <Link key={a.id} to={`/settings/agents/${a.id}`} className="block">
@@ -76,7 +77,7 @@ export function AgentsSplitLayout() {
       {isIndex && (
         <div className="lg:hidden flex-1 min-w-0">
           <PageShell
-            action={{ label: 'Agent', onPress: '/settings/agents/new' }}
+            action={{ label: 'agent', onPress: '/settings/agents/new' }}
             onRefresh={async () => { await queryClient.invalidateQueries({ queryKey: qk.agent.all() }) }}
           >
             {renderRows()}

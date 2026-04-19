@@ -4,6 +4,7 @@ import { connectionListOpts, qk } from '../../queries.js'
 import { PageShell } from '../../components/layout/PageShell.js'
 import { ListRow } from '../../components/list/ListRow.js'
 import { EmptyState } from '../../components/list/EmptyState.js'
+import { SkeletonList } from '../../components/list/SkeletonRow.js'
 
 export function ConnectionListPage() {
   const { data: connections, isPending } = useQuery(connectionListOpts())
@@ -11,12 +12,12 @@ export function ConnectionListPage() {
 
   return (
     <PageShell
-      action={{ label: 'Connection', onPress: '/settings/connections/new' }}
+      action={{ label: 'connection', onPress: '/settings/connections/new' }}
       onRefresh={async () => { await queryClient.invalidateQueries({ queryKey: qk.connection.all() }) }}
     >
-      {isPending ? null
+      {isPending ? <SkeletonList />
         : !connections || connections.length === 0
-        ? <EmptyState message="no connections configured" />
+        ? <EmptyState message="no connections configured" action={{ label: 'add one', to: '/settings/connections/new' }} />
         : <div className="[&>:last-child>*]:border-b-0">{connections.map(c => (
           <Link key={c.id} to={`/settings/connections/${c.id}`} className="block">
             <ListRow title={c.name} subtitle={`${c.kind}${c.api_key_preview ? ` · ${c.api_key_preview}` : ''}`} />

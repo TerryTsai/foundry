@@ -21,6 +21,7 @@ import { fmtDuration, fmtActor } from '../../lib/format.js'
 
 function TagSection({ ticketId }: { ticketId: string }) {
   const queryClient = useQueryClient()
+  const tagsKey = qk.ticket.tags(ticketId)
   const { data: tags = [] } = useQuery(ticketTagsOpts(ticketId))
   const [adding, setAdding] = useState(false)
   const [value, setValue] = useState('')
@@ -28,15 +29,35 @@ function TagSection({ ticketId }: { ticketId: string }) {
 
   useEffect(() => { if (adding) inputRef.current?.focus() }, [adding])
 
-  const invalidate = () => queryClient.invalidateQueries({ queryKey: qk.ticket.tags(ticketId) })
-
+  // Optimistic add/remove: mutate the cached tag list immediately,
+  // rollback on failure, reconcile on settle.
   const addMutation = useMutation({
     mutationFn: (tag: string) => ticketApi.addTag(ticketId, tag),
-    onSuccess: invalidate,
+    onMutate: async (tag) => {
+      await queryClient.cancelQueries({ queryKey: tagsKey })
+      const prev = queryClient.getQueryData<string[]>(tagsKey)
+      queryClient.setQueryData<string[]>(tagsKey, (cur = []) =>
+        cur.includes(tag) ? cur : [...cur, tag],
+      )
+      return { prev }
+    },
+    onError: (_err, _tag, ctx) => {
+      if (ctx?.prev) queryClient.setQueryData(tagsKey, ctx.prev)
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: tagsKey }),
   })
   const removeMutation = useMutation({
     mutationFn: (tag: string) => ticketApi.removeTag(ticketId, tag),
-    onSuccess: invalidate,
+    onMutate: async (tag) => {
+      await queryClient.cancelQueries({ queryKey: tagsKey })
+      const prev = queryClient.getQueryData<string[]>(tagsKey)
+      queryClient.setQueryData<string[]>(tagsKey, (cur = []) => cur.filter(t => t !== tag))
+      return { prev }
+    },
+    onError: (_err, _tag, ctx) => {
+      if (ctx?.prev) queryClient.setQueryData(tagsKey, ctx.prev)
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: tagsKey }),
   })
 
   async function commitAdd() {
@@ -96,10 +117,29 @@ export function TicketDetailPage() {
 
   useEffect(() => { if (ticket) setDescription(ticket.description) }, [ticket?.description, ticket])
 
+  // Optimistic comment add — drop the new comment into the cached list
+  // immediately, reconcile on settle.
   const handleAddComment = useCallback(async (text: string) => {
-    await commentApi.create(tid, { author: 'founder', body: text })
-    queryClient.invalidateQueries({ queryKey: qk.ticket.comments(tid) })
-  }, [tid, queryClient])
+    const commentsKey = qk.ticket.comments(tid)
+    const optimistic = {
+      id: `optimistic-${Date.now()}`,
+      ticket_id: tid,
+      session_id: null,
+      author: 'founder',
+      body: text,
+      created_at: new Date().toISOString(),
+    }
+    const prev = queryClient.getQueryData<typeof comments>(commentsKey)
+    queryClient.setQueryData(commentsKey, [...(prev ?? []), optimistic])
+    try {
+      await commentApi.create(tid, { author: 'founder', body: text })
+    } catch (err) {
+      queryClient.setQueryData(commentsKey, prev ?? [])
+      throw err
+    } finally {
+      queryClient.invalidateQueries({ queryKey: commentsKey })
+    }
+  }, [tid, queryClient, comments])
 
   const saveMutation = useMutation({
     mutationFn: () => ticketApi.update(tid, { description }),

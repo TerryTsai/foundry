@@ -6,6 +6,7 @@ import { qk } from './queries.js'
 import type { Project } from './types.js'
 import { ProjectSwitcher } from './components/ProjectSwitcher.js'
 import { AppHeader } from './components/layout/AppHeader.js'
+import { Breadcrumb } from './Breadcrumb.js'
 
 // Re-export for consumers that import FoundryMark from Shell
 export { FoundryMark } from './components/layout/AppHeader.js'
@@ -28,6 +29,7 @@ export function Shell() {
       <AppHeader><ProjectSwitcher current={project ?? null} projectId={projectId!} /></AppHeader>
       <ScrollRestoration />
       <main className="min-w-0 pt-12">
+        <Breadcrumb />
         <Outlet context={{ project: project ?? null, projectId: projectId!, revalidate }} />
       </main>
     </div>
