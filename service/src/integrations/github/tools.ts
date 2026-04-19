@@ -173,12 +173,11 @@ async function handleGitClone(ctx: GithubCtx, args: z.infer<typeof gitCloneArgs>
       'set -e',
       'export GIT_TERMINAL_PROMPT=0',
       'INSTALL_TOKEN="$(cat /foundry-secrets/install-token)"',
-      'git clone "https://x-access-token:${INSTALL_TOKEN}@github.com/${OWNER}/${REPO}" /work 1>&2',
+      'git clone -q "https://x-access-token:${INSTALL_TOKEN}@github.com/${OWNER}/${REPO}" /work',
       'git -C /work remote set-url origin "https://github.com/${OWNER}/${REPO}.git"',
       'git -C /work config user.email foundry@localhost',
       'git -C /work config user.name Foundry',
-      'git -C /work checkout -b "foundry/${SESSION_ID}" 1>&2',
-      'echo cloned',
+      'git -C /work checkout -q -b "foundry/${SESSION_ID}"',
     ].join('\n')
 
     const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace,
@@ -253,7 +252,7 @@ async function handleGitCommit(ctx: GithubCtx, args: z.infer<typeof gitCommitArg
     '  echo NOTHING_STAGED',
     '  exit 64',
     'fi',
-    'git commit -m "$FULL_MSG" 1>&2',
+    'git commit -q -m "$FULL_MSG"',
     'git rev-parse HEAD',
   ].join('\n')
   const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace,
@@ -289,7 +288,7 @@ async function handleGitPullRequest(ctx: GithubCtx, args: z.infer<typeof gitPull
       '  exit 64',
       'fi',
       'PR_BODY=$(printf \'%s\' "${PR_BODY_JSON}" | jq --arg b "$BASE" \'.base = $b\')',
-      'git push "https://x-access-token:${INSTALL_TOKEN}@github.com/${OWNER}/${REPO}" "HEAD:refs/heads/${BRANCH}" 1>&2',
+      'git push -q "https://x-access-token:${INSTALL_TOKEN}@github.com/${OWNER}/${REPO}" "HEAD:refs/heads/${BRANCH}"',
       'printf \'%s\' "$PR_BODY" | curl -sS -w "\\n%{http_code}" -X POST \\',
       '  -H "Authorization: Bearer ${INSTALL_TOKEN}" \\',
       '  -H "Accept: application/vnd.github+json" \\',
@@ -359,9 +358,8 @@ async function handleGitRebase(ctx: GithubCtx, _args: z.infer<typeof gitRebaseAr
       'cd /work',
       'export GIT_TERMINAL_PROMPT=0',
       'INSTALL_TOKEN="$(cat /foundry-secrets/install-token)"',
-      'git fetch "https://x-access-token:${INSTALL_TOKEN}@github.com/${OWNER}/${REPO}" main:refs/remotes/origin/main 1>&2',
-      'git rebase origin/main 1>&2',
-      'echo ok',
+      'git fetch -q "https://x-access-token:${INSTALL_TOKEN}@github.com/${OWNER}/${REPO}" main:refs/remotes/origin/main',
+      'git rebase -q origin/main',
     ].join('\n')
 
     const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace,
@@ -408,7 +406,7 @@ async function handleGitMerge(ctx: GithubCtx, args: z.infer<typeof gitMergeArgs>
       '  exit 64',
       'fi',
       'PR_BODY=$(printf \'%s\' "${PR_BODY_JSON}" | jq --arg b "$BASE" \'.base = $b\')',
-      'git push "https://x-access-token:${INSTALL_TOKEN}@github.com/${OWNER}/${REPO}" "HEAD:refs/heads/${BRANCH}" 1>&2',
+      'git push -q "https://x-access-token:${INSTALL_TOKEN}@github.com/${OWNER}/${REPO}" "HEAD:refs/heads/${BRANCH}"',
       'printf \'%s\' "$PR_BODY" | curl -sS -w "\\n%{http_code}" -X POST \\',
       '  -H "Authorization: Bearer ${INSTALL_TOKEN}" \\',
       '  -H "Accept: application/vnd.github+json" \\',
