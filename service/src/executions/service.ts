@@ -98,10 +98,32 @@ export function executionCreate(db: Db, config: Config, input: {
 export function executionKill(db: Db, accountId: string, id: string): { ok: true } {
   const row = executionOwned(db, id, accountId)
   assertStatus(row, 'running', 'execution is not active')
+  killOne(db, id)
+  return { ok: true }
+}
+
+function killOne(db: Db, id: string): void {
   const handle = activeRuns.get(id)
   if (handle) { handle.kill(); activeRuns.delete(id) }
   database.executionUpdate(db, id, { status: 'cancelled', exit_code: -1, ended_at: now() })
-  return { ok: true }
+}
+
+// Kill every in-flight execution belonging to any running session of
+// the ticket. Called on ticket cancel so the SDK's in-progress tool
+// calls return immediately — the session's shouldStop() poller then
+// sees the ticket is no longer running and bails out of its loop.
+// No ownership check here; the caller (tickets/service.ts ticketCancel)
+// already authorized via ticketOwned.
+export function killRunningExecutionsForTicket(db: Db, ticketId: string): void {
+  const sessions = database.sessionsByTicketRaw(db, ticketId)
+  for (const s of sessions) {
+    if (s.status !== 'running') continue
+    const execs = database.executionBySession(db, s.id)
+    for (const e of execs) {
+      if (e.status !== 'running') continue
+      killOne(db, e.id)
+    }
+  }
 }
 
 export function executionStream(db: Db, accountId: string, id: string, res: Response): void {

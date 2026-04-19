@@ -10,6 +10,7 @@ import { conflict, notFound } from '../core/errors.js'
 import * as validate from './schema.js'
 import { eq, and, inArray } from 'drizzle-orm'
 import { assertProjectOwner, ticketOwned } from '../projects/service.js'
+import { killRunningExecutionsForTicket } from '../executions/service.js'
 
 export interface DependencyChainEntry {
   id: string; title: string; description: string
@@ -92,6 +93,12 @@ export function ticketCancel(db: Db, accountId: string, id: string): Ticket {
     data: JSON.stringify({ from: t.status, to: 'cancelled' }),
     caused_by: 'founder',
   })
+  // Kill any in-flight sandbox executions so the SDK's current tool
+  // call returns immediately — shouldStop() then breaks the session
+  // loop on the next iteration. Without this the session keeps waiting
+  // on whatever tool was mid-flight (e.g. a long `run`) until it
+  // finishes naturally.
+  killRunningExecutionsForTicket(db, id)
   return mustExist(database.ticketGet(db, id))
 }
 
