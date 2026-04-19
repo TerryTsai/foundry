@@ -112,8 +112,14 @@ function upsertActivity(db: Db, params: {
     tool_use_id:  params.tool_use_id ?? null,
     execution_id: null,
   }
+  // Tokens are re-applied on every upsert so the first-row snapshot
+  // tracks the turn's growing usage (non-first rows stay null).
   if (existing) {
-    database.activityUpdate(db, existing.id, baseData)
+    database.activityUpdate(db, existing.id, {
+      ...baseData,
+      tokens_in: params.tokens_in ?? null,
+      tokens:    params.tokens    ?? null,
+    })
     return existing
   }
   return database.activityInsert(db, {
@@ -184,8 +190,15 @@ export async function runEngine(ctx: SessionContext): Promise<LoopResult> {
   let numTurns      = 0
   let cancelled     = false
 
-  const turnBlocks        = new Map<string, Block[]>()
-  const turnTokensWritten = new Set<string>()
+  const turnBlocks = new Map<string, Block[]>()
+  // Per-turn usage high-water marks. The SDK emits many `assistant`
+  // messages per turn; each carries a cumulative usage snapshot, and
+  // output_tokens in particular grows monotonically as the response
+  // streams. Locking on the first snapshot undercounts output massively
+  // (see reconcile deltas). Instead track the latest per turn and add
+  // only the delta over prior when the session total accumulates.
+  const turnMaxIn  = new Map<string, number>()
+  const turnMaxOut = new Map<string, number>()
 
   try {
     for await (const message of query({
@@ -211,25 +224,22 @@ export async function runEngine(ctx: SessionContext): Promise<LoopResult> {
         const merged   = mergeBlocks(prior, incoming)
         turnBlocks.set(turnId, merged)
 
-        let tokensInForRow: number | null = null
-        let tokensForRow:   number | null = null
-        if (!turnTokensWritten.has(turnId)) {
-          const turnIn  = (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0)
-          const turnOut = u.output_tokens ?? 0
-          inputTokens   += turnIn
-          outputTokens  += turnOut
-          tokensInForRow = turnIn
-          tokensForRow   = turnOut
-          turnTokensWritten.add(turnId)
-        }
+        const turnIn  = (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0)
+        const turnOut = u.output_tokens ?? 0
+        const priorIn  = turnMaxIn .get(turnId) ?? 0
+        const priorOut = turnMaxOut.get(turnId) ?? 0
+        inputTokens  += Math.max(0, turnIn  - priorIn )
+        outputTokens += Math.max(0, turnOut - priorOut)
+        turnMaxIn .set(turnId, Math.max(priorIn,  turnIn ))
+        turnMaxOut.set(turnId, Math.max(priorOut, turnOut))
 
         merged.forEach((b, idx) => {
           const { kind, payload, tool_use_id } = blockToActivity(b)
           upsertActivity(db, {
             sessionId, turnId, orderIndex: idx,
             kind, payload, tool_use_id,
-            tokens_in: idx === 0 ? tokensInForRow : null,
-            tokens:    idx === 0 ? tokensForRow   : null,
+            tokens_in: idx === 0 ? turnMaxIn .get(turnId) ?? 0 : null,
+            tokens:    idx === 0 ? turnMaxOut.get(turnId) ?? 0 : null,
           })
         })
 
