@@ -1,9 +1,10 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { Link } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
 import { Settings, LogOut, Sun, Moon, Monitor, BarChart3 } from 'lucide-react'
 import { authApi } from '../api.js'
-import type { Account } from '../types.js'
+import { authMeOpts } from '../queries.js'
 import { useTheme, type ThemeMode } from '../theme.js'
 
 const THEME_CYCLE: ThemeMode[] = ['system', 'light', 'dark']
@@ -11,14 +12,9 @@ const THEME_CYCLE: ThemeMode[] = ['system', 'light', 'dark']
 export function AvatarMenu() {
   const [open,    setOpen]    = useState(false)
   const [pos,     setPos]     = useState<{ top: number; right: number } | null>(null)
-  const [account, setAccount] = useState<Account | null>(null)
+  const { data: account } = useQuery(authMeOpts())
   const btnRef = useRef<HTMLButtonElement>(null)
   const { mode, setMode } = useTheme()
-
-  // Eager-load so avatar renders on initial page load
-  useEffect(() => {
-    authApi.me().then(setAccount).catch(console.error)
-  }, [])
 
   function handleOpen() {
     if (open) { setOpen(false); return }

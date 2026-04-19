@@ -1,9 +1,11 @@
-import { useState, useEffect } from 'react'
-import { Outlet, useLoaderData, useParams, Link, useMatch, useSearchParams } from 'react-router-dom'
+import { Outlet, useParams, Link, useMatch, useSearchParams } from 'react-router-dom'
+import { useQueries, useQuery } from '@tanstack/react-query'
 import { Plus } from 'lucide-react'
-import type { Ticket, Agent } from '../../types.js'
+import type { Ticket } from '../../types.js'
 import { useShell } from '../../Shell.js'
-import { ticketApi, projectApi } from '../../api.js'
+import {
+  ticketListOpts, agentListOpts, projectTagsOpts,
+} from '../../queries.js'
 import { MultiSelect } from '../primitives/MultiSelect.js'
 import { ListRow } from '../list/ListRow.js'
 import { EmptyState } from '../list/EmptyState.js'
@@ -49,7 +51,8 @@ export function TicketsIndexPlaceholder() {
 export function TicketsSplitLayout() {
   const shellCtx = useShell()
   const { projectId, revalidate } = shellCtx
-  const { tickets, agents } = useLoaderData() as { tickets: Ticket[]; agents: Agent[] }
+  const { data: tickets = [] } = useQuery(ticketListOpts({ projectId }))
+  const { data: agents = [] }  = useQuery(agentListOpts())
   const { ticketId } = useParams<{ ticketId: string }>()
 
   // Detect whether we're at the bare index route (no child segment).
@@ -96,39 +99,30 @@ export function TicketsSplitLayout() {
     }, { replace: true })
   }
 
-  // Tag filter: tagFilter holds selected tags; tagTickets holds OR-merged results.
+  // Tag filter: selected tags → one query per tag → OR-merge results.
   const tagFilter    = getParam('tag')
   const setTagFilter = makeSetter('tag')
-  const [projectTags, setProjectTags] = useState<string[]>([])
-  const [tagTickets, setTagTickets] = useState<Ticket[] | null>(null)
-  const [tagLoading, setTagLoading] = useState(false)
+  const { data: projectTags = [] } = useQuery(projectTagsOpts(projectId))
 
-  // Fetch the project's distinct tag list once on mount.
-  useEffect(() => {
-    projectApi.tags(projectId).then(setProjectTags).catch(() => {})
-  }, [projectId])
-
-  // OR-merge ticket lists for each selected tag. Depend on a stable
-  // string key — a Set from getParam is a fresh instance every render
-  // and would re-fire this effect forever.
-  const tagKey = [...tagFilter].sort().join('|')
-  useEffect(() => {
-    if (!tagKey) { setTagTickets(null); return }
-    const tags = tagKey.split('|')
-    setTagLoading(true)
-    Promise.all(tags.map(tag => ticketApi.list({ projectId, tag })))
-      .then(results => {
+  const selectedTags = [...tagFilter].sort()
+  const tagQueries = useQueries({
+    queries: selectedTags.map(tag => ticketListOpts({ projectId, tag })),
+  })
+  const tagLoading = selectedTags.length > 0 && tagQueries.some(q => q.isPending)
+  const tagTickets: Ticket[] | null = selectedTags.length === 0
+    ? null
+    : (() => {
         const seen = new Set<string>()
         const merged: Ticket[] = []
-        for (const batch of results)
-          for (const t of batch)
+        for (const q of tagQueries) {
+          for (const t of (q.data ?? [])) {
             if (!seen.has(t.id)) { seen.add(t.id); merged.push(t) }
-        setTagTickets(merged)
-      })
-      .finally(() => setTagLoading(false))
-  }, [tagKey, projectId])
+          }
+        }
+        return merged
+      })()
 
-  // Source: tag-filtered subset (from API) or all tickets from loader.
+  // Source: tag-filtered subset or all tickets.
   const sourceTickets = tagTickets ?? tickets
 
   const agentName = (t: Ticket) => agents.find(a => a.id === t.agent_id)?.name ?? 'unassigned'

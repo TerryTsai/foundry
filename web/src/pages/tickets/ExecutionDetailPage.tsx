@@ -1,10 +1,11 @@
-import { Link, useLoaderData, useParams } from 'react-router-dom'
-import type { Execution } from '../../types.js'
+import { Link, useParams } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
 import { SectionLabel } from '../../components/detail/SectionLabel.js'
 import { DetailShell } from '../../components/layout/DetailShell.js'
 import { useBreadcrumbLabel } from '../../Breadcrumb.js'
 import { useShell } from '../../Shell.js'
 import { toolLabel } from '../../lib/tool-display.js'
+import { executionGetOpts } from '../../queries.js'
 
 const codeCls = 'font-mono text-xs text-zinc-600 dark:text-zinc-400 whitespace-pre-wrap break-all leading-relaxed select-text bg-zinc-50 dark:bg-zinc-900/50 rounded p-3 mx-4 max-h-96 overflow-auto'
 
@@ -15,12 +16,14 @@ const fmtBytes = (b: number): string =>
   : `${b} B`
 
 export function ExecutionDetailPage() {
-  const execution = useLoaderData() as Execution
   const { projectId } = useShell()
-  const { ticketId, sessionId } = useParams()
+  const { ticketId, sessionId, executionId } = useParams()
+  const { data: execution } = useQuery(executionGetOpts(executionId!))
 
-  const firstLine = execution.command.split('\n')[0].slice(0, 80)
+  const firstLine = execution?.command.split('\n')[0].slice(0, 80) ?? ''
   useBreadcrumbLabel(firstLine)
+
+  if (!execution) return null
 
   const ts = (s: string) => new Date(s).toLocaleString(undefined, {
     month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',

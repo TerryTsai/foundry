@@ -1,6 +1,7 @@
-import { Outlet, useLoaderData, useParams, Link, useMatch, useRevalidator } from 'react-router-dom'
+import { Outlet, useParams, Link, useMatch } from 'react-router-dom'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Plus } from 'lucide-react'
-import type { Agent } from '../../types.js'
+import { agentListOpts, qk } from '../../queries.js'
 import { ListRow } from '../list/ListRow.js'
 import { EmptyState } from '../list/EmptyState.js'
 import { PageShell } from './PageShell.js'
@@ -16,9 +17,9 @@ export function AgentsIndexPlaceholder() {
 
 // ── Split layout ────────────────────────────────────────────────────────────
 export function AgentsSplitLayout() {
-  const agents = useLoaderData() as Agent[]
+  const { data: agents = [] } = useQuery(agentListOpts())
   const { agentId } = useParams<{ agentId: string }>()
-  const { revalidate } = useRevalidator()
+  const queryClient = useQueryClient()
 
   // Detect bare /settings/agents index to decide mobile rendering.
   const isIndex = !!useMatch('/settings/agents')
@@ -77,7 +78,7 @@ export function AgentsSplitLayout() {
           <div className="flex-1 min-h-0 min-w-0">
             <PageShell
               action={{ label: 'Agent', onPress: '/settings/agents/new' }}
-              onRefresh={async () => { revalidate() }}
+              onRefresh={async () => { await queryClient.invalidateQueries({ queryKey: qk.agent.all() }) }}
             >
               {renderRows(false)}
             </PageShell>

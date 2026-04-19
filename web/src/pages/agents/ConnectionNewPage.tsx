@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { connectionApi } from '../../api.js'
-import type { ProviderMetadata, CredentialField } from '../../types.js'
+import { connectionProvOpts, qk } from '../../queries.js'
+import type { CredentialField } from '../../types.js'
 import { Field } from '../../components/form/Field.js'
 import { TextInput } from '../../components/form/TextInput.js'
 import { TextArea } from '../../components/form/TextArea.js'
@@ -10,42 +12,47 @@ import { ActionButton } from '../../components/form/ActionButton.js'
 
 export function ConnectionNewPage() {
   const navigate = useNavigate()
-  const [providers, setProviders] = useState<ProviderMetadata[]>([])
+  const queryClient = useQueryClient()
+  const { data: providers = [] } = useQuery(connectionProvOpts())
   const [kind, setKind] = useState('')
   const [name, setName] = useState('')
   const [values, setValues] = useState<Record<string, string>>({})
   const [error, setError] = useState('')
 
   useEffect(() => {
-    connectionApi.providers().then(list => {
-      setProviders(list)
-      if (list.length > 0 && !kind) setKind(list[0].kind)
-    }).catch(err => setError(err instanceof Error ? err.message : 'failed to load providers'))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+    if (providers.length > 0 && !kind) setKind(providers[0].kind)
+  }, [providers, kind])
 
   const provider = providers.find(p => p.kind === kind)
 
   // Reset field values when provider changes so stale entries don't leak.
   useEffect(() => { setValues({}) }, [kind])
 
-  async function handleSubmit(e: React.FormEvent) {
+  const createMutation = useMutation({
+    mutationFn: () => {
+      if (!provider) throw new Error('no provider')
+      const secrets: Record<string, string> = {}
+      const config:  Record<string, string> = {}
+      for (const f of provider.credentials) {
+        const v = values[f.key] ?? ''
+        if (!v && !f.required) continue
+        if (f.type === 'password') secrets[f.key] = v
+        else                       config[f.key]  = v
+      }
+      return connectionApi.create({ name, kind, secrets, config })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: qk.connection.all() })
+      navigate('/settings/connections')
+    },
+    onError: err => setError(err instanceof Error ? err.message : 'failed'),
+  })
+
+  function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError('')
     if (!provider) return
-    // Split provider credentials into secrets (password) vs config (everything else).
-    const secrets: Record<string, string> = {}
-    const config:  Record<string, string> = {}
-    for (const f of provider.credentials) {
-      const v = values[f.key] ?? ''
-      if (!v && !f.required) continue
-      if (f.type === 'password') secrets[f.key] = v
-      else                       config[f.key]  = v
-    }
-    try {
-      await connectionApi.create({ name, kind, secrets, config })
-      navigate('/settings/connections')
-    } catch (err) { setError(err instanceof Error ? err.message : 'failed') }
+    createMutation.mutate()
   }
 
   function renderField(f: CredentialField) {

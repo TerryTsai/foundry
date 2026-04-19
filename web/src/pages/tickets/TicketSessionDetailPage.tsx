@@ -1,7 +1,8 @@
-import { Link, useLoaderData, useParams, useRevalidator } from 'react-router-dom'
+import { Link, useParams } from 'react-router-dom'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { marked } from 'marked'
 import { MessageSquare, Brain, FileText, Scale } from 'lucide-react'
-import type { Session, Execution, Activity, UsageRollup, Ticket } from '../../types.js'
+import type { Execution, Activity } from '../../types.js'
 import { fmtDuration, fmtBytes } from '../../lib/format.js'
 import { toolIcon, toolLabel } from '../../lib/tool-display.js'
 import { SectionLabel } from '../../components/detail/SectionLabel.js'
@@ -10,15 +11,10 @@ import { DetailShell } from '../../components/layout/DetailShell.js'
 import { EmptyState } from '../../components/list/EmptyState.js'
 import { useBreadcrumbLabel } from '../../Breadcrumb.js'
 import { useShell } from '../../Shell.js'
-import { bustCache } from '../../api.js'
-
-interface SessionLoaderData {
-  ticket: Ticket
-  session: Session
-  executions: Execution[]
-  activities: Activity[]
-  usage: UsageRollup
-}
+import {
+  ticketGetOpts, sessionGetOpts, agentListOpts, sessionExecutionsOpts,
+  sessionActivitiesOpts, sessionUsageOpts, qk,
+} from '../../queries.js'
 
 // ── Helpers ──
 
@@ -171,14 +167,24 @@ function ActivityEntry({ a, execByToolUseId, execHref }: {
 // ── Page ──
 
 export function TicketSessionDetailPage() {
-  const { ticket, session, executions, activities, usage } = useLoaderData() as SessionLoaderData
   const { projectId } = useShell()
   const { ticketId, sessionId } = useParams()
-  const { revalidate } = useRevalidator()
-  const agentName = session.agent_name ?? session.agent_id
+  const queryClient = useQueryClient()
+  const { data: ticket }  = useQuery(ticketGetOpts(ticketId!))
+  const { data: session } = useQuery(sessionGetOpts(sessionId!))
+  const { data: agents = [] }     = useQuery(agentListOpts())
+  const { data: executions = [] } = useQuery(sessionExecutionsOpts(sessionId!))
+  const { data: activities = [] } = useQuery(sessionActivitiesOpts(sessionId!))
+  const { data: usage }           = useQuery(sessionUsageOpts(sessionId!))
+
+  const agentName = session?.agent_name ?? agents.find(a => a.id === session?.agent_id)?.name ?? session?.agent_id ?? ''
   useBreadcrumbLabel(agentName)
 
-  const refreshActivity = async () => { bustCache(); revalidate() }
+  const refreshActivity = async () => {
+    await queryClient.invalidateQueries({ queryKey: qk.session.byId(sessionId!) })
+  }
+
+  if (!ticket || !session || !usage) return null
 
   const ts = (s: string) => new Date(s).toLocaleString(undefined, {
     month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',

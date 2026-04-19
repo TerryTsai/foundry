@@ -1,51 +1,51 @@
 import { useState, useEffect } from 'react'
-import { useNavigate, useLoaderData, useParams, useRevalidator } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { projectApi } from '../../api.js'
-import type { Project } from '../../types.js'
+import { projectGetOpts, qk } from '../../queries.js'
 import { Field } from '../../components/form/Field.js'
 import { TextInput } from '../../components/form/TextInput.js'
 import { ActionButton } from '../../components/form/ActionButton.js'
 
 export function ProjectEditPage() {
-  const project = useLoaderData() as Project
   const { projectId } = useParams<{ projectId: string }>()
+  const { data: project } = useQuery(projectGetOpts(projectId!))
   const navigate = useNavigate()
-  const { revalidate } = useRevalidator()
-  const [name, setName] = useState(project.name)
-  const [repo, setRepo] = useState(project.repo)
-  const [maxAgents, setMaxAgents] = useState(String(project.max_agents))
+  const queryClient = useQueryClient()
+  const [name, setName] = useState('')
+  const [repo, setRepo] = useState('')
+  const [maxAgents, setMaxAgents] = useState('1')
   const [error, setError] = useState('')
-  const [toggling, setToggling] = useState(false)
 
-  // Keep form in sync if loader re-runs
   useEffect(() => {
+    if (!project) return
     setName(project.name)
     setRepo(project.repo)
     setMaxAgents(String(project.max_agents))
   }, [project])
 
-  async function handleSave(e: React.FormEvent) {
-    e.preventDefault()
-    setError('')
-    try {
-      await projectApi.update(projectId!, { repo, max_agents: +maxAgents })
+  const saveMutation = useMutation({
+    mutationFn: () => projectApi.update(projectId!, { repo, max_agents: +maxAgents }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: qk.project.all() })
       navigate('/settings/projects')
-    } catch (err) { setError(err instanceof Error ? err.message : 'failed') }
-  }
+    },
+    onError: err => setError(err instanceof Error ? err.message : 'failed'),
+  })
 
-  async function handleStatusToggle() {
-    setToggling(true)
-    try {
-      const newStatus = project.status === 'active' ? 'archived' : 'active'
-      await projectApi.update(projectId!, { status: newStatus })
-      revalidate()
-    } catch (err) { setError(err instanceof Error ? err.message : 'failed') }
-    finally { setToggling(false) }
-  }
+  const toggleStatus = useMutation({
+    mutationFn: () => projectApi.update(projectId!, {
+      status: project?.status === 'active' ? 'archived' : 'active',
+    }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: qk.project.all() }),
+    onError: err => setError(err instanceof Error ? err.message : 'failed'),
+  })
+
+  if (!project) return null
 
   return (
     <div className="px-4 py-5 lg:max-w-2xl lg:mx-auto lg:px-6">
-      <form onSubmit={handleSave} className="space-y-4">
+      <form onSubmit={e => { e.preventDefault(); setError(''); saveMutation.mutate() }} className="space-y-4">
         {error && <div className="text-sm text-red-400">{error}</div>}
         <Field label="name">
           <TextInput value={name} disabled className="disabled:opacity-40" />
@@ -61,8 +61,8 @@ export function ProjectEditPage() {
             <span className="text-sm text-zinc-500 dark:text-zinc-400">{project.status}</span>
             <button
               type="button"
-              onClick={handleStatusToggle}
-              disabled={toggling}
+              onClick={() => toggleStatus.mutate()}
+              disabled={toggleStatus.isPending}
               className="text-xs text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 disabled:opacity-30 transition-colors"
             >
               {project.status === 'active' ? 'Pause project' : 'Resume project'}

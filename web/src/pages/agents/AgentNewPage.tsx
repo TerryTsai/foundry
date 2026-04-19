@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react'
-import { useNavigate, useLoaderData } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { agentApi } from '../../api.js'
-import type { Agent, Connection, McpServerInfo, McpToolSelection } from '../../types.js'
+import { connectionListOpts, agentListOpts, agentMcpOpts, qk } from '../../queries.js'
+import type { McpToolSelection } from '../../types.js'
 import { Field } from '../../components/form/Field.js'
 import { TextInput } from '../../components/form/TextInput.js'
 import { TextArea } from '../../components/form/TextArea.js'
@@ -12,31 +14,31 @@ import { VerifierPicker } from '../../components/form/VerifierPicker.js'
 
 export function AgentNewPage() {
   const navigate = useNavigate()
-  const connections = useLoaderData() as Connection[]
+  const queryClient = useQueryClient()
+  const { data: connections = [] } = useQuery(connectionListOpts())
+  const { data: servers = [] }     = useQuery(agentMcpOpts())
+  const { data: allAgents = [] }   = useQuery(agentListOpts())
   const [name, setName] = useState('')
-  const [connectionId, setConnectionId] = useState(connections[0]?.id ?? '')
+  const [connectionId, setConnectionId] = useState('')
   const [model, setModel] = useState('claude-sonnet-4-20250514')
   const [description, setDescription] = useState('')
   const [maxTokens, setMaxTokens] = useState('8192')
   const [maxSteps, setMaxSteps] = useState('20')
   const [temperature, setTemperature] = useState('')
   const [reasoningBudget, setReasoningBudget] = useState('')
-  const [servers, setServers] = useState<McpServerInfo[]>([])
   const [toolSelection, setToolSelection] = useState<McpToolSelection | null>(null)
-  const [allAgents, setAllAgents] = useState<Agent[]>([])
   const [verifiers, setVerifiers] = useState<string[]>([])
   const [error, setError] = useState('')
 
-  useEffect(() => { agentApi.mcp().then(setServers).catch(() => {}) }, [])
-  useEffect(() => { agentApi.list().then(setAllAgents).catch(() => {}) }, [])
+  // Default the connection picker to the first connection once the list loads.
+  useEffect(() => {
+    if (!connectionId && connections.length > 0) setConnectionId(connections[0].id)
+  }, [connections, connectionId])
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    setError('')
-    if (!connectionId) { setError('select a connection'); return }
-    try {
+  const createMutation = useMutation({
+    mutationFn: () => {
       const tools = toolSelection && Object.keys(toolSelection).length > 0 ? toolSelection : undefined
-      await agentApi.create({
+      return agentApi.create({
         connection_id: connectionId, name, model, description,
         max_tokens: +maxTokens, max_steps: +maxSteps,
         temperature: temperature ? +temperature : undefined,
@@ -44,8 +46,19 @@ export function AgentNewPage() {
         tools,
         verifiers: verifiers.length > 0 ? verifiers : undefined,
       })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: qk.agent.all() })
       navigate('/settings/agents')
-    } catch (err) { setError(err instanceof Error ? err.message : 'failed') }
+    },
+    onError: err => setError(err instanceof Error ? err.message : 'failed'),
+  })
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    setError('')
+    if (!connectionId) { setError('select a connection'); return }
+    createMutation.mutate()
   }
 
   return (

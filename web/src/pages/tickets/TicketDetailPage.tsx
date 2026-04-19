@@ -1,11 +1,15 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { useNavigate, useLoaderData, useRevalidator } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { User, Bot, Info, Zap, Eye } from 'lucide-react'
-import { ticketApi, commentApi, bustCache } from '../../api.js'
+import { ticketApi, commentApi } from '../../api.js'
+import {
+  ticketGetOpts, ticketCommentsOpts, ticketUsageOpts, ticketTagsOpts,
+  ticketVerdictsOpts, ticketSessionsOpts, agentListOpts, qk,
+} from '../../queries.js'
 import { ActivityRow } from '../../components/detail/ActivityRow.js'
 import { SectionLabel } from '../../components/detail/SectionLabel.js'
 import { DetailShell } from '../../components/layout/DetailShell.js'
-import type { Ticket, Agent, Comment, UsageRollup, Verdict, Session } from '../../types.js'
 import { useShell } from '../../Shell.js'
 import { Field } from '../../components/form/Field.js'
 import { TextArea } from '../../components/form/TextArea.js'
@@ -15,32 +19,32 @@ import { fmtDuration, fmtActor } from '../../lib/format.js'
 
 // ── Tag Section ──
 
-function TagSection({ ticketId, initialTags }: { ticketId: string; initialTags: string[] }) {
-  const [tags, setTags] = useState(initialTags)
+function TagSection({ ticketId }: { ticketId: string }) {
+  const queryClient = useQueryClient()
+  const { data: tags = [] } = useQuery(ticketTagsOpts(ticketId))
   const [adding, setAdding] = useState(false)
   const [value, setValue] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
 
-  useEffect(() => { setTags(initialTags) }, [initialTags])
   useEffect(() => { if (adding) inputRef.current?.focus() }, [adding])
 
-  async function refreshTags() {
-    bustCache()
-    setTags(await ticketApi.tags(ticketId))
-  }
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: qk.ticket.tags(ticketId) })
 
-  async function handleRemove(tag: string) {
-    await ticketApi.removeTag(ticketId, tag)
-    await refreshTags()
-  }
+  const addMutation = useMutation({
+    mutationFn: (tag: string) => ticketApi.addTag(ticketId, tag),
+    onSuccess: invalidate,
+  })
+  const removeMutation = useMutation({
+    mutationFn: (tag: string) => ticketApi.removeTag(ticketId, tag),
+    onSuccess: invalidate,
+  })
 
   async function commitAdd() {
     const val = value.trim().toLowerCase()
     setValue('')
     setAdding(false)
     if (!val) return
-    await ticketApi.addTag(ticketId, val)
-    await refreshTags()
+    addMutation.mutate(val)
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
@@ -53,7 +57,7 @@ function TagSection({ ticketId, initialTags }: { ticketId: string; initialTags: 
       {tags.map(t => (
         <span key={t} className="inline-flex items-center gap-1 font-mono px-1.5 py-px rounded-sm border border-zinc-300 dark:border-zinc-700 text-xs text-zinc-600 dark:text-zinc-400">
           {t}
-          <button onClick={() => void handleRemove(t)} className="leading-none text-zinc-400 dark:text-zinc-600 hover:text-zinc-600 dark:hover:text-zinc-400 transition-colors" aria-label={`Remove tag ${t}`}>×</button>
+          <button onClick={() => removeMutation.mutate(t)} className="leading-none text-zinc-400 dark:text-zinc-600 hover:text-zinc-600 dark:hover:text-zinc-400 transition-colors" aria-label={`Remove tag ${t}`}>×</button>
         </span>
       ))}
       {adding ? (
@@ -71,48 +75,51 @@ function cap(s: string): string {
   return s.length === 0 ? s : s.charAt(0).toUpperCase() + s.slice(1)
 }
 
-// ── Loader ──
-
-interface TicketLoaderData {
-  ticket: Ticket; agents: Agent[]; comments: Comment[]; usage: UsageRollup
-  tags: string[]; verdicts: Verdict[]; sessions: Session[]; chain: Ticket[]
-}
-
 // ── Page ──
 
 export function TicketDetailPage() {
   const { projectId } = useShell()
-  const { ticket, agents, comments: initialComments, usage, tags: initialTags, verdicts, sessions } = useLoaderData() as TicketLoaderData
-  const { revalidate } = useRevalidator()
+  const { ticketId } = useParams<{ ticketId: string }>()
+  const tid = ticketId!
+  const { data: ticket }     = useQuery(ticketGetOpts(tid))
+  const { data: agents = [] } = useQuery(agentListOpts())
+  const { data: comments = [] } = useQuery(ticketCommentsOpts(tid))
+  const { data: usage }      = useQuery(ticketUsageOpts(tid))
+  const { data: verdicts = [] } = useQuery(ticketVerdictsOpts(tid))
+  const { data: sessions = [] } = useQuery(ticketSessionsOpts(tid))
+  const queryClient = useQueryClient()
   const navigate = useNavigate()
   const [editing, setEditing] = useState(false)
-  const [description, setDescription] = useState(ticket.description)
-  const [comments, setComments] = useState(initialComments)
+  const [description, setDescription] = useState('')
 
-  useBreadcrumbLabel(ticket.title)
+  useBreadcrumbLabel(ticket?.title ?? '')
 
-  useEffect(() => { setDescription(ticket.description) }, [ticket.description])
-  useEffect(() => { setComments(initialComments) }, [initialComments])
+  useEffect(() => { if (ticket) setDescription(ticket.description) }, [ticket?.description, ticket])
 
   const handleAddComment = useCallback(async (text: string) => {
-    await commentApi.create(ticket.id, { author: 'founder', body: text })
-    setComments(await commentApi.list(ticket.id))
-  }, [ticket.id])
+    await commentApi.create(tid, { author: 'founder', body: text })
+    queryClient.invalidateQueries({ queryKey: qk.ticket.comments(tid) })
+  }, [tid, queryClient])
+
+  const saveMutation = useMutation({
+    mutationFn: () => ticketApi.update(tid, { description }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: qk.ticket.byId(tid) })
+      setEditing(false)
+    },
+  })
+
+  const cancelMutation = useMutation({
+    mutationFn: () => ticketApi.cancel(tid),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: qk.ticket.all() })
+      navigate(`/p/${projectId}/tickets`)
+    },
+  })
+
+  if (!ticket || !usage) return null
 
   const agentName = agents.find(a => a.id === ticket.agent_id)?.name ?? ticket.agent_id ?? 'unassigned'
-
-  async function handleSave() {
-    await ticketApi.update(ticket.id, { description })
-    setEditing(false)
-    revalidate()
-  }
-
-  async function handleCancel() {
-    if (!confirm('Cancel this ticket?')) return
-    await ticketApi.cancel(ticket.id)
-    navigate(`/p/${projectId}/tickets`)
-  }
-
   const ts = (s: string) => new Date(s).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
   const agentNameById = (id: string) => agents.find(a => a.id === id)?.name ?? id
 
@@ -133,7 +140,7 @@ export function TicketDetailPage() {
         { label: 'sessions', value: usage.session_count > 0 ? String(usage.session_count) : null },
         { label: 'tools',    value: usage.tool_calls > 0 ? String(usage.tool_calls) : null },
         { label: 'duration', value: usage.duration_ms > 0 ? fmtDuration(usage.duration_ms) : null },
-        { label: 'tags',     value: !editing ? <TagSection ticketId={ticket.id} initialTags={initialTags} /> : null },
+        { label: 'tags',     value: !editing ? <TagSection ticketId={ticket.id} /> : null },
       ]}
       primaryCount={99}
       composer={{ placeholder: 'Comment', onSubmit: handleAddComment }}
@@ -145,7 +152,7 @@ export function TicketDetailPage() {
           </Field>
           <div className="flex gap-2">
             <ActionButton label="cancel" variant="secondary" onClick={() => setEditing(false)} className="flex-1" />
-            <ActionButton label="save" onClick={handleSave} className="flex-1" />
+            <ActionButton label="save" onClick={() => saveMutation.mutate()} className="flex-1" />
           </div>
         </div>
       )}
@@ -190,7 +197,7 @@ export function TicketDetailPage() {
 
       {!editing && ticket.status !== 'finished' && ticket.status !== 'cancelled' && (
         <div className="pt-2 border-t border-zinc-200 dark:border-zinc-800/60">
-          <ActionButton label="cancel ticket" variant="destructive" onClick={handleCancel} className="w-full" />
+          <ActionButton label="cancel ticket" variant="destructive" onClick={() => { if (confirm('Cancel this ticket?')) cancelMutation.mutate() }} className="w-full" />
         </div>
       )}
     </DetailShell>

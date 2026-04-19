@@ -1,6 +1,13 @@
 import { createBrowserRouter, Navigate, Outlet, useOutletContext } from 'react-router-dom'
 import type { Params } from 'react-router-dom'
-import { projectApi, ticketApi, agentApi, connectionApi, commentApi, sessionApi, executionApi, analyticsApi } from './api.js'
+import { queryClient } from './queryClient.js'
+import {
+  projectListOpts, projectGetOpts, agentListOpts, agentGetOpts, agentUsageOpts,
+  connectionListOpts, ticketListOpts, ticketGetOpts, ticketChainOpts,
+  ticketCommentsOpts, ticketUsageOpts, ticketTagsOpts, ticketVerdictsOpts,
+  ticketSessionsOpts, sessionGetOpts, sessionActivitiesOpts, sessionExecutionsOpts,
+  sessionUsageOpts, executionGetOpts, analyticsGetOpts,
+} from './queries.js'
 
 function Passthrough() {
   const ctx = useOutletContext()
@@ -30,6 +37,14 @@ import { AnalyticsPage } from './pages/analytics/AnalyticsPage.js'
 
 const pid = (p: Params) => p.projectId!
 
+// Loaders just prefetch into the React Query cache and return null.
+// Components consume the data via useQuery with the same options.
+// Signature is permissive on purpose — each opts object is individually
+// typed via queryOptions() and ensureQueryData accepts them shape-wise.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const prefetch = (...opts: any[]) =>
+  Promise.all(opts.map(o => queryClient.ensureQueryData(o))).then(() => null)
+
 export const router = createBrowserRouter([
   { path: '/login', element: <LoginPage /> },
   { path: '/health', element: <HealthPage /> },
@@ -41,14 +56,7 @@ export const router = createBrowserRouter([
   {
     path: '/analytics',
     element: <AnalyticsPage />,
-    loader: async () => {
-      const [analytics, projects, agents] = await Promise.all([
-        analyticsApi.get({ days: 30 }),
-        projectApi.list(),
-        agentApi.list(),
-      ])
-      return { analytics, projects, agents }
-    },
+    loader: () => prefetch(analyticsGetOpts({ days: 30 }), projectListOpts(), agentListOpts()),
   },
   {
     path: '/settings',
@@ -60,25 +68,22 @@ export const router = createBrowserRouter([
       {
         path: 'agents',
         element: <AgentsSplitLayout />,
-        loader: () => agentApi.list(),
+        loader: () => prefetch(agentListOpts()),
         children: [
           { index: true, element: <AgentsIndexPlaceholder /> },
           {
             path: 'new',
             element: <AgentNewPage />,
-            loader: () => connectionApi.list(),
+            loader: () => prefetch(connectionListOpts()),
           },
           {
             path: ':agentId',
             element: <AgentDetailPage />,
-            loader: async ({ params }) => {
-              const [agent, usage, connections] = await Promise.all([
-                agentApi.get(params.agentId!),
-                agentApi.usage(params.agentId!),
-                connectionApi.list(),
-              ])
-              return { agent, usage, connections }
-            },
+            loader: ({ params }) => prefetch(
+              agentGetOpts(params.agentId!),
+              agentUsageOpts(params.agentId!),
+              connectionListOpts(),
+            ),
           },
         ],
       },
@@ -91,16 +96,13 @@ export const router = createBrowserRouter([
           {
             index: true,
             element: <ConnectionListPage />,
-            loader: () => connectionApi.list(),
+            loader: () => prefetch(connectionListOpts()),
           },
           { path: 'new', element: <ConnectionNewPage /> },
           {
             path: ':connectionId',
             element: <ConnectionDetailPage />,
-            loader: async ({ params }) => {
-              const cs = await connectionApi.list()
-              return cs.find(c => c.id === params.connectionId!) ?? null
-            },
+            loader: () => prefetch(connectionListOpts()),
           },
         ],
       },
@@ -113,13 +115,13 @@ export const router = createBrowserRouter([
           {
             index: true,
             element: <ProjectListPage />,
-            loader: () => projectApi.list(),
+            loader: () => prefetch(projectListOpts()),
           },
           { path: 'new', element: <ProjectNewPage /> },
           {
             path: ':projectId',
             element: <ProjectEditPage />,
-            loader: ({ params }) => projectApi.get(params.projectId!),
+            loader: ({ params }) => prefetch(projectGetOpts(params.projectId!)),
           },
         ],
       },
@@ -131,7 +133,7 @@ export const router = createBrowserRouter([
     path: '/p/:projectId',
     element: <Shell />,
     handle: { crumb: 'Project' },
-    loader: ({ params }) => projectApi.get(pid(params)),
+    loader: ({ params }) => prefetch(projectGetOpts(pid(params))),
     children: [
       { index: true, element: <Navigate to="tickets" replace /> },
 
@@ -140,9 +142,10 @@ export const router = createBrowserRouter([
         path: 'tickets',
         element: <TicketsSplitLayout />,
         handle: { crumb: 'Tickets' },
-        loader: ({ params }) =>
-          Promise.all([ticketApi.list({ projectId: pid(params) }), agentApi.list()])
-            .then(([tickets, agents]) => ({ tickets, agents })),
+        loader: ({ params }) => prefetch(
+          ticketListOpts({ projectId: pid(params) }),
+          agentListOpts(),
+        ),
         children: [
           {
             index: true,
@@ -152,7 +155,7 @@ export const router = createBrowserRouter([
             path: 'new',
             element: <TicketNewPage />,
             handle: { crumb: 'New' },
-            loader: () => agentApi.list(),
+            loader: () => prefetch(agentListOpts()),
           },
           {
             path: ':ticketId',
@@ -162,19 +165,18 @@ export const router = createBrowserRouter([
               {
                 index: true,
                 element: <TicketDetailPage />,
-                loader: async ({ params }) => {
+                loader: ({ params }) => {
                   const tid = params.ticketId!
-                  const [ticket, agents, comments, usage, tags, verdicts, sessions, chain] = await Promise.all([
-                    ticketApi.get(tid),
-                    agentApi.list(),
-                    commentApi.list(tid),
-                    ticketApi.usage(tid),
-                    ticketApi.tags(tid),
-                    ticketApi.verdicts(tid),
-                    ticketApi.sessions(tid),
-                    ticketApi.chain(tid),
-                  ])
-                  return { ticket, agents, comments, usage, tags, verdicts, sessions, chain }
+                  return prefetch(
+                    ticketGetOpts(tid),
+                    agentListOpts(),
+                    ticketCommentsOpts(tid),
+                    ticketUsageOpts(tid),
+                    ticketTagsOpts(tid),
+                    ticketVerdictsOpts(tid),
+                    ticketSessionsOpts(tid),
+                    ticketChainOpts(tid),
+                  )
                 },
               },
               {
@@ -189,24 +191,20 @@ export const router = createBrowserRouter([
                       {
                         index: true,
                         element: <TicketSessionDetailPage />,
-                        loader: async ({ params }) => {
-                          const [ticket, session, agents, executions, activities, usage] = await Promise.all([
-                            ticketApi.get(params.ticketId!),
-                            sessionApi.get(params.sessionId!),
-                            agentApi.list(),
-                            sessionApi.executions(params.sessionId!),
-                            sessionApi.activities(params.sessionId!),
-                            sessionApi.usage(params.sessionId!),
-                          ])
-                          const agentName = agents.find(a => a.id === session.agent_id)?.name ?? null
-                          return { ticket, session: { ...session, agent_name: agentName }, executions, activities, usage }
-                        },
+                        loader: ({ params }) => prefetch(
+                          ticketGetOpts(params.ticketId!),
+                          sessionGetOpts(params.sessionId!),
+                          agentListOpts(),
+                          sessionExecutionsOpts(params.sessionId!),
+                          sessionActivitiesOpts(params.sessionId!),
+                          sessionUsageOpts(params.sessionId!),
+                        ),
                       },
                       {
                         path: 'executions/:executionId',
                         element: <ExecutionDetailPage />,
                         handle: { crumb: 'Execution' },
-                        loader: ({ params }) => executionApi.get(params.executionId!),
+                        loader: ({ params }) => prefetch(executionGetOpts(params.executionId!)),
                       },
                     ],
                   },

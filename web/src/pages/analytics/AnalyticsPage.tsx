@@ -1,9 +1,11 @@
 import { useState } from 'react'
-import { useLoaderData } from 'react-router-dom'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { PageShell } from '../../components/layout/PageShell.js'
 import { AppHeader } from '../../components/layout/AppHeader.js'
-import { analyticsApi } from '../../api.js'
-import type { Analytics, AnalyticsDay, AnalyticsAgent, AnalyticsTag, AnalyticsTool, Project, Agent } from '../../types.js'
+import {
+  analyticsGetOpts, projectListOpts, agentListOpts, qk,
+} from '../../queries.js'
+import type { Analytics, AnalyticsDay, AnalyticsAgent, AnalyticsTag, AnalyticsTool } from '../../types.js'
 import { fmtTokens, fmtDuration, fmtBytes, fmtCost } from '../../lib/format.js'
 import { MultiSelect } from '../../components/primitives/MultiSelect.js'
 
@@ -416,54 +418,39 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
-interface AnalyticsLoaderData {
-  analytics: Analytics
-  projects: Project[]
-  agents: Agent[]
-}
-
 export function AnalyticsPage() {
-  const { analytics: initial, projects, agents } = useLoaderData() as AnalyticsLoaderData
+  const queryClient = useQueryClient()
+  const { data: projects = [] } = useQuery(projectListOpts())
+  const { data: agents = [] }   = useQuery(agentListOpts())
 
-  // Filter state. MultiSelects for parity with the tickets filter bar,
-  // but narrowing only honors a single choice per dimension — the backend
-  // accepts one projectId / agentId at a time. If the founder picks more
-  // than one the first stays effective and the rest are decorative.
   const [range,   setRange]   = useState<Set<string>>(new Set(['30d']))
   const [project, setProject] = useState<Set<string>>(new Set())
   const [agent,   setAgent]   = useState<Set<string>>(new Set())
-  const [data,    setData]    = useState<Analytics>(initial)
-  const [loading, setLoading] = useState(false)
 
   const days = RANGE_BY_LABEL[[...range][0] ?? '30d'] ?? 30
+  const pickedProjectName = [...project][0]
+  const pickedAgentName   = [...agent][0]
+  const projectId = pickedProjectName ? projects.find(p => p.name === pickedProjectName)?.id : undefined
+  const agentId   = pickedAgentName   ? agents.find(a => a.name === pickedAgentName)?.id     : undefined
+  const filters = { days, projectId, agentId }
+
+  const { data, isFetching } = useQuery(analyticsGetOpts(filters))
+  const loading = isFetching
+
   const projectName = (id: string) => projects.find(p => p.id === id)?.name ?? id
   const agentName   = (id: string) => agents.find(a => a.id === id)?.name   ?? id
   const projectOptions = projects.map(p => p.name)
   const agentOptions   = agents.map(a => a.name)
 
-  async function refetch(opts: { days: number; projectId?: string; agentId?: string }) {
-    setLoading(true)
-    try { setData(await analyticsApi.get(opts)) }
-    finally { setLoading(false) }
+  async function handleRefresh() {
+    await queryClient.invalidateQueries({ queryKey: qk.analytics.get(filters) })
   }
-
-  function currentFilters(): { days: number; projectId?: string; agentId?: string } {
-    const pickedProjectName = [...project][0]
-    const pickedAgentName   = [...agent][0]
-    const projectId = pickedProjectName ? projects.find(p => p.name === pickedProjectName)?.id : undefined
-    const agentId   = pickedAgentName   ? agents.find(a => a.name === pickedAgentName)?.id     : undefined
-    return { days, projectId, agentId }
-  }
-
-  function handleRangeChange(next: Set<string>)   { setRange(next);   refetch({ ...currentFilters(), days: RANGE_BY_LABEL[[...next][0] ?? '30d'] ?? 30 }) }
-  function handleProjectChange(next: Set<string>) { setProject(next); const pid = [...next][0]; refetch({ ...currentFilters(), projectId: pid ? projects.find(p => p.name === pid)?.id : undefined }) }
-  function handleAgentChange(next: Set<string>)   { setAgent(next);   const aid = [...next][0]; refetch({ ...currentFilters(), agentId:   aid ? agents.find(a => a.name === aid)?.id     : undefined }) }
-
-  async function handleRefresh() { await refetch(currentFilters()) }
 
   // Suppress lint: projectName/agentName currently unused — kept for future
   // inline display (e.g. "Foundry only" banner when filtered).
   void projectName; void agentName
+
+  if (!data) return null
 
   return (
     <div className="flex flex-col h-dvh bg-white dark:bg-zinc-950">
@@ -473,12 +460,12 @@ export function AnalyticsPage() {
           it visually anchors the page the same way. */}
       <div className="shrink-0 flex items-center h-11 border-b border-zinc-200 dark:border-zinc-800/60">
         <div className="flex items-center gap-2 flex-1 min-w-0 overflow-x-auto no-scrollbar px-4">
-          <MultiSelect label="Range"   options={RANGE_LABELS}    selected={range}   onChange={handleRangeChange} />
+          <MultiSelect label="Range"   options={RANGE_LABELS}    selected={range}   onChange={setRange} />
           {projectOptions.length > 1 && (
-            <MultiSelect label="Project" options={projectOptions} selected={project} onChange={handleProjectChange} />
+            <MultiSelect label="Project" options={projectOptions} selected={project} onChange={setProject} />
           )}
           {agentOptions.length > 0 && (
-            <MultiSelect label="Agent"   options={agentOptions}   selected={agent}   onChange={handleAgentChange} />
+            <MultiSelect label="Agent"   options={agentOptions}   selected={agent}   onChange={setAgent} />
           )}
         </div>
       </div>

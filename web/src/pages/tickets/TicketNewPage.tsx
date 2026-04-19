@@ -1,7 +1,8 @@
 import { useState } from 'react'
-import { useNavigate, useLoaderData } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ticketApi } from '../../api.js'
-import type { Agent } from '../../types.js'
+import { agentListOpts, qk } from '../../queries.js'
 import { useShell } from '../../Shell.js'
 import { Field } from '../../components/form/Field.js'
 import { TextInput } from '../../components/form/TextInput.js'
@@ -12,21 +13,29 @@ import { ActionButton } from '../../components/form/ActionButton.js'
 export function TicketNewPage() {
   const { projectId } = useShell()
   const navigate = useNavigate()
-  const agents = useLoaderData() as Agent[]
-  const [agentId, setAgentId] = useState(agents[0]?.id ?? '')
+  const queryClient = useQueryClient()
+  const { data: agents = [] } = useQuery(agentListOpts())
+  const [agentId, setAgentId] = useState('')
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [error, setError] = useState('')
 
-  async function handleSubmit(e: React.FormEvent) {
+  const createMutation = useMutation({
+    mutationFn: () => ticketApi.create({
+      project_id: projectId, title, description,
+      agent_id: agentId || undefined, created_by: 'founder',
+    }),
+    onSuccess: ticket => {
+      queryClient.invalidateQueries({ queryKey: qk.ticket.all() })
+      navigate(`/p/${projectId}/tickets/${ticket.id}`)
+    },
+    onError: err => setError(err instanceof Error ? err.message : 'failed'),
+  })
+
+  function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError('')
-    try {
-      const ticket = await ticketApi.create({ project_id: projectId, title, description, agent_id: agentId || undefined, created_by: 'founder' })
-      navigate(`/p/${projectId}/tickets/${ticket.id}`)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'failed')
-    }
+    createMutation.mutate()
   }
 
   return (

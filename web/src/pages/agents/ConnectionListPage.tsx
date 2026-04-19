@@ -1,17 +1,18 @@
-import { Link, useLoaderData, useRevalidator } from 'react-router-dom'
-import type { Connection } from '../../types.js'
+import { Link } from 'react-router-dom'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { connectionListOpts, qk } from '../../queries.js'
 import { PageShell } from '../../components/layout/PageShell.js'
 import { ListRow } from '../../components/list/ListRow.js'
 import { EmptyState } from '../../components/list/EmptyState.js'
 
 export function ConnectionListPage() {
-  const { revalidate } = useRevalidator()
-  const connections = useLoaderData() as Connection[]
+  const { data: connections = [] } = useQuery(connectionListOpts())
+  const queryClient = useQueryClient()
 
   return (
     <PageShell
       action={{ label: 'Connection', onPress: '/settings/connections/new' }}
-      onRefresh={async () => { revalidate() }}
+      onRefresh={async () => { await queryClient.invalidateQueries({ queryKey: qk.connection.all() }) }}
     >
       {connections.length === 0
         ? <EmptyState message="no connections configured" />

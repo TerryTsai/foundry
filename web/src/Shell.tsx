@@ -1,4 +1,8 @@
-import { Outlet, ScrollRestoration, useParams, useLoaderData, useRevalidator } from 'react-router-dom'
+import { Outlet, ScrollRestoration, useParams } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
+import { projectGetOpts } from './queries.js'
+import { queryClient } from './queryClient.js'
+import { qk } from './queries.js'
 import type { Project } from './types.js'
 import { ProjectSwitcher } from './components/ProjectSwitcher.js'
 import { AppHeader } from './components/layout/AppHeader.js'
@@ -12,15 +16,19 @@ export { FoundryMark } from './components/layout/AppHeader.js'
 // (analytics, settings) live in the avatar menu, out of the way.
 export function Shell() {
   const { projectId } = useParams<{ projectId: string }>()
-  const project = useLoaderData() as Project
-  const { revalidate } = useRevalidator()
+  const { data: project } = useQuery(projectGetOpts(projectId!))
+  // Broad refresh used by pull-to-refresh and onRefresh handlers.
+  // Invalidating the root 'ticket' key re-runs every ticket-scoped query.
+  const revalidate = () => {
+    queryClient.invalidateQueries({ queryKey: qk.ticket.all() })
+  }
 
   return (
     <div className="flex flex-col h-dvh bg-white dark:bg-zinc-950">
-      <AppHeader><ProjectSwitcher current={project} projectId={projectId!} /></AppHeader>
+      <AppHeader><ProjectSwitcher current={project ?? null} projectId={projectId!} /></AppHeader>
       <main className="flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden">
         <ScrollRestoration />
-        <Outlet context={{ project, projectId: projectId!, revalidate }} />
+        <Outlet context={{ project: project ?? null, projectId: projectId!, revalidate }} />
       </main>
     </div>
   )

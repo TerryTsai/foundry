@@ -1,17 +1,18 @@
-import { Link, useLoaderData, useRevalidator } from 'react-router-dom'
-import type { Project } from '../../types.js'
+import { Link } from 'react-router-dom'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { projectListOpts, qk } from '../../queries.js'
 import { PageShell } from '../../components/layout/PageShell.js'
 import { ListRow } from '../../components/list/ListRow.js'
 import { EmptyState } from '../../components/list/EmptyState.js'
 
 export function ProjectListPage() {
-  const projects = useLoaderData() as Project[]
-  const { revalidate } = useRevalidator()
+  const { data: projects = [] } = useQuery(projectListOpts())
+  const queryClient = useQueryClient()
 
   return (
     <PageShell
       action={{ label: 'Project', onPress: '/settings/projects/new' }}
-      onRefresh={async () => { revalidate() }}
+      onRefresh={async () => { await queryClient.invalidateQueries({ queryKey: qk.project.all() }) }}
     >
       {projects.length === 0
         ? <EmptyState message="no projects" />

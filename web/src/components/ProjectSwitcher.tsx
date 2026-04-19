@@ -1,8 +1,9 @@
 import { useState, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { Link } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
 import { ChevronDown, Check, Plus } from 'lucide-react'
-import { projectApi } from '../api.js'
+import { projectListOpts } from '../queries.js'
 import type { Project } from '../types.js'
 
 interface Props {
@@ -13,9 +14,10 @@ interface Props {
 interface Pos { top: number; left: number; width: number }
 
 export function ProjectSwitcher({ current, projectId }: Props) {
-  const [open,     setOpen]     = useState(false)
-  const [pos,      setPos]      = useState<Pos | null>(null)
-  const [projects, setProjects] = useState<Project[] | null>(null)
+  const [open, setOpen] = useState(false)
+  const [pos,  setPos]  = useState<Pos | null>(null)
+  // Fetch on mount, but only once per staleTime — React Query dedupes.
+  const { data: projects, isFetching } = useQuery({ ...projectListOpts(), enabled: open })
   const btnRef = useRef<HTMLButtonElement>(null)
 
   function handleOpen() {
@@ -31,8 +33,6 @@ export function ProjectSwitcher({ current, projectId }: Props) {
       setPos({ top: rect.bottom + 6, left, width: rect.width })
     }
     setOpen(true)
-    // Lazy-fetch on every open keeps list fresh without eager loading in Shell loader
-    projectApi.list().then(setProjects).catch(console.error)
   }
 
   function handleClose() { setOpen(false) }
@@ -52,7 +52,7 @@ export function ProjectSwitcher({ current, projectId }: Props) {
         }}
         className="bg-white dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700/60 rounded-lg shadow-xl overflow-auto py-1"
       >
-        {projects === null ? (
+        {projects === undefined || isFetching ? (
           <div className="px-3 py-2 text-xs text-zinc-500">loading…</div>
         ) : projects.length === 0 ? (
           <div className="px-3 py-2 text-xs text-zinc-500">no projects</div>

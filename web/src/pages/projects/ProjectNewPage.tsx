@@ -1,24 +1,33 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { projectApi } from '../../api.js'
+import { qk } from '../../queries.js'
 import { Field } from '../../components/form/Field.js'
 import { TextInput } from '../../components/form/TextInput.js'
 import { ActionButton } from '../../components/form/ActionButton.js'
 
 export function ProjectNewPage() {
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const [name, setName] = useState('')
   const [repo, setRepo] = useState('')
   const [maxAgents, setMaxAgents] = useState('3')
   const [error, setError] = useState('')
 
-  async function handleSubmit(e: React.FormEvent) {
+  const createMutation = useMutation({
+    mutationFn: () => projectApi.create({ name, repo, max_agents: +maxAgents }),
+    onSuccess: saved => {
+      queryClient.invalidateQueries({ queryKey: qk.project.all() })
+      navigate(`/p/${saved.id}/tickets`)
+    },
+    onError: err => setError(err instanceof Error ? err.message : 'failed'),
+  })
+
+  function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError('')
-    try {
-      const saved = await projectApi.create({ name, repo, max_agents: +maxAgents })
-      navigate(`/p/${saved.id}/tickets`)
-    } catch (err) { setError(err instanceof Error ? err.message : 'failed') }
+    createMutation.mutate()
   }
 
   return (

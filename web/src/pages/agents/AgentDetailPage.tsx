@@ -1,7 +1,11 @@
 import { useState, useEffect } from 'react'
-import { useNavigate, useLoaderData } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { agentApi } from '../../api.js'
-import type { Agent, Connection, UsageRollup, McpServerInfo, McpToolSelection } from '../../types.js'
+import {
+  agentGetOpts, agentUsageOpts, connectionListOpts, agentListOpts, agentMcpOpts, qk,
+} from '../../queries.js'
+import type { McpServerInfo, McpToolSelection } from '../../types.js'
 import { DetailShell } from '../../components/layout/DetailShell.js'
 import { Field } from '../../components/form/Field.js'
 import { TextInput } from '../../components/form/TextInput.js'
@@ -67,43 +71,46 @@ function normalizeSelection(raw: string | null, servers: McpServerInfo[]): McpTo
 
 export function AgentDetailPage() {
   const navigate = useNavigate()
-  const { agent, usage, connections } = useLoaderData() as { agent: Agent; usage: UsageRollup; connections: Connection[] }
+  const { agentId } = useParams<{ agentId: string }>()
+  const queryClient = useQueryClient()
+  const { data: agent }           = useQuery(agentGetOpts(agentId!))
+  const { data: usage }           = useQuery(agentUsageOpts(agentId!))
+  const { data: connections = [] } = useQuery(connectionListOpts())
+  const { data: allAgents = [] }  = useQuery(agentListOpts())
+  const { data: servers = [] }    = useQuery(agentMcpOpts())
   const [editing, setEditing] = useState(false)
-  const [connectionId, setConnectionId] = useState(agent.connection_id)
-  const [model, setModel] = useState(agent.model)
-  const [description, setDescription] = useState(agent.description)
-  const [maxTokens, setMaxTokens] = useState(String(agent.max_tokens))
-  const [maxSteps, setMaxSteps] = useState(String(agent.max_steps))
-  const [temperature, setTemperature] = useState(agent.temperature !== null ? String(agent.temperature) : '')
-  const [reasoningBudget, setReasoningBudget] = useState(agent.reasoning_budget !== null ? String(agent.reasoning_budget) : '')
-  const [servers, setServers] = useState<McpServerInfo[]>([])
+  const [connectionId, setConnectionId] = useState('')
+  const [model, setModel] = useState('')
+  const [description, setDescription] = useState('')
+  const [maxTokens, setMaxTokens] = useState('8192')
+  const [maxSteps, setMaxSteps] = useState('20')
+  const [temperature, setTemperature] = useState('')
+  const [reasoningBudget, setReasoningBudget] = useState('')
   const [toolSelection, setToolSelection] = useState<McpToolSelection | null>(null)
-  const [allAgents, setAllAgents] = useState<Agent[]>([])
-  const [verifiers, setVerifiers] = useState<string[]>(() => {
-    try { const v = agent.verifiers ? JSON.parse(agent.verifiers) : []; return Array.isArray(v) ? v : [] } catch { return [] }
-  })
+  const [verifiers, setVerifiers] = useState<string[]>([])
   const [error, setError] = useState('')
 
-  useEffect(() => { agentApi.list().then(setAllAgents).catch(() => {}) }, [])
-
-  // Load servers then normalize stored tools against the real server/tool list
+  // Hydrate form state once the agent loads (and on server list changes —
+  // tool normalization needs the server/tool manifest).
   useEffect(() => {
-    agentApi.mcp().then(srv => {
-      setServers(srv)
-      setToolSelection(normalizeSelection(agent.tools, srv))
-    }).catch(() => {})
-  }, [agent.tools])
+    if (!agent) return
+    setConnectionId(agent.connection_id)
+    setModel(agent.model)
+    setDescription(agent.description)
+    setMaxTokens(String(agent.max_tokens))
+    setMaxSteps(String(agent.max_steps))
+    setTemperature(agent.temperature !== null ? String(agent.temperature) : '')
+    setReasoningBudget(agent.reasoning_budget !== null ? String(agent.reasoning_budget) : '')
+    setToolSelection(normalizeSelection(agent.tools, servers))
+    try { const v = agent.verifiers ? JSON.parse(agent.verifiers) : []; setVerifiers(Array.isArray(v) ? v : []) } catch { setVerifiers([]) }
+  }, [agent, servers])
 
-  useBreadcrumbLabel(agent.name)
+  useBreadcrumbLabel(agent?.name ?? '')
 
-  const connectionName = connections.find(c => c.id === agent.connection_id)?.name ?? agent.connection_id
-
-  async function handleSave(e: React.FormEvent) {
-    e.preventDefault()
-    setError('')
-    try {
+  const saveMutation = useMutation({
+    mutationFn: () => {
       const tools = toolSelection && Object.keys(toolSelection).length > 0 ? toolSelection : undefined
-      await agentApi.update(agent.id, {
+      return agentApi.update(agent!.id, {
         connection_id: connectionId, model, description,
         max_tokens: +maxTokens, max_steps: +maxSteps,
         temperature: temperature ? +temperature : undefined,
@@ -111,16 +118,25 @@ export function AgentDetailPage() {
         tools,
         verifiers: verifiers.length > 0 ? verifiers : null,
       })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: qk.agent.all() })
       setEditing(false)
       navigate('/settings/agents')
-    } catch (err) { setError(err instanceof Error ? err.message : 'failed') }
-  }
+    },
+    onError: err => setError(err instanceof Error ? err.message : 'failed'),
+  })
 
-  async function handleDelete() {
-    if (!confirm('Delete this agent?')) return
-    await agentApi.delete(agent.id)
-    navigate('/settings/agents')
-  }
+  const deleteMutation = useMutation({
+    mutationFn: () => agentApi.delete(agent!.id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: qk.agent.all() })
+      navigate('/settings/agents')
+    },
+  })
+
+  if (!agent || !usage) return null
+  const connectionName = connections.find(c => c.id === agent.connection_id)?.name ?? agent.connection_id
 
   const ts = (s: string) => new Date(s).toLocaleString(undefined, {
     month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
@@ -158,7 +174,7 @@ export function AgentDetailPage() {
       ] : []}
     >
       {editing && (
-        <form onSubmit={handleSave} className="space-y-4">
+        <form onSubmit={e => { e.preventDefault(); setError(''); saveMutation.mutate() }} className="space-y-4">
           {error && <div className="text-sm text-red-400">{error}</div>}
           <Field label="connection">
             <Select value={connectionId} onChange={e => setConnectionId(e.target.value)} required>
@@ -195,7 +211,7 @@ export function AgentDetailPage() {
       )}
 
       {!editing && (
-        <ActionButton label="delete agent" variant="destructive" onClick={handleDelete} className="w-full" />
+        <ActionButton label="delete agent" variant="destructive" onClick={() => { if (confirm('Delete this agent?')) deleteMutation.mutate() }} className="w-full" />
       )}
     </DetailShell>
   )

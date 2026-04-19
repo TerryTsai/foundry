@@ -1,8 +1,5 @@
 import type { Account, Connection, Project, Ticket, Comment, Agent, Session, Execution, UsageRollup, Verdict, McpServerInfo, McpToolSelection, Analytics, ProviderMetadata } from './types.js'
 
-const cache = new Map<string, { data: unknown; at: number }>()
-const CACHE_TTL = 30_000 // 30 seconds
-
 // Centralised non-OK handler. 401 means the session is gone — bounce to /login
 // unless we're already there. Returns a never-resolving promise so callers
 // (loaders, components) don't see a thrown error mid-redirect.
@@ -15,19 +12,12 @@ function handleNotOk(res: Response): never {
 }
 
 async function get<T>(url: string): Promise<T> {
-  const cached = cache.get(url)
-  if (cached && Date.now() - cached.at < CACHE_TTL) return cached.data as T
   const res = await fetch(url, { credentials: 'include' })
   if (!res.ok) handleNotOk(res)
-  const data = await res.json() as T
-  cache.set(url, { data, at: Date.now() })
-  return data
+  return res.json() as Promise<T>
 }
 
-export function bustCache() { cache.clear() }
-
 async function post<T>(url: string, body?: unknown): Promise<T> {
-  bustCache()
   const res = await fetch(url, {
     method: 'POST',
     credentials: 'include',
@@ -39,7 +29,6 @@ async function post<T>(url: string, body?: unknown): Promise<T> {
 }
 
 async function put<T>(url: string, body: unknown): Promise<T> {
-  bustCache()
   const res = await fetch(url, {
     method: 'PUT',
     credentials: 'include',
@@ -51,7 +40,6 @@ async function put<T>(url: string, body: unknown): Promise<T> {
 }
 
 async function del<T>(url: string): Promise<T> {
-  bustCache()
   const res = await fetch(url, { method: 'DELETE', credentials: 'include' })
   if (!res.ok) handleNotOk(res)
   const text = await res.text()
