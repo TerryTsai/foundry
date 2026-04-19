@@ -244,10 +244,11 @@ export function TicketsSplitLayout() {
 
       {/* ── Mobile full-screen list ────────────────────────────────────────── */}
       {/* Only rendered on mobile when we're at the bare index route.
-          Filter bar is sticky under the app header; list flows with doc. */}
+          Filter bar is fixed directly under the app header so route
+          transitions don't cause layout jank. */}
       {isIndex && (
-        <div className="lg:hidden flex-1 min-w-0">
-          <div className="sticky top-12 z-10 bg-white dark:bg-zinc-950 flex items-center gap-2 px-4 h-11 border-b border-zinc-200 dark:border-zinc-800/60 overflow-x-auto no-scrollbar">
+        <div className="lg:hidden flex-1 min-w-0 pt-11">
+          <div className="fixed top-12 inset-x-0 z-20 bg-white dark:bg-zinc-950 flex items-center gap-2 px-4 h-11 border-b border-zinc-200 dark:border-zinc-800/60 overflow-x-auto no-scrollbar">
             {filterChips}
           </div>
           <PageShell

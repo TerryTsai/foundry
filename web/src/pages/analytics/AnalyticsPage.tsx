@@ -458,12 +458,12 @@ export function AnalyticsPage() {
   if (!data) return null
 
   return (
-    <div className="bg-white dark:bg-zinc-950 min-h-dvh pt-12">
+    <div className="bg-white dark:bg-zinc-950 min-h-dvh pt-[92px]">
       <AppHeader><span className="text-sm text-zinc-500 dark:text-zinc-400">Analytics</span></AppHeader>
 
-      {/* Filter bar — sticky directly under the fixed header so it stays on
-          screen while the page scrolls. */}
-      <div className="sticky top-12 z-20 bg-white dark:bg-zinc-950 flex items-center h-11 border-b border-zinc-200 dark:border-zinc-800/60">
+      {/* Filter bar — fixed directly under the fixed header. Sits out of
+          flow so route transitions can't cause reflow jank. */}
+      <div className="fixed top-12 inset-x-0 z-20 bg-white dark:bg-zinc-950 flex items-center h-11 border-b border-zinc-200 dark:border-zinc-800/60">
         <div className="flex items-center gap-2 flex-1 min-w-0 overflow-x-auto no-scrollbar px-4">
           <MultiSelect label="Range"   options={RANGE_LABELS}    selected={range}   onChange={setRange} />
           {projectOptions.length > 1 && (
