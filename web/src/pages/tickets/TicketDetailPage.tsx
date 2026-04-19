@@ -103,8 +103,8 @@ function buildTimeline(
     let label = cap(e.kind.replace(/_/g, ' '))
     if (e.kind === 'status_changed') {
       try {
-        const d = JSON.parse(e.data) as { from?: string; to?: string }
-        if (d.from && d.to) label = `${d.from} → ${d.to}`
+        const d = JSON.parse(e.data) as { to?: string }
+        if (d.to) label = cap(d.to)
       } catch { /* fall back to default label */ }
     }
     entries.push({
