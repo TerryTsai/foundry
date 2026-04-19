@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 
 const fabCls = 'absolute bottom-4 right-4 z-10 flex items-center gap-1.5 px-4 py-2 bg-sky-500/15 border border-sky-500/25 backdrop-blur-sm text-sky-600 dark:text-sky-300 text-sm font-medium rounded-full shadow-lg active:opacity-75 transition-opacity'
@@ -24,23 +24,47 @@ export function PageShell({ action, composer, onRefresh, children }: PageShellPr
   // left. Keyed by location.key so repeat visits to the same URL (fresh
   // navigation vs popstate) stay distinct.
   const { key } = useLocation()
+
+  // Restore BEFORE paint so users never see a flash at scrollTop=0, then
+  // keep re-applying while the container grows — query-backed content
+  // often hydrates over multiple frames and the first restore may clamp
+  // against a still-short scrollHeight.
+  useLayoutEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    const storageKey = `scroll:${key}`
+    const raw = sessionStorage.getItem(storageKey)
+    if (!raw) return
+    const target = +raw
+    el.scrollTop = target
+    if (el.scrollTop === target) return
+    const obs = new ResizeObserver(() => {
+      el.scrollTop = target
+      if (el.scrollTop === target) obs.disconnect()
+    })
+    obs.observe(el)
+    // Give up after a beat so we don't keep resetting user scrolls.
+    const timer = window.setTimeout(() => obs.disconnect(), 1000)
+    return () => { obs.disconnect(); clearTimeout(timer) }
+  }, [key])
+
+  // Save scrollTop on scroll (throttled) and on unmount (so the last
+  // position is recorded even if the user navigates away before rAF).
   useEffect(() => {
     const el = scrollRef.current
     if (!el) return
     const storageKey = `scroll:${key}`
-    const saved = sessionStorage.getItem(storageKey)
-    if (saved) el.scrollTop = +saved
     let raf = 0
+    const save = () => sessionStorage.setItem(storageKey, String(el.scrollTop))
     const onScroll = () => {
       cancelAnimationFrame(raf)
-      raf = requestAnimationFrame(() => {
-        sessionStorage.setItem(storageKey, String(el.scrollTop))
-      })
+      raf = requestAnimationFrame(save)
     }
     el.addEventListener('scroll', onScroll, { passive: true })
     return () => {
       el.removeEventListener('scroll', onScroll)
       cancelAnimationFrame(raf)
+      save()
     }
   }, [key])
 
