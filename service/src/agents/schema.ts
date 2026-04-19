@@ -26,7 +26,7 @@ export const agentCreate = z.object({
   verifiers:        z.array(z.string()).optional(),
 })
 
-// agentUpdate is the "create a new version" shape: the domain layer treats
+// agentUpdate is the "create a new version" shape: the service layer treats
 // every update as an insert with a new id; the prior row's superseded_at
 // is set to the new row's created_at. There's no in-place mutation.
 export const agentUpdate = z.object({

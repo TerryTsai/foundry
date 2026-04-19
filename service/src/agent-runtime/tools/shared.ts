@@ -122,7 +122,7 @@ export function asText(value: unknown): { content: [{ type: 'text'; text: string
 // runs the command, captures stdout/stderr, and creates an execution row
 // in the DB for audit. Used by every tool that runs inside the sandbox
 // (exec, read, write, patch, remove, search, find, fetch, scrape, and
-// the git tools in mcp/github.ts).
+// the git tools in tools/github.ts).
 //
 // The options object supports the tier-2 model: secret-using tools pass
 // env vars (never serialized to the execution row) and can downgrade the

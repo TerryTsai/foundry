@@ -178,7 +178,7 @@ export type Session = typeof session.$inferSelect
 //   thought   — assistant 'thinking' block
 //   said      — assistant 'text' block
 //   tool_call — assistant 'tool_use' block; execution_id is REQUIRED
-//               for new rows (enforced by domain layer). Historical
+//               for new rows (enforced by service layer). Historical
 //               rows from before the correlation column may have NULL.
 //   reconcile — system modelUsage delta at session close
 //

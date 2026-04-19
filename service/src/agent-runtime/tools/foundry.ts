@@ -1,13 +1,16 @@
 // Foundry harness introspection server. Every tool call runs in the
 // sandbox via runCommand, curling back into the service's HTTP API with
-// the per-boot internal bearer token. This gives each call the same
-// execution-row treatment as sandbox/github/browser tools: full cgroup
-// stats (memory, CPU, network), resource offloading to the container,
-// and consistent observability in the activity timeline.
+// a per-session sandbox JWT (see ../../auth/session-jwt.ts). This gives
+// each call the same execution-row treatment as sandbox/github/browser
+// tools: full cgroup stats (memory, CPU, network), resource offloading
+// to the container, and consistent observability in the activity
+// timeline.
 //
-// The internal token is never exposed to the agent — it lives in the
-// tier-2 container's env and dies with the container. The agent sees
-// the tool by name and arguments; the curl is an implementation detail.
+// The token is mounted at /foundry-secrets/token (mode 0400) — never
+// passed via env vars or podman argv. Each call reads it inline:
+//   curl -H "Authorization: Bearer $(cat /foundry-secrets/token)" …
+// The agent sees the tool by name and arguments; the curl is an
+// implementation detail.
 
 import { z } from 'zod'
 

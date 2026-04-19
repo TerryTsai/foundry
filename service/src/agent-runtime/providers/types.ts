@@ -2,11 +2,11 @@
 // needs to accept and validate credentials for an external integration.
 // LLM providers (anthropic, openai) expose model factories through
 // runtime/model.ts; tool-bearing integrations (cloudflare) expose their
-// tools through mcp/<kind>.ts — connection files stay credential-only.
+// tools through tools/<kind>.ts — connection files stay credential-only.
 //
 // Add a new connection kind: write one file here and import it in
 // connections/registry.ts. If it's tool-bearing, also add one file in
-// mcp/<kind>.ts and register it in mcp/registry.ts::byConnectionKind.
+// tools/<kind>.ts and register it in tools/registry.ts::byConnectionKind.
 
 export interface CredentialField {
   key:          string

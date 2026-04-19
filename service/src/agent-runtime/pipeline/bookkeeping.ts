@@ -6,7 +6,7 @@ import * as database from '../../core/db.js'
 import { now } from '../../core/util.js'
 import type { Middleware } from './compose.js'
 
-export const withSessionBookkeeping: Middleware = (next) => async (ctx) => {
+export const withBookkeeping: Middleware = (next) => async (ctx) => {
   database.eventInsert(ctx.db, {
     entity_type: 'session', entity_id: ctx.session.id,
     kind: 'session_started',

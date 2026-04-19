@@ -163,7 +163,7 @@ function buildMcpServers(ctx: SessionContext) {
   return mcpServers
 }
 
-export async function runAnthropicLoop(ctx: SessionContext): Promise<LoopResult> {
+export async function runEngine(ctx: SessionContext): Promise<LoopResult> {
   const { db, systemPrompt, userPrompt, workDir, shouldStop } = ctx
   const sessionId  = ctx.session.id
   const agentDef   = ctx.agent

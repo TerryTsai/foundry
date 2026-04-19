@@ -65,7 +65,7 @@ export function createDatabase(path: string): Db {
     CREATE INDEX IF NOT EXISTS idx_event_entity_id ON event(entity_id);
 
     -- sandbox_token table dropped — per-session auth is now a stateless
-    -- HMAC JWT (see crypto/jwt.ts). Drop the legacy table on existing
+    -- HMAC JWT (see auth/session-jwt.ts). Drop the legacy table on existing
     -- deployments; it carries no state worth keeping.
     DROP TABLE IF EXISTS sandbox_token;
   `)

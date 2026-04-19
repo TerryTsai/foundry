@@ -107,7 +107,7 @@ function writeStepActivities(db: Db, sessionId: string, turnId: string, result: 
   return toolCalls
 }
 
-export async function runVercelLoop(ctx: SessionContext): Promise<LoopResult> {
+export async function runEngine(ctx: SessionContext): Promise<LoopResult> {
   const { db, systemPrompt, userPrompt, shouldStop } = ctx
   const sessionId = ctx.session.id
   const agentDef  = ctx.agent

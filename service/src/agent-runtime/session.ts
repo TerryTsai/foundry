@@ -10,15 +10,15 @@ import type { Agent, Ticket } from '../core/schema.js'
 import { compose, type SessionContext, type SessionStep } from './pipeline/compose.js'
 import * as sessionJwt from '../auth/session-jwt.js'
 
-import { withCrashSafe }            from './pipeline/crash-safe.js'
-import { withSessionBookkeeping }   from './pipeline/bookkeeping.js'
 import { withActivityBackfill }     from './pipeline/activity-backfill.js'
-import { withTicketFailOnCrash }    from './pipeline/ticket-fail-on-crash.js'
-import { withSyntheticFailVerdict } from './pipeline/synthetic-fail-verdict.js'
-import { withScratchWorkspace }     from './pipeline/workspace.js'
-import { withSystemPrompt }         from './pipeline/system-prompt.js'
-import { withOpeningPrompt }        from './pipeline/opening-prompt.js'
+import { withBookkeeping }          from './pipeline/bookkeeping.js'
 import { withCooperativeCancel }    from './pipeline/cooperative-cancel.js'
+import { withCrashSafe }            from './pipeline/crash-safe.js'
+import { withOpeningPrompt }        from './pipeline/opening-prompt.js'
+import { withSyntheticFailVerdict } from './pipeline/synthetic-fail-verdict.js'
+import { withSystemPrompt }         from './pipeline/system-prompt.js'
+import { withTicketFailOnCrash }    from './pipeline/ticket-fail-on-crash.js'
+import { withWorkspace }            from './pipeline/workspace.js'
 
 // ── pipelines ─────────────────────────────────────────────────────────
 // Wrap order: outermost first. Outer middleware sees crashes and side
@@ -27,22 +27,22 @@ import { withCooperativeCancel }    from './pipeline/cooperative-cancel.js'
 // list — that's the whole interface.
 
 const PRODUCER = compose(
-  withCrashSafe,            // catches anything below; logs, rethrows
-  withSessionBookkeeping,   // session row started_at/ended_at/status
-  withActivityBackfill,     // patches missing activity rows from execution rows
-  withTicketFailOnCrash,    // ticket → failed if loop crashes
-  withScratchWorkspace,     // /tmp work dir, cloned from the project's repo
+  withCrashSafe,             // catches anything below; logs, rethrows
+  withBookkeeping,           // session row started_at/ended_at/status
+  withActivityBackfill,      // patches missing activity rows from execution rows
+  withTicketFailOnCrash,     // ticket → failed if loop crashes
+  withWorkspace,             // /tmp work dir, cloned from the project's repo
   withSystemPrompt('producer'),
-  withOpeningPrompt,        // prepends the ticket's prompt
-  withCooperativeCancel,    // poll session.status; signal loop to stop
+  withOpeningPrompt,         // prepends the ticket's prompt
+  withCooperativeCancel,     // poll session.status; signal loop to stop
 )
 
 const VERIFIER = compose(
   withCrashSafe,
-  withSessionBookkeeping,
+  withBookkeeping,
   withActivityBackfill,
-  withSyntheticFailVerdict, // crash → synthetic 'fail' verdict
-  withScratchWorkspace,
+  withSyntheticFailVerdict,  // crash → synthetic 'fail' verdict
+  withWorkspace,
   withSystemPrompt('verifier'),
   withOpeningPrompt,
   withCooperativeCancel,
@@ -56,8 +56,8 @@ const VERIFIER = compose(
 const invokeEngine: SessionStep = async (ctx) => {
   const conn = database.connectionGet(ctx.db, ctx.agent.connection_id)
   const engine = conn?.kind === 'anthropic-subscription'
-    ? (await import('./engines/anthropic.js')).runAnthropicLoop
-    : (await import('./engines/vercel.js'   )).runVercelLoop
+    ? (await import('./engines/anthropic.js')).runEngine
+    : (await import('./engines/vercel.js'   )).runEngine
   ctx.result = await engine(ctx)
   return ctx
 }

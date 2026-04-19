@@ -54,7 +54,7 @@ export const requireAuth = (db: Db, _config: Config): RequestHandler =>
       // whole identity check, no DB lookup required. accountGet hydrates
       // the full Account row for handlers that read more than `id`.
       if (token.startsWith('sb_')) {
-        const claims = sessionJwt.resolve(db, token)
+        const claims = sessionJwt.verify(token)
         if (!claims) return next(unauthorized())
         const account = database.accountGet(db, claims.aid)
         if (!account) return next(unauthorized())
