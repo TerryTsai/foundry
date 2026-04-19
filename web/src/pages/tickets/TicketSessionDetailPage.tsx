@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import { Link, useLoaderData, useParams, useRevalidator } from 'react-router-dom'
 import { marked } from 'marked'
 import { MessageSquare, Brain, FileText, Scale } from 'lucide-react'
@@ -79,24 +78,6 @@ function labelFor(a: Activity, payload: Record<string, unknown>): string {
 
 // ── Row renderers ──
 
-function TextBody({ text }: { text: string }) {
-  const [asMarkdown, setAsMarkdown] = useState(true)
-  return (
-    <>
-      <div className="flex items-center gap-2 mb-1">
-        <button
-          onClick={() => setAsMarkdown(v => !v)}
-          className="font-mono text-[10px] text-amber-500 dark:text-amber-400 hover:underline"
-        >{asMarkdown ? 'raw' : 'markdown'}</button>
-      </div>
-      {asMarkdown
-        ? <div className="prose-zinc text-sm max-w-full overflow-x-auto" dangerouslySetInnerHTML={{ __html: marked.parse(text) as string }} />
-        : <pre className="font-mono text-xs text-zinc-500 dark:text-zinc-400 whitespace-pre leading-relaxed select-text overflow-x-auto">{text}</pre>
-      }
-    </>
-  )
-}
-
 function MarkdownBody({ text }: { text: string }) {
   return (
     <div className="prose-zinc text-sm max-w-full overflow-x-auto" dangerouslySetInnerHTML={{ __html: marked.parse(text) as string }} />
@@ -157,10 +138,7 @@ function ActivityEntry({ a, execByToolUseId, execHref }: {
   let body: React.ReactNode = null
   let sub: { to: string; label: string } | undefined
 
-  if (a.kind === 'said') {
-    const t = typeof payload.text === 'string' ? payload.text : ''
-    body = t ? <TextBody text={t} /> : null
-  } else if (a.kind === 'prompt' || a.kind === 'thought') {
+  if (a.kind === 'prompt' || a.kind === 'thought' || a.kind === 'said') {
     const t = typeof payload.text === 'string' ? payload.text : ''
     body = t ? <MarkdownBody text={t} /> : null
   } else if (a.kind === 'tool_call') {
