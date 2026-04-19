@@ -5,7 +5,7 @@ import { ticketApi, commentApi, bustCache } from '../../api.js'
 import { ActivityRow } from '../../components/detail/ActivityRow.js'
 import { SectionLabel } from '../../components/detail/SectionLabel.js'
 import { DetailShell } from '../../components/layout/DetailShell.js'
-import type { Ticket, Agent, Comment, UsageRollup, Tag, Verdict, Session, Event } from '../../types.js'
+import type { Ticket, Agent, Comment, UsageRollup, Verdict, Session, Event } from '../../types.js'
 import { useShell } from '../../Shell.js'
 import { Field } from '../../components/form/Field.js'
 import { TextArea } from '../../components/form/TextArea.js'
@@ -15,7 +15,7 @@ import { fmtDuration, fmtActor } from '../../lib/format.js'
 
 // ── Tag Section ──
 
-function TagSection({ ticketId, initialTags }: { ticketId: string; initialTags: Tag[] }) {
+function TagSection({ ticketId, initialTags }: { ticketId: string; initialTags: string[] }) {
   const [tags, setTags] = useState(initialTags)
   const [adding, setAdding] = useState(false)
   const [value, setValue] = useState('')
@@ -51,9 +51,9 @@ function TagSection({ ticketId, initialTags }: { ticketId: string; initialTags: 
   return (
     <div className="flex flex-wrap items-center gap-1.5">
       {tags.map(t => (
-        <span key={t.id} className="inline-flex items-center gap-1 font-mono px-1.5 py-px rounded-sm border border-zinc-300 dark:border-zinc-700 text-xs text-zinc-600 dark:text-zinc-400">
-          {t.tag}
-          <button onClick={() => void handleRemove(t.tag)} className="leading-none text-zinc-400 dark:text-zinc-600 hover:text-zinc-600 dark:hover:text-zinc-400 transition-colors" aria-label={`Remove tag ${t.tag}`}>×</button>
+        <span key={t} className="inline-flex items-center gap-1 font-mono px-1.5 py-px rounded-sm border border-zinc-300 dark:border-zinc-700 text-xs text-zinc-600 dark:text-zinc-400">
+          {t}
+          <button onClick={() => void handleRemove(t)} className="leading-none text-zinc-400 dark:text-zinc-600 hover:text-zinc-600 dark:hover:text-zinc-400 transition-colors" aria-label={`Remove tag ${t}`}>×</button>
         </span>
       ))}
       {adding ? (
@@ -135,7 +135,7 @@ function buildTimeline(
 
 interface TicketLoaderData {
   ticket: Ticket; agents: Agent[]; comments: Comment[]; usage: UsageRollup
-  tags: Tag[]; verdicts: Verdict[]; sessions: Session[]; chain: Ticket[]; events: Event[]
+  tags: string[]; verdicts: Verdict[]; sessions: Session[]; chain: Ticket[]; events: Event[]
 }
 
 // ── Page ──

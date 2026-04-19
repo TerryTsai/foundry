@@ -3,7 +3,7 @@ import { drizzle } from 'drizzle-orm/better-sqlite3'
 import { eq, and, sql, type SQL } from 'drizzle-orm'
 import { ulid } from 'ulid'
 import * as schema from './schema.js'
-import type { Account, Activity, Agent, AuthSession, Comment, Connection, Event, Execution, Project, Session, Tag, Ticket, Verdict } from './schema.js'
+import type { Account, Activity, Agent, AuthSession, Comment, Connection, Event, Execution, Project, Session, Ticket } from './schema.js'
 
 export type Db = ReturnType<typeof drizzle<typeof schema>>
 
@@ -29,7 +29,6 @@ export function createDatabase(path: string): Db {
       ON activity(session_id, turn_id, order_index) WHERE turn_id IS NOT NULL;
 
     CREATE INDEX IF NOT EXISTS idx_execution_session_id   ON execution(session_id);
-    CREATE INDEX IF NOT EXISTS idx_execution_tool_use_id  ON execution(tool_use_id);
 
     CREATE INDEX IF NOT EXISTS idx_comment_ticket_id      ON comment(ticket_id);
     CREATE INDEX IF NOT EXISTS idx_session_ticket_id      ON session(ticket_id);
@@ -43,13 +42,6 @@ export function createDatabase(path: string): Db {
     CREATE INDEX IF NOT EXISTS idx_agent_account_id       ON agent(account_id);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_current_name
       ON agent(account_id, name) WHERE superseded_at IS NULL;
-
-    CREATE INDEX IF NOT EXISTS idx_tag_ticket_id          ON tag(ticket_id);
-    CREATE INDEX IF NOT EXISTS idx_tag_name               ON tag(tag);
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_tag_unique      ON tag(ticket_id, tag);
-
-    CREATE INDEX IF NOT EXISTS idx_verdict_ticket_id      ON verdict(ticket_id);
-    CREATE INDEX IF NOT EXISTS idx_verdict_session_id     ON verdict(session_id);
 
     CREATE TABLE IF NOT EXISTS event (
       id           TEXT PRIMARY KEY,
@@ -65,12 +57,75 @@ export function createDatabase(path: string): Db {
     CREATE INDEX IF NOT EXISTS idx_event_entity_id ON event(entity_id);
 
     -- sandbox_token table dropped — per-session auth is now a stateless
-    -- HMAC JWT (see auth/session-jwt.ts). Drop the legacy table on existing
-    -- deployments; it carries no state worth keeping.
+    -- HMAC JWT (see auth/session-jwt.ts).
     DROP TABLE IF EXISTS sandbox_token;
   `)
 
+  // ── one-shot schema simplifications (idempotent) ───────────────────
+  // Each block guards on whether the migration has already happened
+  // (column / table presence), so re-running is a no-op.
+
+  // 1) Add ticket.tags JSON column, backfill from the legacy tag table,
+  //    drop the table.
+  if (!hasColumn(sqlite, 'ticket', 'tags')) {
+    sqlite.exec(`ALTER TABLE ticket ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'`)
+  }
+  if (hasTable(sqlite, 'tag')) {
+    sqlite.exec(`
+      UPDATE ticket SET tags = COALESCE(
+        (SELECT json_group_array(tag) FROM tag WHERE tag.ticket_id = ticket.id),
+        '[]'
+      );
+      DROP TABLE tag;
+    `)
+  }
+
+  // 2) Migrate verdict rows into activity (kind='verdict') and drop
+  //    the table. Verdict.id is a ULID; reusing it as activity.id
+  //    can't collide with any existing activity row.
+  if (hasTable(sqlite, 'verdict')) {
+    sqlite.exec(`
+      INSERT INTO activity (id, session_id, turn_id, kind, order_index,
+                            payload, tool_use_id, execution_id,
+                            tokens_in, tokens, created_at)
+      SELECT id, session_id, NULL, 'verdict', 0,
+             json_object('pass', json(CASE WHEN pass = 1 THEN 'true' ELSE 'false' END),
+                         'reason', reason),
+             NULL, NULL, NULL, NULL, created_at
+      FROM verdict;
+      DROP TABLE verdict;
+    `)
+  }
+
+  // 3) Drop session.system_prompt — was duplicated by the prompt
+  //    activity row, never read after write.
+  if (hasColumn(sqlite, 'session', 'system_prompt')) {
+    sqlite.exec(`ALTER TABLE session DROP COLUMN system_prompt`)
+  }
+
+  // 4) Drop execution.tool_use_id — duplicated by activity.tool_use_id.
+  //    SQLite refuses to drop a column referenced by an index, so the
+  //    legacy idx_execution_tool_use_id has to go first.
+  if (hasColumn(sqlite, 'execution', 'tool_use_id')) {
+    sqlite.exec(`
+      DROP INDEX IF EXISTS idx_execution_tool_use_id;
+      ALTER TABLE execution DROP COLUMN tool_use_id;
+    `)
+  }
+
   return drizzle(sqlite, { schema })
+}
+
+// ── helpers for the idempotent migrations ────────────────────────────
+
+function hasTable(db: Database.Database, name: string): boolean {
+  const r = db.prepare(`SELECT 1 FROM sqlite_master WHERE type='table' AND name=?`).get(name)
+  return r != null
+}
+
+function hasColumn(db: Database.Database, table: string, column: string): boolean {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>
+  return cols.some(c => c.name === column)
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -244,51 +299,43 @@ export function ticketRemove(d: Db, id: string): void {
 // TICKET TAG
 // ────────────────────────────────────────────────────────────────────────────
 
-export function ticketTagList(d: Db, ticketId: string): Tag[] {
-  return d.select().from(schema.tag).where(eq(schema.tag.ticket_id, ticketId)).all() as Tag[]
+// Tag helpers — tags now live as a JSON array on ticket.tags. The
+// service layer uses parseTags / setTags below; ticketsByTag does
+// substring matching on the JSON column (good enough at this scale;
+// SQLite's json_each could replace this if it ever becomes hot).
+
+export function parseTags(ticket: Ticket): string[] {
+  try {
+    const v = JSON.parse(ticket.tags)
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []
+  } catch { return [] }
 }
 
-export function ticketTagInsert(d: Db, ticketId: string, tag: string): Tag {
-  const id = ulid()
-  const normalizedTag = tag.toLowerCase().trim()
-  const created_at = new Date().toISOString()
-  d.insert(schema.tag).values({ id, ticket_id: ticketId, tag: normalizedTag, created_at }).run()
-  return d.select().from(schema.tag).where(eq(schema.tag.id, id)).get() as Tag
-}
-
-export function ticketTagRemove(d: Db, ticketId: string, tag: string): void {
-  d.delete(schema.tag).where(and(eq(schema.tag.ticket_id, ticketId), eq(schema.tag.tag, tag))).run()
+export function setTags(d: Db, ticketId: string, tags: string[]): void {
+  const dedup = Array.from(new Set(tags.map(t => t.toLowerCase().trim()).filter(Boolean)))
+  d.update(schema.ticket).set({ tags: JSON.stringify(dedup), updated_at: new Date().toISOString() })
+   .where(eq(schema.ticket.id, ticketId)).run()
 }
 
 export function projectTagList(d: Db, projectId: string): string[] {
-  return d
-    .selectDistinct({ tag: schema.tag.tag })
-    .from(schema.tag)
-    .innerJoin(schema.ticket, eq(schema.tag.ticket_id, schema.ticket.id))
-    .where(eq(schema.ticket.project_id, projectId))
-    .orderBy(schema.tag.tag)
-    .all()
-    .map((r: { tag: string }) => r.tag)
+  const tickets = d.select({ tags: schema.ticket.tags }).from(schema.ticket)
+    .where(eq(schema.ticket.project_id, projectId)).all() as Array<{ tags: string }>
+  const set = new Set<string>()
+  for (const t of tickets) {
+    try {
+      const arr = JSON.parse(t.tags)
+      if (Array.isArray(arr)) for (const x of arr) if (typeof x === 'string') set.add(x)
+    } catch { /* skip */ }
+  }
+  return [...set].sort()
 }
 
 export function ticketsByTag(d: Db, tag: string, conditions?: SQL[]): Ticket[] {
-  const where = [eq(schema.tag.tag, tag), ...(conditions ?? [])]
-  return d.select({
-    id:          schema.ticket.id,
-    project_id:  schema.ticket.project_id,
-    agent_id:    schema.ticket.agent_id,
-    title:       schema.ticket.title,
-    description: schema.ticket.description,
-    status:      schema.ticket.status,
-    priority:    schema.ticket.priority,
-    depends_on:  schema.ticket.depends_on,
-    created_by:  schema.ticket.created_by,
-    created_at:  schema.ticket.created_at,
-    updated_at:  schema.ticket.updated_at,
-  }).from(schema.tag)
-    .innerJoin(schema.ticket, eq(schema.tag.ticket_id, schema.ticket.id))
-    .where(and(...where))
-    .all() as Ticket[]
+  // SQLite LIKE on a JSON array — matches the quoted token. Combined with
+  // the caller's project / status filters via AND.
+  const needle = `%${JSON.stringify(tag.toLowerCase().trim())}%`
+  const where = [sql`${schema.ticket.tags} LIKE ${needle}`, ...(conditions ?? [])]
+  return d.select().from(schema.ticket).where(and(...where)).all() as Ticket[]
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -479,22 +526,6 @@ export function activityByTurnOrder(d: Db, sessionId: string, turnId: string, or
     .get() as Activity | undefined
 }
 
-// Wire up activity.execution_id for every tool_call row in a session by
-// matching activity.tool_use_id against execution.tool_use_id. The MCP
-// handler creates the execution row between the runner emitting the
-// tool_call activity and the next stream event, so the correlation is
-// backfilled at session close rather than inline.
-export function backfillActivityExecutionIds(d: Db, sessionId: string): void {
-  d.run(sql`
-    UPDATE activity
-       SET execution_id = (SELECT id FROM execution WHERE execution.tool_use_id = activity.tool_use_id)
-     WHERE session_id = ${sessionId}
-       AND kind = 'tool_call'
-       AND execution_id IS NULL
-       AND tool_use_id IS NOT NULL
-  `)
-}
-
 // ════════════════════════════════════════════════════════════════════════════
 // EXECUTION
 // ════════════════════════════════════════════════════════════════════════════
@@ -528,30 +559,52 @@ export function executionBySession(d: Db, sessionId: string): Execution[] {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// VERDICT
+// VERDICT (lives in activity now — kind='verdict' with payload {pass, reason})
 // ════════════════════════════════════════════════════════════════════════════
 
-export function verdictInsert(d: Db, data: {
-  ticket_id: string; session_id: string; agent_id: string
-  pass: boolean; reason: string; created_at: string
-}): Verdict {
-  const id = ulid()
-  d.insert(schema.verdict).values({ ...data, id }).run()
-  return d.select().from(schema.verdict).where(eq(schema.verdict.id, id)).get() as Verdict
+export interface VerdictRow {
+  id:         string
+  session_id: string
+  agent_id:   string       // resolved from session.agent_id
+  ticket_id:  string       // resolved from session.ticket_id
+  pass:       boolean
+  reason:     string
+  created_at: string
 }
 
-export function verdictByTicket(d: Db, ticketId: string): Verdict[] {
-  return d.select().from(schema.verdict)
-    .where(eq(schema.verdict.ticket_id, ticketId))
-    .orderBy(schema.verdict.created_at)
-    .all() as Verdict[]
+function activityToVerdict(d: Db, a: Activity): VerdictRow | null {
+  let body: { pass?: unknown; reason?: unknown }
+  try { body = JSON.parse(a.payload) } catch { return null }
+  if (typeof body.pass !== 'boolean') return null
+  const sess = d.select({ ticket_id: schema.session.ticket_id, agent_id: schema.session.agent_id })
+    .from(schema.session).where(eq(schema.session.id, a.session_id)).get() as { ticket_id: string; agent_id: string } | undefined
+  if (!sess) return null
+  return {
+    id: a.id, session_id: a.session_id,
+    agent_id: sess.agent_id, ticket_id: sess.ticket_id,
+    pass: body.pass,
+    reason: typeof body.reason === 'string' ? body.reason : '',
+    created_at: a.created_at,
+  }
 }
 
-export function verdictBySession(d: Db, sessionId: string): Verdict | undefined {
-  return d.select().from(schema.verdict)
-    .where(eq(schema.verdict.session_id, sessionId))
-    .orderBy(schema.verdict.created_at)
-    .get() as Verdict | undefined
+export function verdictByTicket(d: Db, ticketId: string): VerdictRow[] {
+  // activity → session → ticket
+  const rows = d.select({ a: schema.activity }).from(schema.activity)
+    .innerJoin(schema.session, eq(schema.activity.session_id, schema.session.id))
+    .where(and(eq(schema.activity.kind, 'verdict'), eq(schema.session.ticket_id, ticketId)))
+    .orderBy(schema.activity.created_at)
+    .all() as Array<{ a: Activity }>
+  return rows.map(r => activityToVerdict(d, r.a)).filter((v): v is VerdictRow => v != null)
+}
+
+export function verdictBySession(d: Db, sessionId: string): VerdictRow | undefined {
+  const a = d.select().from(schema.activity)
+    .where(and(eq(schema.activity.session_id, sessionId), eq(schema.activity.kind, 'verdict')))
+    .orderBy(schema.activity.created_at)
+    .get() as Activity | undefined
+  if (!a) return undefined
+  return activityToVerdict(d, a) ?? undefined
 }
 
 // ════════════════════════════════════════════════════════════════════════════

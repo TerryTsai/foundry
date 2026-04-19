@@ -60,12 +60,9 @@ export interface Ticket {
   updated_at: string
 }
 
-export interface Tag {
-  id: string
-  ticket_id: string
-  tag: string
-  created_at: string
-}
+// Tags are now plain strings (the API returns string[] — they live as a
+// JSON array on ticket.tags, no separate table).
+export type Tag = string
 
 export interface AnalyticsSummary {
   total_cost_usd: number

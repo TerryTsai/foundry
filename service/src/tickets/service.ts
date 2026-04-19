@@ -3,7 +3,8 @@ import type { z } from 'zod'
 import { type Db } from '../core/db.js'
 import * as database from '../core/db.js'
 import * as schema from '../core/schema.js'
-import type { Ticket, Tag, Comment, Verdict } from '../core/schema.js'
+import type { Ticket, Comment } from '../core/schema.js'
+import type { VerdictRow } from '../core/db.js'
 import { mustExist, pick, now, timestamps } from '../core/util.js'
 import { conflict, notFound } from '../core/errors.js'
 import * as validate from './schema.js'
@@ -155,32 +156,28 @@ export function commentCreate(db: Db, accountId: string, ticketId: string, input
 
 // ── Verdicts ──
 
-export function verdictList(db: Db, accountId: string, ticketId: string): Verdict[] {
+export function verdictList(db: Db, accountId: string, ticketId: string): VerdictRow[] {
   ticketOwned(db, ticketId, accountId)
   return database.verdictByTicket(db, ticketId)
 }
 
-// ── Tags ──
+// ── Tags (live as a JSON array on ticket.tags now) ──
 
-export function tagList(db: Db, accountId: string, ticketId: string): Tag[] {
-  ticketOwned(db, ticketId, accountId)
-  return database.ticketTagList(db, ticketId)
+export function tagList(db: Db, accountId: string, ticketId: string): string[] {
+  const t = ticketOwned(db, ticketId, accountId)
+  return database.parseTags(t)
 }
 
-export function tagAdd(db: Db, accountId: string, ticketId: string, tag: string): Tag {
-  ticketOwned(db, ticketId, accountId)
-  try {
-    return database.ticketTagInsert(db, ticketId, tag)
-  } catch (err: any) {
-    if (err?.code === 'SQLITE_CONSTRAINT_UNIQUE' || err?.message?.includes('UNIQUE constraint failed')) {
-      const existing = database.ticketTagList(db, ticketId).find(t => t.tag === tag.toLowerCase().trim())
-      return existing!
-    }
-    throw err
-  }
+export function tagAdd(db: Db, accountId: string, ticketId: string, tag: string): string[] {
+  const t = ticketOwned(db, ticketId, accountId)
+  const next = [...database.parseTags(t), tag]
+  database.setTags(db, ticketId, next)
+  return database.parseTags(mustExist(database.ticketGet(db, ticketId)))
 }
 
 export function tagRemove(db: Db, accountId: string, ticketId: string, tag: string): void {
-  ticketOwned(db, ticketId, accountId)
-  database.ticketTagRemove(db, ticketId, tag)
+  const t = ticketOwned(db, ticketId, accountId)
+  const lower = tag.toLowerCase().trim()
+  const next = database.parseTags(t).filter(x => x !== lower)
+  database.setTags(db, ticketId, next)
 }

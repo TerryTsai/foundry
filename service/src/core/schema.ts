@@ -90,6 +90,11 @@ export const ticket = sqliteTable('ticket', {
   status:      text('status').notNull().default('created'),
   priority:    integer('priority').notNull().default(0),
   depends_on:  text('depends_on'),
+  // JSON array of lowercased label strings. Replaces the standalone
+  // tag table — at this scale (one founder, hundreds of tickets) the
+  // JSON column is simpler than a junction table without losing
+  // anything that's actually queried.
+  tags:        text('tags').notNull().default('[]'),
   created_by:  text('created_by').notNull(),
   created_at:  text('created_at').notNull(),
   updated_at:  text('updated_at').notNull(),
@@ -97,15 +102,6 @@ export const ticket = sqliteTable('ticket', {
 
 export type Ticket = typeof ticket.$inferSelect
 export type NewTicket = typeof ticket.$inferInsert
-
-export const tag = sqliteTable('tag', {
-  id:         text('id').primaryKey(),
-  ticket_id:  text('ticket_id').notNull().references(() => ticket.id, { onDelete: 'cascade' }),
-  tag:        text('tag').notNull(),
-  created_at: text('created_at').notNull(),
-})
-
-export type Tag = typeof tag.$inferSelect
 
 export const comment = sqliteTable('comment', {
   id:         text('id').primaryKey(),
@@ -155,10 +151,6 @@ export const session = sqliteTable('session', {
   id:            text('id').primaryKey(),
   ticket_id:     text('ticket_id').notNull(),
   agent_id:      text('agent_id').notNull().references(() => agent.id),
-  // Final assembled system prompt at dispatch (account + project + agent
-  // + ticket + comment stream). Stored so historical sessions are
-  // reproducible even after prompt layers change.
-  system_prompt: text('system_prompt'),
   status:        text('status').notNull().default('running'),
   error:         text('error'),
   cost_usd:      real('cost_usd'),
@@ -170,8 +162,9 @@ export const session = sqliteTable('session', {
 export type Session = typeof session.$inferSelect
 
 // Flat event log. One row per block the model emitted, one row per
-// execution correlation. No container for "the turn" — the turn is
-// recovered by grouping on turn_id (the BetaMessage.id).
+// execution correlation, plus verifier verdicts. No container for "the
+// turn" — the turn is recovered by grouping on turn_id (the
+// BetaMessage.id).
 //
 // Kinds:
 //   prompt    — founder's initial ticket input
@@ -181,6 +174,11 @@ export type Session = typeof session.$inferSelect
 //               for new rows (enforced by service layer). Historical
 //               rows from before the correlation column may have NULL.
 //   reconcile — system modelUsage delta at session close
+//   verdict   — verifier session's pass/fail report. Payload:
+//               { pass: boolean, reason: string }. Read by the
+//               reconciler's finish-on-all-pass / retry-after-fail
+//               policies. Replaces the former verdict table; the
+//               session's agent is the verifier (session.agent_id).
 //
 // Tokens: the full turn's input/output totals sit on the FIRST activity
 // of each turn (lowest order_index for a turn_id). Others carry NULL
@@ -202,12 +200,15 @@ export const activity = sqliteTable('activity', {
 export type Activity = typeof activity.$inferSelect
 export type NewActivity = typeof activity.$inferInsert
 
+// Note: tool_use_id was duplicated here and on activity. The activity
+// row already carries tool_use_id, and execution_id on activity links
+// the two. One direction is enough — execution → activity is via the
+// execution_id back-reference if you need it.
 export const execution = sqliteTable('execution', {
   id:              text('id').primaryKey(),
   session_id:      text('session_id'),
   tool_name:       text('tool_name'),
   tool_input:      text('tool_input'),
-  tool_use_id:     text('tool_use_id'),            // 'toolu_…' — correlates to an activity row
   command:         text('command').notNull(),
   status:          text('status').notNull().default('running'),
   exit_code:       integer('exit_code'),
@@ -226,26 +227,6 @@ export const execution = sqliteTable('execution', {
 })
 
 export type Execution = typeof execution.$inferSelect
-
-// ════════════════════════════════════════════════════════════════════════════
-// VERDICT — verifier pass/fail reports
-// ════════════════════════════════════════════════════════════════════════════
-// Written by a verifier session via the verdictReport MCP tool. One row per
-// verifier-session; the verifier dance reads these to decide whether to
-// finish a ticket or reopen it. Rounds are recovered by ordering sessions
-// on the ticket by started_at (producer → verifier… → next producer).
-export const verdict = sqliteTable('verdict', {
-  id:         text('id').primaryKey(),
-  ticket_id:  text('ticket_id').notNull().references(() => ticket.id),
-  session_id: text('session_id').notNull().references(() => session.id),
-  agent_id:   text('agent_id').notNull().references(() => agent.id),
-  pass:       integer('pass', { mode: 'boolean' }).notNull(),
-  reason:     text('reason').notNull().default(''),
-  created_at: text('created_at').notNull(),
-})
-
-export type Verdict = typeof verdict.$inferSelect
-export type NewVerdict = typeof verdict.$inferInsert
 
 // ════════════════════════════════════════════════════════════════════════════
 // EVENT — append-only audit log for all state transitions

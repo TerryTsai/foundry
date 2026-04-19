@@ -10,7 +10,6 @@ import type { Agent, Ticket } from '../../core/schema.js'
 import * as sessionJwt from '../../auth/session-jwt.js'
 
 import { compose, type SessionContext } from './pipeline/compose.js'
-import { withActivityBackfill }     from './pipeline/activity-backfill.js'
 import { withBookkeeping }          from './pipeline/bookkeeping.js'
 import { withCooperativeCancel }    from './pipeline/cooperative-cancel.js'
 import { withCrashSafe }            from './pipeline/crash-safe.js'
@@ -30,7 +29,6 @@ import { withWorkspace }            from './pipeline/workspace.js'
 const PRODUCER = compose(
   withCrashSafe,             // catches anything below; logs, rethrows
   withBookkeeping,           // session row started_at/ended_at/status
-  withActivityBackfill,      // patches missing activity rows from execution rows
   withTicketFailOnCrash,     // ticket → failed if loop crashes
   withWorkspace,             // /tmp work dir, cloned from the project's repo
   withSystemPrompt('producer'),
@@ -42,7 +40,6 @@ const PRODUCER = compose(
 const VERIFIER = compose(
   withCrashSafe,
   withBookkeeping,
-  withActivityBackfill,
   withSyntheticFailVerdict,  // crash → synthetic 'fail' verdict
   withWorkspace,
   withSystemPrompt('verifier'),

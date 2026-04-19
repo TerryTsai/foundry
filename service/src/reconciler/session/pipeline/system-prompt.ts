@@ -1,15 +1,18 @@
 // Assemble the layered system prompt (founder → project → role → ticket
-// → comments → prior verdicts) and persist it on the session row so
-// historical sessions remain reproducible after the source layers change.
+// → comments → prior verdicts). The prompt also lands as the first
+// activity row of the session (kind='prompt') via withOpeningPrompt
+// later in the pipeline, so the session is reproducible from its
+// activity stream alone.
 //
 // Factory takes the session role. Verifier sessions get an extra section
 // telling the agent it is reviewing the producer's work, not doing the
 // task, and must call verdictReport before ending. Without this, a
 // verifier reads the Ticket section and treats it as its own task.
 //
-// Note: prior verdicts are fetched live from the DB. Within a single
-// verifier dance, verifier N+1 therefore sees verifier N's verdict in
-// its own system prompt.
+// Note: prior verdicts are fetched live from the DB (verdict rows are
+// activity rows of kind='verdict'). Within a single verifier dance,
+// verifier N+1 therefore sees verifier N's verdict in its own system
+// prompt.
 
 import * as database from '../../../core/db.js'
 import type { Ticket, Agent as AgentDef } from '../../../core/schema.js'
@@ -61,8 +64,5 @@ function assemble(db: Db, ticket: Ticket, agent: AgentDef, role: Role): string {
 
 export const withSystemPrompt = (role: Role): Middleware => (next) => async (ctx) => {
   ctx.systemPrompt = assemble(ctx.db, ctx.ticket, ctx.agent, role)
-  if (ctx.systemPrompt) {
-    database.sessionUpdate(ctx.db, ctx.session.id, { system_prompt: ctx.systemPrompt })
-  }
   return next(ctx)
 }

@@ -1,4 +1,4 @@
-import type { Account, Connection, Project, Ticket, Comment, Agent, Session, Execution, UsageRollup, Tag, Verdict, McpServerInfo, McpToolSelection, Analytics, ProviderMetadata } from './types.js'
+import type { Account, Connection, Project, Ticket, Comment, Agent, Session, Execution, UsageRollup, Verdict, McpServerInfo, McpToolSelection, Analytics, ProviderMetadata } from './types.js'
 
 const cache = new Map<string, { data: unknown; at: number }>()
 const CACHE_TTL = 30_000 // 30 seconds
@@ -112,8 +112,8 @@ export const ticketApi = {
     put<Ticket>(`/ticket/${id}`, data),
   cancel: (id: string) => post<Ticket>(`/ticket/${id}/cancel`),
   usage: (id: string) => get<UsageRollup>(`/ticket/${id}/usage`),
-  tags: (ticketId: string) => get<Tag[]>(`/ticket/${ticketId}/tag`),
-  addTag: (ticketId: string, tag: string) => post<Tag>(`/ticket/${ticketId}/tag`, { tag }),
+  tags: (ticketId: string) => get<string[]>(`/ticket/${ticketId}/tag`),
+  addTag: (ticketId: string, tag: string) => post<string[]>(`/ticket/${ticketId}/tag`, { tag }),
   removeTag: (ticketId: string, tag: string) => del<void>(`/ticket/${ticketId}/tag/${encodeURIComponent(tag)}`),
   verdicts: (ticketId: string) => get<Verdict[]>(`/ticket/${ticketId}/verdict`),
   sessions: (ticketId: string) => get<Session[]>(`/ticket/${ticketId}/session`),
@@ -129,8 +129,8 @@ export const commentApi = {
 
 // Tags
 export const tagApi = {
-  list:   (ticketId: string)               => get<Tag[]>(`/ticket/${ticketId}/tag`),
-  add:    (ticketId: string, tag: string)  => post<Tag>(`/ticket/${ticketId}/tag`, { tag }),
+  list:   (ticketId: string)               => get<string[]>(`/ticket/${ticketId}/tag`),
+  add:    (ticketId: string, tag: string)  => post<string[]>(`/ticket/${ticketId}/tag`, { tag }),
   remove: (ticketId: string, tag: string)  => del<{ ok: boolean }>(`/ticket/${ticketId}/tag/${encodeURIComponent(tag)}`),
 }
 
