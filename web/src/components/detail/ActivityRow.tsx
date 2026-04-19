@@ -11,7 +11,7 @@ interface ActivityRowProps {
   status?: string
   meta?:   string
   /** Optional secondary link rendered under the status badge.
-   *  Reusable slot for "view execution", "view session", etc. */
+   *  Reusable slot for "view execution", etc. */
   sub?:    { to: string; label: string }
   body?:   string
   mono?:   boolean
@@ -24,9 +24,14 @@ interface ActivityRowProps {
   expandable?: boolean
   /** Optional stable id; when present, expand/collapse survives back-nav. */
   persistKey?: string
+  /** When set, the whole row is a navigation Link. Implies non-expandable. */
+  to?: string
 }
 
-export function ActivityRow({ label, icon, status, meta, sub, body, mono, footer, children, expandable = true, persistKey }: ActivityRowProps) {
+export function ActivityRow({ label, icon, status, meta, sub, body, mono, footer, children, expandable = true, persistKey, to }: ActivityRowProps) {
+  // A row that navigates elsewhere has no meaningful expand state.
+  const isLink = typeof to === 'string'
+  if (isLink) expandable = false
   const [expandedLocal, setExpandedLocal] = useState(false)
   const [expandedPersisted, setExpandedPersisted] = usePersistedState(`row:${persistKey ?? ''}`, false)
   const expanded = persistKey ? expandedPersisted : expandedLocal
@@ -67,7 +72,14 @@ export function ActivityRow({ label, icon, status, meta, sub, body, mono, footer
 
   return (
     <div className="border-b border-zinc-200 dark:border-zinc-800/30 last:border-b-0">
-      {expandable ? (
+      {isLink ? (
+        <Link
+          to={to!}
+          className="block py-3 active:bg-zinc-100 dark:active:bg-zinc-900/70"
+        >
+          {row}
+        </Link>
+      ) : expandable ? (
         <button
           onClick={() => setExpanded(e => !e)}
           className="w-full text-left py-3 active:bg-zinc-100 dark:active:bg-zinc-900/70"

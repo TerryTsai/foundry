@@ -171,8 +171,7 @@ export function TicketDetailPage() {
               label={cap(s.agent_name ?? agentNameById(s.agent_id))}
               status={s.status}
               meta={ts(s.started_at)}
-              sub={{ to: `/p/${projectId}/tickets/${ticket.id}/sessions/${s.id}`, label: 'session' }}
-              expandable={false}
+              to={`/p/${projectId}/tickets/${ticket.id}/sessions/${s.id}`}
             />
           )
         })}
