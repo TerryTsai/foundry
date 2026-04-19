@@ -162,6 +162,9 @@ function ActivityEntry({ a, execByToolUseId, execHref }: {
   execHref: (id: string) => string
 }) {
   const payload = parsePayload(a.payload)
+  // Join on tool_use_id — stamped on both sides at write time, no race.
+  const exec = a.kind === 'tool_call' && a.tool_use_id
+    ? execByToolUseId.get(a.tool_use_id) : undefined
 
   let body: React.ReactNode = null
   let sub: { to: string; label: string } | undefined
@@ -173,8 +176,6 @@ function ActivityEntry({ a, execByToolUseId, execHref }: {
     const t = typeof payload.text === 'string' ? payload.text : ''
     body = t ? <ThoughtBody text={t} /> : null
   } else if (a.kind === 'tool_call') {
-    // Join on tool_use_id — stamped on both sides at write time, no race.
-    const exec = a.tool_use_id ? execByToolUseId.get(a.tool_use_id) : undefined
     body = <ToolCallBody input={payload.input} exec={exec} />
     if (exec) sub = { to: execHref(exec.id), label: 'execution' }
   } else if (a.kind === 'reconcile') {
@@ -185,7 +186,7 @@ function ActivityEntry({ a, execByToolUseId, execHref }: {
     <ActivityRow
       icon={iconFor(a, payload)}
       label={labelFor(a, payload)}
-      status="finished"
+      status={exec?.status ?? 'finished'}
       meta={dateShort(a.created_at)}
       sub={sub}
     >
