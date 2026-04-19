@@ -3,15 +3,25 @@ import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import { existsSync } from 'fs'
 import { execSync } from 'child_process'
-import { config } from './config.js'
-import { createDatabase } from './database.js'
-import { assertKeyConfigured } from './crypto/secrets.js'
-import {
-  authRoutes, projectRoutes, connectionRoutes, ticketRoutes,
-  agentRoutes, sessionRoutes, executionRoutes, analyticsRoutes,
-} from './router.js'
-import { errors, rateLimit, requireAuth } from './middleware.js'
-import { reconcilerGlobalStart, reconcilerStopAll, shutdownDrain } from './domain/reconciler.js'
+
+import { config } from './core/config.js'
+import { createDatabase } from './core/db.js'
+import { errors } from './core/http.js'
+import { assertKeyConfigured } from './connections/secrets-crypto.js'
+
+import { authRoutes }       from './auth/routes.js'
+import { requireAuth }      from './auth/middleware.js'
+import { rateLimit }        from './auth/ratelimit.js'
+
+import { projectRoutes }    from './projects/routes.js'
+import { connectionRoutes } from './connections/routes.js'
+import { ticketRoutes }     from './tickets/routes.js'
+import { agentRoutes }      from './agents/routes.js'
+import { sessionRoutes }    from './sessions/routes.js'
+import { executionRoutes }  from './executions/routes.js'
+import { analyticsRoutes }  from './analytics/routes.js'
+
+import { reconcilerGlobalStart, reconcilerStopAll, shutdownDrain } from './reconciler/reconciler.js'
 
 // Fail fast if FOUNDRY_ENCRYPTION_KEY is missing or malformed — better here
 // than on the first connection write.
@@ -23,7 +33,7 @@ const app = express()
 app.use(express.json())
 
 // ── Public routes (no auth) ──
-app.get('/health', (_req, res) => res.json({ ok: true }))
+app.get('/health',        (_req, res) => res.json({ ok: true }))
 app.get('/health/detail', (_req, res) => res.json({ ok: true, uptime: process.uptime(), version: '1.0.0' }))
 
 // Rate-limit the auth surface — prevents brute force on the OAuth state /
@@ -37,7 +47,7 @@ app.use('/auth', authRoutes(db, config))
 // Must be ABOVE requireAuth so the login page and its assets can load
 // without a session cookie.
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const webDist = join(__dirname, '../../web/dist')
+const webDist   = join(__dirname, '../../web/dist')
 if (existsSync(webDist)) {
   app.use(express.static(webDist))
   // SPA fallback: serve index.html for client-side routing. API paths pass
@@ -73,7 +83,7 @@ app.use(rateLimit({
 app.use('/project',    projectRoutes(db))
 app.use('/connection', connectionRoutes(db))
 app.use('/ticket',     ticketRoutes(db))
-app.use('/agent',      agentRoutes(db, config))
+app.use('/agent',      agentRoutes(db))
 app.use('/session',    sessionRoutes(db))
 app.use('/execution',  executionRoutes(db, config))
 app.use('/analytics',  analyticsRoutes(db))
