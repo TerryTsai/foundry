@@ -80,7 +80,7 @@ export function ProjectSwitcher({ current, projectId }: Props) {
             className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-zinc-500 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors"
           >
             <Plus size={12} strokeWidth={2} />
-            New project…
+            new project…
           </Link>
         </div>
       </div>

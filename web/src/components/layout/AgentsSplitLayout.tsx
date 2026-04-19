@@ -60,7 +60,7 @@ export function AgentsSplitLayout() {
             className="shrink-0 flex items-center gap-1 pr-4 pl-2 text-xs text-sky-600 dark:text-sky-400 hover:text-sky-500 dark:hover:text-sky-300 transition-colors"
           >
             <Plus size={12} strokeWidth={2.5} />
-            New
+            new
           </Link>
         </div>
         <div className="flex-1 overflow-y-auto px-4 pt-4">

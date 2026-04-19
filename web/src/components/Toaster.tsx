@@ -48,7 +48,7 @@ export function Toaster() {
       {toasts.map(t => (
         <div
           key={t.id}
-          className={`pointer-events-auto w-full flex items-start gap-2 px-3 py-2 rounded-lg border text-xs backdrop-blur-sm shadow-lg ${KIND_STYLES[t.kind]}`}
+          className={`pointer-events-auto w-full flex items-start gap-2 px-3 py-2 rounded-lg border text-xs backdrop-blur-sm shadow-lg animate-[fadein_200ms_ease-out] ${KIND_STYLES[t.kind]}`}
         >
           {iconFor(t.kind)}
           <span className="flex-1 min-w-0 break-words">{t.message}</span>

@@ -10,7 +10,7 @@ interface ListRowProps {
 }
 
 export function ListRow({ title, subtitle, status, active, mono, onPress }: ListRowProps) {
-  const cls = `w-full text-left border-b border-zinc-200 dark:border-zinc-800/50 active:bg-zinc-100 dark:active:bg-zinc-900/70 py-3.5 flex items-center gap-3 ${
+  const cls = `w-full text-left border-b border-zinc-200 dark:border-zinc-800/50 py-3.5 flex items-center gap-3 transition-colors duration-150 hover:bg-zinc-50/60 dark:hover:bg-zinc-900/40 active:bg-zinc-100 dark:active:bg-zinc-900/70 ${
     active ? 'bg-zinc-50 dark:bg-zinc-900/50' : ''
   }`
 

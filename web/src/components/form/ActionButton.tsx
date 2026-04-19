@@ -23,7 +23,7 @@ export function ActionButton({
       type={type}
       onClick={onClick}
       disabled={disabled}
-      className={`text-sm font-medium py-2.5 px-4 rounded active:opacity-75 transition-opacity disabled:opacity-30 ${variants[variant]} ${className}`}
+      className={`text-sm font-medium py-2.5 px-4 rounded active:opacity-75 active:scale-[0.98] transition-[opacity,transform,background-color,border-color] duration-150 disabled:opacity-30 disabled:active:scale-100 ${variants[variant]} ${className}`}
     >
       {label}
     </button>
