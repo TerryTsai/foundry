@@ -151,17 +151,24 @@ export function TicketDetailPage() {
       <div>
         <SectionLabel label="sessions" />
         {sessions.length === 0 && <p className="text-xs text-zinc-500">No sessions yet.</p>}
-        {sessions.map(s => (
-          <ActivityRow
-            key={s.id}
-            icon={s.agent_id === ticket.agent_id ? <Zap size={14} /> : <Eye size={14} />}
-            label={cap(s.agent_name ?? agentNameById(s.agent_id))}
-            status={s.status}
-            meta={ts(s.started_at)}
-            sub={{ to: `/p/${projectId}/tickets/${ticket.id}/sessions/${s.id}`, label: 'session' }}
-            expandable={false}
-          />
-        ))}
+        {sessions.map(s => {
+          const isProducer = s.agent_id === ticket.agent_id
+          const verdict = !isProducer ? verdicts.find(v => v.session_id === s.id) : undefined
+          const verdictColor = verdict?.pass === true  ? 'text-emerald-500'
+                             : verdict?.pass === false ? 'text-red-500'
+                             : undefined
+          return (
+            <ActivityRow
+              key={s.id}
+              icon={isProducer ? <Zap size={14} /> : <Eye size={14} className={verdictColor} />}
+              label={cap(s.agent_name ?? agentNameById(s.agent_id))}
+              status={s.status}
+              meta={ts(s.started_at)}
+              sub={{ to: `/p/${projectId}/tickets/${ticket.id}/sessions/${s.id}`, label: 'session' }}
+              expandable={false}
+            />
+          )
+        })}
       </div>
 
       <div>
