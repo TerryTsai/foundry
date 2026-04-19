@@ -25,10 +25,12 @@ export function PageShell({ action, composer, onRefresh, children }: PageShellPr
   // navigation vs popstate) stay distinct.
   const { key } = useLocation()
 
-  // Restore BEFORE paint so users never see a flash at scrollTop=0, then
-  // keep re-applying while the container grows — query-backed content
-  // often hydrates over multiple frames and the first restore may clamp
-  // against a still-short scrollHeight.
+  // Restore BEFORE paint so users never see a flash at scrollTop=0.
+  // Query-backed content hydrates across frames, so the container's
+  // scrollHeight starts short and the browser clamps the first assign.
+  // Poll via rAF, re-applying each frame, until scrollTop settles at
+  // target (scrollHeight is finally large enough). Bail on user
+  // interaction or after ~1s so we never fight the user.
   useLayoutEffect(() => {
     const el = scrollRef.current
     if (!el) return
@@ -36,16 +38,29 @@ export function PageShell({ action, composer, onRefresh, children }: PageShellPr
     const raw = sessionStorage.getItem(storageKey)
     if (!raw) return
     const target = +raw
-    el.scrollTop = target
-    if (el.scrollTop === target) return
-    const obs = new ResizeObserver(() => {
+
+    let raf = 0
+    let frames = 0
+    let cancelled = false
+    const bail = () => { cancelled = true }
+    el.addEventListener('wheel',     bail, { passive: true, once: true })
+    el.addEventListener('touchmove', bail, { passive: true, once: true })
+
+    const tick = () => {
+      if (cancelled) return
       el.scrollTop = target
-      if (el.scrollTop === target) obs.disconnect()
-    })
-    obs.observe(el)
-    // Give up after a beat so we don't keep resetting user scrolls.
-    const timer = window.setTimeout(() => obs.disconnect(), 1000)
-    return () => { obs.disconnect(); clearTimeout(timer) }
+      const settled = Math.abs(el.scrollTop - target) <= 1
+      if (settled || ++frames > 60) return
+      raf = requestAnimationFrame(tick)
+    }
+    tick()
+
+    return () => {
+      cancelled = true
+      cancelAnimationFrame(raf)
+      el.removeEventListener('wheel',     bail)
+      el.removeEventListener('touchmove', bail)
+    }
   }, [key])
 
   // Save scrollTop on scroll (throttled) and on unmount (so the last
