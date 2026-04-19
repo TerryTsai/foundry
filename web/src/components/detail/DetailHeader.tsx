@@ -17,7 +17,7 @@ export function DetailHeader({ type, title, status, mono, actions }: DetailHeade
         </div>
         {actions}
       </div>
-      <div className="flex items-center justify-between gap-2 mt-0.5">
+      <div className="flex items-start justify-between gap-2 mt-0.5">
         <h2 className={`text-sm font-semibold text-zinc-900 dark:text-zinc-100 min-w-0 ${mono ? 'font-mono truncate' : ''}`}>
           {title}
         </h2>

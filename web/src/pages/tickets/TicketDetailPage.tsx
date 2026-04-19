@@ -61,7 +61,7 @@ function TagSection({ ticketId, initialTags }: { ticketId: string; initialTags: 
           style={{ fontSize: '16px' }}
           className="bg-transparent border-b border-zinc-500 dark:border-zinc-600 focus:border-zinc-700 dark:focus:border-zinc-400 outline-none px-1 w-24 text-zinc-700 dark:text-zinc-300 placeholder:text-zinc-400 dark:placeholder:text-zinc-600 transition-colors" />
       ) : (
-        <button onClick={() => setAdding(true)} className="text-xs text-zinc-400 dark:text-zinc-600 hover:text-zinc-600 dark:hover:text-zinc-400 transition-colors leading-none">+ tag</button>
+        <button onClick={() => setAdding(true)} className="inline-flex items-center font-mono px-1.5 py-px rounded-sm border border-dashed border-zinc-300 dark:border-zinc-700 text-xs text-zinc-500 dark:text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 transition-colors">+ tag</button>
       )}
     </div>
   )
