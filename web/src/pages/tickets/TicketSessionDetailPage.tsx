@@ -114,15 +114,22 @@ function ToolCallBody({ input, exec }: { input: unknown; exec?: Execution }) {
 
 function ReconcileBody({ payload }: { payload: Record<string, unknown> }) {
   const d = payload as { deltaIn?: number; deltaOut?: number; modelIn?: number; modelOut?: number }
-  const sign = (n?: number) => n === undefined ? '' : (n >= 0 ? `+${n}` : String(n))
-  return (
-    <div className="font-mono text-xs text-zinc-500 dark:text-zinc-400 space-y-1">
-      <div>Δ {sign(d.deltaIn)} in · Δ {sign(d.deltaOut)} out</div>
-      {d.modelIn !== undefined && d.modelOut !== undefined && (
-        <div className="text-zinc-400 dark:text-zinc-500">Reconciled against SDK modelUsage: {d.modelIn.toLocaleString()} in / {d.modelOut.toLocaleString()} out billed.</div>
-      )}
-    </div>
-  )
+  const fmt  = (n?: number) => n === undefined ? '—' : n.toLocaleString()
+  const sign = (n?: number) => n === undefined ? '—' : (n > 0 ? `+${n.toLocaleString()}` : n.toLocaleString())
+  const streamedIn  = d.modelIn  !== undefined && d.deltaIn  !== undefined ? d.modelIn  - d.deltaIn  : undefined
+  const streamedOut = d.modelOut !== undefined && d.deltaOut !== undefined ? d.modelOut - d.deltaOut : undefined
+  const md = [
+    '**Token reconciliation**',
+    '',
+    'Session-close check that SDK-reported token usage matches what we tallied from streamed activity rows. Non-zero deltas are usually cache reads or other out-of-band charges not visible in the stream.',
+    '',
+    '|                          | Input            | Output            |',
+    '| ------------------------ | ---------------: | ----------------: |',
+    `| Billed (SDK modelUsage)  | ${fmt(d.modelIn)} | ${fmt(d.modelOut)} |`,
+    `| Summed from activities   | ${fmt(streamedIn)} | ${fmt(streamedOut)} |`,
+    `| **Δ reconciled**         | **${sign(d.deltaIn)}** | **${sign(d.deltaOut)}** |`,
+  ].join('\n')
+  return <MarkdownBody text={md} />
 }
 
 function ActivityEntry({ a, execByToolUseId, execHref }: {
