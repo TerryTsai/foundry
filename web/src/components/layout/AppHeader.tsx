@@ -12,7 +12,7 @@ export function FoundryMark() {
 
 export function AppHeader({ children }: { children: React.ReactNode }) {
   return (
-    <header className="sticky top-0 z-30 flex items-center h-12 shrink-0 px-4 gap-3 border-b border-zinc-300 dark:border-zinc-800/60 bg-white dark:bg-zinc-950">
+    <header className="fixed top-0 inset-x-0 z-30 flex items-center h-12 shrink-0 px-4 gap-3 border-b border-zinc-300 dark:border-zinc-800/60 bg-white dark:bg-zinc-950">
       <Link to="/" className="flex items-center gap-2.5 shrink-0 mr-1">
         <FoundryMark />
         <span className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 font-display">Foundry</span>

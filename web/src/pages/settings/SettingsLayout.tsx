@@ -26,7 +26,7 @@ export function SettingsLayout() {
   const isIndex = !!useMatch('/settings')
 
   return (
-    <div className="bg-white dark:bg-zinc-950 min-h-dvh">
+    <div className="bg-white dark:bg-zinc-950 min-h-dvh pt-12">
       <AppHeader><span className="text-sm text-zinc-500 dark:text-zinc-400">Settings</span></AppHeader>
 
       <div className="flex min-w-0">

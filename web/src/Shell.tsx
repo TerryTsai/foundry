@@ -27,7 +27,7 @@ export function Shell() {
     <div className="bg-white dark:bg-zinc-950 min-h-dvh">
       <AppHeader><ProjectSwitcher current={project ?? null} projectId={projectId!} /></AppHeader>
       <ScrollRestoration />
-      <main className="min-w-0">
+      <main className="min-w-0 pt-12">
         <Outlet context={{ project: project ?? null, projectId: projectId!, revalidate }} />
       </main>
     </div>
