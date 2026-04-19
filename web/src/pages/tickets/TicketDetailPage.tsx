@@ -135,6 +135,7 @@ export function TicketDetailPage() {
         { label: 'duration', value: usage.duration_ms > 0 ? fmtDuration(usage.duration_ms) : null },
         { label: 'tags',     value: !editing ? <TagSection ticketId={ticket.id} initialTags={initialTags} /> : null },
       ]}
+      primaryCount={99}
       composer={{ placeholder: 'Comment', onSubmit: handleAddComment }}
     >
       {editing && (

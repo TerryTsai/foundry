@@ -2,7 +2,7 @@ import {
   Terminal, FileText, FilePen, FileDiff, Trash2, Search, Folder,
   Globe, Newspaper,
   Download, GitBranch, GitCommit, GitMerge, GitPullRequest, Plus, Minus, ListTree,
-  Ticket, Bot, Brain, Activity,
+  Ticket, Bot, Brain, Activity, Gavel,
   CloudUpload, Cloud, History, ShieldCheck, Eraser,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
@@ -67,6 +67,7 @@ const TOOL_META: Record<string, ToolMeta> = {
   sessionList:   { label: _ => 'session list', icon: ListTree },
   connectionList:{ label: _ => 'connection list', icon: Activity },
   think:         { label: _ => 'think', icon: Brain },
+  verdictReport: { label: i => `verdict: ${i.pass ? 'pass' : 'fail'}${asString(i.reason) ? ` — ${truncate(asString(i.reason)!, 60)}` : ''}`, icon: Gavel },
 
   // ── cloudflare ──
   whoami:           { label: _ => 'cloudflare whoami', icon: ShieldCheck },
