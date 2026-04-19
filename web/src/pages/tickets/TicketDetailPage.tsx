@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate, useLoaderData, useRevalidator } from 'react-router-dom'
-import { User, Bot, Info, Zap } from 'lucide-react'
+import { User, Bot, Info, Zap, Eye } from 'lucide-react'
 import { ticketApi, commentApi, bustCache } from '../../api.js'
 import { ActivityRow } from '../../components/detail/ActivityRow.js'
 import { SectionLabel } from '../../components/detail/SectionLabel.js'
@@ -154,7 +154,7 @@ export function TicketDetailPage() {
         {sessions.map(s => (
           <ActivityRow
             key={s.id}
-            icon={<Zap size={14} />}
+            icon={s.agent_id === ticket.agent_id ? <Zap size={14} /> : <Eye size={14} />}
             label={cap(s.agent_name ?? agentNameById(s.agent_id))}
             status={s.status}
             meta={ts(s.started_at)}
