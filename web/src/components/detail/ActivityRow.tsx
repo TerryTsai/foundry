@@ -64,7 +64,7 @@ export function ActivityRow({ label, icon, status, meta, sub, body, mono, footer
         <ChevronRight
           size={14}
           strokeWidth={2}
-          className={`text-zinc-400 dark:text-zinc-700 shrink-0 -mr-1 mt-1 transition-transform ${expanded ? 'rotate-90' : ''}`}
+          className={`text-zinc-400 dark:text-zinc-700 shrink-0 -mr-1 self-center transition-transform ${expanded ? 'rotate-90' : ''}`}
         />
       )}
     </div>
@@ -75,14 +75,14 @@ export function ActivityRow({ label, icon, status, meta, sub, body, mono, footer
       {isLink ? (
         <Link
           to={to!}
-          className="block py-3.5 transition-colors duration-150 hover:bg-zinc-50/60 dark:hover:bg-zinc-900/40 active:bg-zinc-100 dark:active:bg-zinc-900/70"
+          className="block -mx-4 px-4 py-3.5 transition-colors duration-150 hover:bg-zinc-50/60 dark:hover:bg-zinc-900/40 active:bg-zinc-100 dark:active:bg-zinc-900/70"
         >
           {row}
         </Link>
       ) : expandable ? (
         <button
           onClick={() => setExpanded(e => !e)}
-          className="w-full text-left py-3.5 transition-colors duration-150 hover:bg-zinc-50/60 dark:hover:bg-zinc-900/40 active:bg-zinc-100 dark:active:bg-zinc-900/70"
+          className="w-full text-left -mx-4 px-4 py-3.5 transition-colors duration-150 hover:bg-zinc-50/60 dark:hover:bg-zinc-900/40 active:bg-zinc-100 dark:active:bg-zinc-900/70"
         >
           {row}
         </button>
