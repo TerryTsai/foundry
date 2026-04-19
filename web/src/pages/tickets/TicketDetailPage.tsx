@@ -1,11 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate, useLoaderData, useRevalidator } from 'react-router-dom'
-import { User, Bot, Info, Clock, Zap } from 'lucide-react'
+import { User, Bot, Info, Zap } from 'lucide-react'
 import { ticketApi, commentApi, bustCache } from '../../api.js'
 import { ActivityRow } from '../../components/detail/ActivityRow.js'
 import { SectionLabel } from '../../components/detail/SectionLabel.js'
 import { DetailShell } from '../../components/layout/DetailShell.js'
-import type { Ticket, Agent, Comment, UsageRollup, Verdict, Session, Event } from '../../types.js'
+import type { Ticket, Agent, Comment, UsageRollup, Verdict, Session } from '../../types.js'
 import { useShell } from '../../Shell.js'
 import { Field } from '../../components/form/Field.js'
 import { TextArea } from '../../components/form/TextArea.js'
@@ -66,71 +66,22 @@ function TagSection({ ticketId, initialTags }: { ticketId: string; initialTags: 
   )
 }
 
-// ── Timeline: ticket state transitions + sessions, chronologically ──
-
-interface TimelineEntry {
-  id: string
-  time: string
-  icon: React.ReactNode
-  label: string
-  status?: string
-  sub?: { to: string; label: string }
-}
-
 function cap(s: string): string {
   return s.length === 0 ? s : s.charAt(0).toUpperCase() + s.slice(1)
-}
-
-function buildTimeline(
-  sessions: Session[], events: Event[],
-  agentNameById: (id: string) => string, projectId: string, ticketId: string,
-): TimelineEntry[] {
-  const entries: TimelineEntry[] = []
-
-  for (const s of sessions as any[]) {
-    entries.push({
-      id: `s-${s.id}`,
-      time: s.started_at,
-      icon: <Zap size={14} />,
-      label: cap(s.agent_name ?? agentNameById(s.agent_id)),
-      status: s.status,
-      sub: { to: `/p/${projectId}/tickets/${ticketId}/sessions/${s.id}`, label: 'session' },
-    })
-  }
-
-  for (const e of events) {
-    if (e.entity_type !== 'ticket') continue
-    let label = cap(e.kind.replace(/_/g, ' '))
-    if (e.kind === 'status_changed') {
-      try {
-        const d = JSON.parse(e.data) as { to?: string }
-        if (d.to) label = cap(d.to)
-      } catch { /* fall back to default label */ }
-    }
-    entries.push({
-      id: `e-${e.id}`,
-      time: e.created_at,
-      icon: <Clock size={14} className="text-zinc-500" />,
-      label,
-      status: e.caused_by,
-    })
-  }
-
-  return entries.sort((a, b) => a.time.localeCompare(b.time))
 }
 
 // ── Loader ──
 
 interface TicketLoaderData {
   ticket: Ticket; agents: Agent[]; comments: Comment[]; usage: UsageRollup
-  tags: string[]; verdicts: Verdict[]; sessions: Session[]; chain: Ticket[]; events: Event[]
+  tags: string[]; verdicts: Verdict[]; sessions: Session[]; chain: Ticket[]
 }
 
 // ── Page ──
 
 export function TicketDetailPage() {
   const { projectId } = useShell()
-  const { ticket, agents, comments: initialComments, usage, tags: initialTags, verdicts, sessions, events } = useLoaderData() as TicketLoaderData
+  const { ticket, agents, comments: initialComments, usage, tags: initialTags, verdicts, sessions } = useLoaderData() as TicketLoaderData
   const { revalidate } = useRevalidator()
   const navigate = useNavigate()
   const [editing, setEditing] = useState(false)
@@ -163,8 +114,6 @@ export function TicketDetailPage() {
 
   const ts = (s: string) => new Date(s).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
   const agentNameById = (id: string) => agents.find(a => a.id === id)?.name ?? id
-
-  const timeline = buildTimeline(sessions, events, agentNameById, projectId, ticket.id)
 
   return (
     <DetailShell
@@ -200,16 +149,16 @@ export function TicketDetailPage() {
       )}
 
       <div>
-        <SectionLabel label="timeline" />
-        {timeline.length === 0 && <p className="text-xs text-zinc-500">No activity yet.</p>}
-        {timeline.map(e => (
+        <SectionLabel label="sessions" />
+        {sessions.length === 0 && <p className="text-xs text-zinc-500">No sessions yet.</p>}
+        {sessions.map(s => (
           <ActivityRow
-            key={e.id}
-            icon={e.icon}
-            label={e.label}
-            status={e.status}
-            meta={ts(e.time)}
-            sub={e.sub}
+            key={s.id}
+            icon={<Zap size={14} />}
+            label={cap(s.agent_name ?? agentNameById(s.agent_id))}
+            status={s.status}
+            meta={ts(s.started_at)}
+            sub={{ to: `/p/${projectId}/tickets/${ticket.id}/sessions/${s.id}`, label: 'session' }}
             expandable={false}
           />
         ))}
