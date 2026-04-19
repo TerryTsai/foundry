@@ -25,7 +25,7 @@ export function AgentsSplitLayout() {
   const isIndex = !!useMatch('/settings/agents')
 
   // ── Shared row list ────────────────────────────────────────────────────────
-  function renderRows(hideChevron: boolean) {
+  function renderRows() {
     if (isPending) return null
     return (
       <div className="[&>:last-child>*]:border-b-0">
@@ -38,7 +38,6 @@ export function AgentsSplitLayout() {
                 title={a.name}
                 subtitle={a.model}
                 active={a.id === agentId}
-                hideChevron={hideChevron}
               />
             </Link>
           ))
@@ -64,7 +63,7 @@ export function AgentsSplitLayout() {
           </Link>
         </div>
         <div className="flex-1 overflow-y-auto px-4 pt-4">
-          {renderRows(true)}
+          {renderRows()}
         </div>
       </aside>
 
@@ -80,7 +79,7 @@ export function AgentsSplitLayout() {
             action={{ label: 'Agent', onPress: '/settings/agents/new' }}
             onRefresh={async () => { await queryClient.invalidateQueries({ queryKey: qk.agent.all() }) }}
           >
-            {renderRows(false)}
+            {renderRows()}
           </PageShell>
         </div>
       )}

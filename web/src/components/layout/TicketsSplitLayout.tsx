@@ -168,7 +168,7 @@ export function TicketsSplitLayout() {
 
   // ── Ticket row list (shared between desktop & mobile) ─────────────────────
 
-  function renderRows(hideChevron: boolean) {
+  function renderRows() {
     if (tagLoading || ticketsPending) return null
     if (filtered.length === 0) return <EmptyState message="no tickets" />
     return (
@@ -184,7 +184,6 @@ export function TicketsSplitLayout() {
                 subtitle={date}
                 status={t.status}
                 active={t.id === ticketId}
-                hideChevron={hideChevron}
               />
             </Link>
           )
@@ -224,7 +223,7 @@ export function TicketsSplitLayout() {
 
         {/* Ticket rows — scroll within the sticky aside */}
         <div className="flex-1 overflow-y-auto px-4 pt-4">
-          {renderRows(true)}
+          {renderRows()}
         </div>
       </aside>
 
@@ -247,7 +246,7 @@ export function TicketsSplitLayout() {
             action={{ label: 'Ticket', onPress: `/p/${projectId}/tickets/new` }}
             onRefresh={async () => { revalidate() }}
           >
-            {renderRows(false)}
+            {renderRows()}
           </PageShell>
         </div>
       )}
