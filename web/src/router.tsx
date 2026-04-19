@@ -37,13 +37,18 @@ import { AnalyticsPage } from './pages/analytics/AnalyticsPage.js'
 
 const pid = (p: Params) => p.projectId!
 
-// Loaders just prefetch into the React Query cache and return null.
-// Components consume the data via useQuery with the same options.
-// Signature is permissive on purpose — each opts object is individually
-// typed via queryOptions() and ensureQueryData accepts them shape-wise.
+// Loaders fire-and-forget prefetches into the React Query cache and
+// return null synchronously. This means navigation is never blocked
+// waiting for a refetch — components read from cache via useQuery and
+// render with whatever data is already there (stale-while-revalidate).
+// First visits to an uncached page see a brief null render, which the
+// receiving component handles with a loading/undefined guard.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const prefetch = (...opts: any[]) =>
-  Promise.all(opts.map(o => queryClient.ensureQueryData(o))).then(() => null)
+const prefetch = (...opts: any[]) => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const o of opts) queryClient.prefetchQuery(o as any)
+  return null
+}
 
 export const router = createBrowserRouter([
   { path: '/login', element: <LoginPage /> },
