@@ -117,6 +117,17 @@ export function asText(value: unknown): { content: [{ type: 'text'; text: string
   return { content: [{ type: 'text', text }] }
 }
 
+// Handlers that want to return non-text content (image, document) return
+// a pre-formed MCP envelope. The sdkTool adapter below recognizes the
+// shape and passes it through without re-wrapping.
+export function isMcpEnvelope(v: unknown): v is { content: Array<Record<string, unknown>> } {
+  return !!v && typeof v === 'object' && Array.isArray((v as { content?: unknown }).content)
+}
+
+export function asImage(bytes: Buffer, mime: string): { content: [{ type: 'image'; data: string; mimeType: string }] } {
+  return { content: [{ type: 'image', data: bytes.toString('base64'), mimeType: mime }] }
+}
+
 // ── Sandbox exec wrapper ──
 // runCommand spawns a podman container with the workspace bind-mounted,
 // runs the command, captures stdout/stderr, and creates an execution row

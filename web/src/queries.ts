@@ -10,7 +10,7 @@
 import { queryOptions } from '@tanstack/react-query'
 import {
   connectionApi, projectApi, analyticsApi, ticketApi, commentApi,
-  sessionApi, agentApi, executionApi, authApi,
+  sessionApi, agentApi, executionApi, authApi, attachmentApi,
 } from './api.js'
 
 // ── Keys ──
@@ -50,6 +50,7 @@ export const qk = {
     sessions: (id: string) => ['ticket', id, 'sessions'] as const,
     comments: (id: string) => ['ticket', id, 'comments'] as const,
     events:   (id: string) => ['ticket', id, 'events'] as const,
+    attachments: (id: string) => ['ticket', id, 'attachments'] as const,
   },
   session: {
     all:      () => ['session'] as const,
@@ -94,6 +95,7 @@ export const ticketVerdictsOpts  = (id: string) => queryOptions({ queryKey: qk.t
 export const ticketSessionsOpts  = (id: string) => queryOptions({ queryKey: qk.ticket.sessions(id), queryFn: () => ticketApi.sessions(id) })
 export const ticketEventsOpts    = (id: string) => queryOptions({ queryKey: qk.ticket.events(id),   queryFn: () => ticketApi.events(id) })
 export const ticketCommentsOpts  = (id: string) => queryOptions({ queryKey: qk.ticket.comments(id), queryFn: () => commentApi.list(id) })
+export const ticketAttachmentsOpts = (id: string) => queryOptions({ queryKey: qk.ticket.attachments(id), queryFn: () => attachmentApi.listByTicket(id) })
 
 export const sessionGetOpts        = (id: string) => queryOptions({ queryKey: qk.session.byId(id),        queryFn: () => sessionApi.get(id) })
 export const sessionActivitiesOpts = (id: string) => queryOptions({ queryKey: qk.session.activities(id),  queryFn: () => sessionApi.activities(id) })

@@ -2,11 +2,12 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { User, Bot, Info, Zap, Eye } from 'lucide-react'
-import { ticketApi, commentApi } from '../../api.js'
+import { ticketApi, commentApi, attachmentApi } from '../../api.js'
 import { pushToast } from '../../components/Toaster.js'
 import {
   ticketGetOpts, ticketCommentsOpts, ticketUsageOpts, ticketTagsOpts,
-  ticketVerdictsOpts, ticketSessionsOpts, agentListOpts, qk,
+  ticketVerdictsOpts, ticketSessionsOpts, ticketAttachmentsOpts,
+  agentListOpts, qk,
 } from '../../queries.js'
 import { ActivityRow } from '../../components/detail/ActivityRow.js'
 import { SectionLabel } from '../../components/detail/SectionLabel.js'
@@ -109,6 +110,7 @@ export function TicketDetailPage() {
   const { data: usage }      = useQuery(ticketUsageOpts(tid))
   const { data: verdicts = [] } = useQuery(ticketVerdictsOpts(tid))
   const { data: sessions = [] } = useQuery(ticketSessionsOpts(tid))
+  const { data: attachments = [] } = useQuery(ticketAttachmentsOpts(tid))
   const queryClient = useQueryClient()
   const navigate = useNavigate()
   const [editing, setEditing] = useState(false)
@@ -193,6 +195,32 @@ export function TicketDetailPage() {
           <div className="flex gap-2">
             <ActionButton label="cancel" variant="secondary" onClick={() => setEditing(false)} className="flex-1" />
             <ActionButton label="save" onClick={() => saveMutation.mutate()} className="flex-1" />
+          </div>
+        </div>
+      )}
+
+      {attachments.length > 0 && (
+        <div>
+          <SectionLabel label={`attachments (${attachments.length})`} />
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 py-2">
+            {attachments.map(a => (
+              <a
+                key={a.id}
+                href={attachmentApi.bytesUrl(a.id)}
+                target="_blank"
+                rel="noreferrer"
+                className="block border border-zinc-200 dark:border-zinc-800 rounded overflow-hidden bg-zinc-50 dark:bg-zinc-900/50"
+                title={`${a.name} · ${(a.size / 1024).toFixed(0)} KB`}
+              >
+                {a.mime.startsWith('image/') ? (
+                  <img src={attachmentApi.bytesUrl(a.id)} alt={a.name} className="w-full h-32 object-cover" />
+                ) : (
+                  <div className="h-32 flex items-center justify-center text-xs text-zinc-500 dark:text-zinc-400 font-mono p-2 text-center">
+                    {a.mime}<br />{a.name}
+                  </div>
+                )}
+              </a>
+            ))}
           </div>
         </div>
       )}

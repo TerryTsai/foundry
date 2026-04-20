@@ -108,6 +108,34 @@ export const ticketApi = {
   events: (ticketId: string) => get<import('./types.js').Event[]>(`/ticket/${ticketId}/event`),
 }
 
+// Attachments
+export interface AttachmentMeta {
+  id: string
+  ticket_id: string | null
+  comment_id: string | null
+  name: string
+  mime: string
+  size: number
+  created_by: string
+  created_at: string
+}
+
+export const attachmentApi = {
+  listByTicket: (ticketId: string) => get<AttachmentMeta[]>(`/ticket/${ticketId}/attachment`),
+  upload: async (ticketId: string, file: File): Promise<AttachmentMeta> => {
+    const url = `/ticket/${ticketId}/attachment?name=${encodeURIComponent(file.name)}`
+    const res = await fetch(url, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': file.type || 'application/octet-stream' },
+      body: file,
+    })
+    if (!res.ok) handleNotOk(res)
+    return res.json() as Promise<AttachmentMeta>
+  },
+  bytesUrl: (id: string) => `/attachment/${id}`,
+}
+
 // Comments
 export const commentApi = {
   list: (ticketId: string) => get<Comment[]>(`/ticket/${ticketId}/comment`),

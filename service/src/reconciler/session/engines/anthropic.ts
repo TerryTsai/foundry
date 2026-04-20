@@ -12,7 +12,7 @@ import { homedir } from 'os'
 import { type Db } from '../../../core/db.js'
 import * as database from '../../../core/db.js'
 import type { Connection } from '../../../core/schema.js'
-import { asText, parseConn, toolUseId } from '../../../integrations/shared.js'
+import { asText, isMcpEnvelope, parseConn, toolUseId } from '../../../integrations/shared.js'
 import { now, mustExist } from '../../../core/util.js'
 import { encryptSecret, decryptSecret } from '../../../connections/secrets-crypto.js'
 
@@ -146,7 +146,10 @@ function toSdkServer(
       // corresponding assistant message and breaks. Guard here so no
       // side effects fire post-cancel.
       if (isCancelled()) return asText({ error: 'session cancelled' })
-      return asText(await t.handler(tu(x), a))
+      const result = await t.handler(tu(x), a)
+      // Handlers may return a pre-formed MCP envelope (image, document);
+      // otherwise we JSON-wrap the plain result as text.
+      return isMcpEnvelope(result) ? (result as any) : asText(result)
     })
   )
   return createSdkMcpServer({ name, tools: filterTools(all, allowed) })

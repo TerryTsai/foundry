@@ -20,6 +20,7 @@ import { agentRoutes }      from './agents/routes.js'
 import { sessionRoutes }    from './sessions/routes.js'
 import { executionRoutes }  from './executions/routes.js'
 import { analyticsRoutes }  from './analytics/routes.js'
+import { attachmentRoutes, ticketAttachmentRoutes } from './attachments/routes.js'
 
 import { reconcilerGlobalStart, reconcilerStopAll, shutdownDrain } from './reconciler/reconciler.js'
 
@@ -58,7 +59,7 @@ if (existsSync(webDist)) {
   // would otherwise hit the JSON API. Disambiguate by Accept header —
   // top-level navigations request text/html; fetch/XHR calls request
   // application/json. HTML-preferring requests always get the SPA.
-  const apiPrefixes = ['/project', '/connection', '/ticket', '/agent', '/session', '/execution', '/analytics', '/health', '/auth']
+  const apiPrefixes = ['/project', '/connection', '/ticket', '/agent', '/session', '/execution', '/analytics', '/attachment', '/health', '/auth']
   app.use((req, res, next) => {
     if (req.method !== 'GET') return next()
     const accept = req.headers.accept ?? ''
@@ -87,6 +88,11 @@ app.use('/agent',      agentRoutes(db))
 app.use('/session',    sessionRoutes(db))
 app.use('/execution',  executionRoutes(db, config))
 app.use('/analytics',  analyticsRoutes(db))
+app.use('/attachment', attachmentRoutes(db))
+
+// Raw-body parser, scoped to attachment upload. JSON parser stays default
+// everywhere else; this one kicks in only when we actually want bytes.
+app.use('/ticket/:id/attachment', express.raw({ type: '*/*', limit: '15mb' }), ticketAttachmentRoutes(db))
 
 app.use(errors)
 

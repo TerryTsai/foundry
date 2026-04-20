@@ -85,6 +85,9 @@ const connectionListArgs = z.object({})
 const thinkArgs        = z.object({
   thought: z.string().describe('The reasoning step.'),
 })
+const attachmentGetArgs = z.object({
+  id: z.string().describe('Attachment id (listed in the opening prompt).'),
+})
 
 // ── Internal API helper ──
 // All foundry tools curl back to the service through the sandbox. The
@@ -226,6 +229,26 @@ async function handleThink(ctx: FoundryCtx, args: z.infer<typeof thinkArgs>) {
   return { ok: r.exitCode === 0 }
 }
 
+// Load an attachment's bytes as an image/document content block so the
+// model can actually see it. Opening prompt lists ids + metadata only;
+// this tool is how agents pull the actual pixels/PDF on demand.
+async function handleAttachmentGet(ctx: FoundryCtx, args: z.infer<typeof attachmentGetArgs>) {
+  const { attachmentGetInternal } = await import('../../../attachments/service.js')
+  const { asImage } = await import('../../../integrations/shared.js')
+  const att = attachmentGetInternal(ctx.db, args.id)
+  if (!att) return { error: `attachment ${args.id} not found` }
+  // Images render as image blocks; PDFs go through document blocks.
+  // (Claude's document support is the 'document' type with a base64
+  // source of media_type application/pdf — SDK accepts this.)
+  if (att.mime.startsWith('image/')) return asImage(att.bytes, att.mime)
+  return {
+    content: [{
+      type: 'document',
+      source: { type: 'base64', media_type: att.mime, data: att.bytes.toString('base64') },
+    }],
+  }
+}
+
 // ── Tools ──
 
 export const info: McpServerInfo = {
@@ -248,4 +271,5 @@ export const tools: ToolDef[] = [
   { name: 'sessionList',     description: 'List agent sessions for a ticket. Defaults to the current session\'s ticket if omitted.',                                                                                                    schema: sessionListArgs,     handler: handleSessionList },
   { name: 'connectionList',  description: 'List configured external connections (LLM backends, integrations). Secrets are masked.',                                                                                                     schema: connectionListArgs,  handler: handleConnectionList },
   { name: 'think',           description: 'Use this tool to reason, plan, or analyze before taking action. No side effects. Still runs in the sandbox for consistent execution tracking.',                                              schema: thinkArgs,           handler: handleThink },
+  { name: 'attachmentGet',   description: 'Load an attachment (image or PDF) from the current ticket. The opening prompt lists attachment ids; call this only when you actually need to see the content.',                                schema: attachmentGetArgs,   handler: handleAttachmentGet },
 ]

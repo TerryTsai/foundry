@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, real } from 'drizzle-orm/sqlite-core'
+import { sqliteTable, text, integer, real, blob } from 'drizzle-orm/sqlite-core'
 
 // ════════════════════════════════════════════════════════════════════════════
 // AUTH
@@ -112,6 +112,32 @@ export const comment = sqliteTable('comment', {
 })
 
 export type Comment = typeof comment.$inferSelect
+
+// ════════════════════════════════════════════════════════════════════════════
+// ATTACHMENT — images/PDFs attached to tickets or comments
+// ════════════════════════════════════════════════════════════════════════════
+//
+// Blobs live in SQLite. One source of truth, one backup. Size-capped
+// at upload (see attachments/service.ts). Exactly one of ticket_id or
+// comment_id is set — never both.
+//
+// Keep attachments OUT of normal SELECT * on tickets/comments. Fetch
+// metadata (id, name, mime, size) via a separate projection; only load
+// `bytes` when the founder or an agent actually needs the bytes.
+
+export const attachment = sqliteTable('attachment', {
+  id:         text('id').primaryKey(),
+  ticket_id:  text('ticket_id'),
+  comment_id: text('comment_id'),
+  name:       text('name').notNull(),
+  mime:       text('mime').notNull(),
+  size:       integer('size').notNull(),
+  bytes:      blob('bytes', { mode: 'buffer' }).notNull(),
+  created_by: text('created_by').notNull(),
+  created_at: text('created_at').notNull(),
+})
+
+export type Attachment = typeof attachment.$inferSelect
 
 // ════════════════════════════════════════════════════════════════════════════
 // AGENT (immutable; edit = insert new row, set superseded_at on prior)

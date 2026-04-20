@@ -157,6 +157,25 @@ export function createDatabase(path: string): Db {
     sqlite.exec(`ALTER TABLE ticket DROP COLUMN priority`)
   }
 
+  // 8) Attachments — blob storage for ticket/comment images & PDFs.
+  if (!hasTable(sqlite, 'attachment')) {
+    sqlite.exec(`
+      CREATE TABLE attachment (
+        id         TEXT PRIMARY KEY,
+        ticket_id  TEXT,
+        comment_id TEXT,
+        name       TEXT NOT NULL,
+        mime       TEXT NOT NULL,
+        size       INTEGER NOT NULL,
+        bytes      BLOB NOT NULL,
+        created_by TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+      CREATE INDEX idx_attachment_ticket_id  ON attachment(ticket_id);
+      CREATE INDEX idx_attachment_comment_id ON attachment(comment_id);
+    `)
+  }
+
   return drizzle(sqlite, { schema })
 }
 
