@@ -11,10 +11,18 @@
 // keeps cookies, open tabs, and DOM state alive across tool calls —
 // the whole point of having a persistent container.
 
-import { chromium } from 'playwright-core'
 import { spawn } from 'node:child_process'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import net from 'node:net'
+
+// playwright-core is installed globally in the sandbox image
+// (/usr/local/lib/node_modules). Node's ESM resolver ignores NODE_PATH
+// so bare `import 'playwright-core'` fails from /usr/local/bin. The CJS
+// resolver honors NODE_PATH, and playwright-core ships CJS, so route
+// the import through createRequire.
+const require = createRequire(import.meta.url)
+const { chromium } = require('playwright-core')
 
 const DEBUG_PORT = 9222
 const PID_FILE   = '/tmp/foundry-chromium.pid'
