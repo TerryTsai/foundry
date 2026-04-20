@@ -7,12 +7,19 @@
 // invocation we spawn chromium with --remote-debugging-port and detach;
 // on later invocations we just connect to it over CDP. Session state
 // (open tabs, URL, cookies, DOM, JS heap) persists across calls so the
-// agent can drive a real interactive flow: goto → screenshot → click →
-// screenshot → …
+// agent can drive a real interactive flow.
+//
+// Implementation note: uses createRequire() for puppeteer-core because
+// puppeteer-core ships CommonJS without an "exports" field; Node's ESM
+// resolver can't pick an entry for it. createRequire gives us CJS-style
+// resolution that finds the globally-installed package.
 
-import puppeteer from 'puppeteer-core'
+import { createRequire } from 'module'
 import { spawn } from 'child_process'
 import { existsSync } from 'fs'
+
+const require = createRequire(import.meta.url)
+const puppeteer = require('puppeteer-core')
 
 const PROFILE    = '/tmp/foundry-chrome'
 const DEBUG_PORT = 9222
@@ -98,8 +105,6 @@ async function run(cmd, args) {
         return { text: txt, url: p.url() }
       }
       case 'dom': {
-        // A compact selectors-and-text map so the agent can decide what
-        // to click/fill next without eating tokens on full HTML.
         const data = await p.evaluate(() => {
           const pick = (el) => ({
             tag:   el.tagName.toLowerCase(),
