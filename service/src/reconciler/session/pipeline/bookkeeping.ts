@@ -4,6 +4,7 @@
 
 import * as database from '../../../core/db.js'
 import { now } from '../../../core/util.js'
+import { stopSessionContainer } from '../sandbox/podman.js'
 import type { Middleware } from './compose.js'
 
 export const withBookkeeping: Middleware = (next) => async (ctx) => {
@@ -45,5 +46,9 @@ export const withBookkeeping: Middleware = (next) => async (ctx) => {
       caused_by: 'runtime',
     })
     throw err
+  } finally {
+    // Tear down the persistent container (if one was started by a
+    // stateful tool). No-op when no container was allocated.
+    await stopSessionContainer(ctx.session.id).catch(() => {})
   }
 }

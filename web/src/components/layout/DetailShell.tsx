@@ -22,7 +22,11 @@ interface DetailShellProps {
   actions?: React.ReactNode
   infoRows: InfoRow[]
   primaryCount?: number
-  composer?: { placeholder: string; onSubmit: (value: string) => Promise<void> }
+  composer?: {
+    placeholder: string
+    onSubmit: (value: string, files?: File[]) => Promise<void>
+    acceptAttachments?: boolean
+  }
   backLink?: React.ReactNode
   children?: React.ReactNode
 }

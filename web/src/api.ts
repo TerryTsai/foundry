@@ -120,19 +120,24 @@ export interface AttachmentMeta {
   created_at: string
 }
 
+async function uploadAttachment(url: string, file: File): Promise<AttachmentMeta> {
+  const res = await fetch(url, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': file.type || 'application/octet-stream' },
+    body: file,
+  })
+  if (!res.ok) handleNotOk(res)
+  return res.json() as Promise<AttachmentMeta>
+}
+
 export const attachmentApi = {
-  listByTicket: (ticketId: string) => get<AttachmentMeta[]>(`/ticket/${ticketId}/attachment`),
-  upload: async (ticketId: string, file: File): Promise<AttachmentMeta> => {
-    const url = `/ticket/${ticketId}/attachment?name=${encodeURIComponent(file.name)}`
-    const res = await fetch(url, {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': file.type || 'application/octet-stream' },
-      body: file,
-    })
-    if (!res.ok) handleNotOk(res)
-    return res.json() as Promise<AttachmentMeta>
-  },
+  listByTicket:  (ticketId: string)  => get<AttachmentMeta[]>(`/ticket/${ticketId}/attachment`),
+  listByComment: (commentId: string) => get<AttachmentMeta[]>(`/comment/${commentId}/attachment`),
+  uploadToTicket: (ticketId: string, file: File) =>
+    uploadAttachment(`/ticket/${ticketId}/attachment?name=${encodeURIComponent(file.name)}`, file),
+  uploadToComment: (commentId: string, file: File) =>
+    uploadAttachment(`/comment/${commentId}/attachment?name=${encodeURIComponent(file.name)}`, file),
   bytesUrl: (id: string) => `/attachment/${id}`,
 }
 

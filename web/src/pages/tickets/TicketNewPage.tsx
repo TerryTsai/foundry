@@ -34,7 +34,7 @@ export function TicketNewPage() {
         agent_id: agentId || undefined, created_by: 'founder',
       })
       for (const file of files) {
-        try { await attachmentApi.upload(ticket.id, file) }
+        try { await attachmentApi.uploadToTicket(ticket.id, file) }
         catch (err) { console.warn('attachment upload failed:', err) }
       }
       return ticket

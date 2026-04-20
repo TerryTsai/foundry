@@ -121,9 +121,11 @@ export function TicketDetailPage() {
   useEffect(() => { if (ticket) setDescription(ticket.description) }, [ticket?.description, ticket])
 
   // Optimistic comment add — drop the new comment into the cached list
-  // immediately, reconcile on settle.
-  const handleAddComment = useCallback(async (text: string) => {
-    const commentsKey = qk.ticket.comments(tid)
+  // immediately, reconcile on settle. Any attached files upload in the
+  // background; attachments query is re-fetched on settle.
+  const handleAddComment = useCallback(async (text: string, files?: File[]) => {
+    const commentsKey    = qk.ticket.comments(tid)
+    const attachmentsKey = qk.ticket.attachments(tid)
     const optimistic = {
       id: `optimistic-${Date.now()}`,
       ticket_id: tid,
@@ -135,12 +137,19 @@ export function TicketDetailPage() {
     const prev = queryClient.getQueryData<typeof comments>(commentsKey)
     queryClient.setQueryData(commentsKey, [...(prev ?? []), optimistic])
     try {
-      await commentApi.create(tid, { author: 'founder', body: text })
+      const created = await commentApi.create(tid, { author: 'founder', body: text })
+      if (files && files.length > 0) {
+        for (const file of files) {
+          try { await attachmentApi.uploadToComment(created.id, file) }
+          catch (err) { console.warn('attachment upload failed:', err) }
+        }
+      }
     } catch (err) {
       queryClient.setQueryData(commentsKey, prev ?? [])
       throw err
     } finally {
       queryClient.invalidateQueries({ queryKey: commentsKey })
+      if (files && files.length > 0) queryClient.invalidateQueries({ queryKey: attachmentsKey })
     }
   }, [tid, queryClient, comments])
 
@@ -185,7 +194,7 @@ export function TicketDetailPage() {
         { label: 'duration', value: usage.duration_ms > 0 ? fmtDuration(usage.duration_ms) : null },
         { label: 'tags',     value: !editing ? <TagSection ticketId={ticket.id} /> : null, primary: true },
       ]}
-      composer={{ placeholder: 'comment', onSubmit: handleAddComment }}
+      composer={{ placeholder: 'comment', onSubmit: handleAddComment, acceptAttachments: true }}
     >
       {editing && (
         <div className="space-y-4">

@@ -178,3 +178,109 @@ export function spawnRun(opts: RunOptions): RunHandle {
 
   return { emitter, kill: () => child.kill('SIGKILL') }
 }
+
+// ── Persistent session container ────────────────────────────────────
+//
+// Some tools (browser primitives) need state across invocations —
+// chromium's open tabs, CDP connection, form values, JS heap. Spinning
+// up a fresh container per tool call loses all of that. For those
+// tools we keep one long-lived container per session and exec into it.
+//
+// Active containers are tracked in a module-local Map so SIGTERM can
+// kill them all. Each container is named `foundry-sess-<sessionId>`.
+
+const activeSessionContainers = new Map<string, string>()
+
+export interface SessionContainerOpts {
+  sessionId:   string
+  workspace:   string
+  secretsDir:  string | null
+  image:       string
+  memoryMb:    number
+  cpus:        number
+  pidsLimit:   number
+  nofileSoft:  number
+  nofileHard:  number
+  tmpfsMb:     number
+}
+
+export async function ensureSessionContainer(opts: SessionContainerOpts): Promise<string> {
+  const existing = activeSessionContainers.get(opts.sessionId)
+  if (existing) return existing
+  return startSessionContainer(opts)
+}
+
+export function startSessionContainer(opts: SessionContainerOpts): Promise<string> {
+  const name = `foundry-sess-${opts.sessionId}`
+  const args = [
+    'run', '-d', '--rm', '--name', name,
+    '--memory', `${opts.memoryMb}m`, '--memory-swap', `${opts.memoryMb}m`,
+    '--cpus', String(opts.cpus), '--pids-limit', String(opts.pidsLimit),
+    '--ulimit', `nofile=${opts.nofileSoft}:${opts.nofileHard}`,
+    '--cap-drop', 'ALL', '--read-only',
+    '--tmpfs', `/tmp:rw,size=${opts.tmpfsMb}m`, '--tmpfs', `/run:rw,size=8m`,
+    '-v', `${opts.workspace}:/work:rw`, '-w', '/work',
+    ...(opts.secretsDir ? ['-v', `${opts.secretsDir}:/foundry-secrets:ro`] : []),
+    opts.image,
+    // Keep the container alive. Browser / other stateful tools spawn
+    // their own daemons (chromium --remote-debugging-port=…) inside.
+    'sleep', 'infinity',
+  ]
+  return new Promise((resolve, reject) => {
+    const child = spawn('podman', args)
+    let err = ''
+    child.stderr.on('data', (d: Buffer) => { err += d.toString() })
+    child.on('close', (code) => {
+      if (code === 0) {
+        activeSessionContainers.set(opts.sessionId, name)
+        resolve(name)
+      } else reject(new Error(`podman run failed (${code}): ${err.trim()}`))
+    })
+  })
+}
+
+export interface ExecInContainerResult {
+  stdout:   string
+  stderr:   string
+  exitCode: number
+}
+
+export function execInContainer(
+  containerName: string, command: string,
+  opts: { timeoutMs?: number; env?: Record<string, string> } = {},
+): Promise<ExecInContainerResult> {
+  const timeoutMs = opts.timeoutMs ?? 120_000
+  const envArgs = Object.entries(opts.env ?? {}).flatMap(([k, v]) => ['-e', `${k}=${v}`])
+  const child = spawn('podman', ['exec', '-i', ...envArgs, containerName, 'sh', '-c', command])
+  let stdout = ''
+  let stderr = ''
+  let timedOut = false
+  const timer = setTimeout(() => { timedOut = true; child.kill('SIGKILL') }, timeoutMs)
+  return new Promise(resolve => {
+    child.stdout.on('data', (d: Buffer) => { stdout += d.toString() })
+    child.stderr.on('data', (d: Buffer) => { stderr += d.toString() })
+    child.on('close', (code) => {
+      clearTimeout(timer)
+      if (timedOut) stderr += (stderr ? '\n' : '') + 'timeout'
+      resolve({ stdout, stderr, exitCode: code ?? -1 })
+    })
+  })
+}
+
+export function stopSessionContainer(sessionId: string): Promise<void> {
+  const name = activeSessionContainers.get(sessionId)
+  if (!name) return Promise.resolve()
+  activeSessionContainers.delete(sessionId)
+  return new Promise(resolve => {
+    const child = spawn('podman', ['rm', '-f', name])
+    child.on('close', () => resolve())
+    child.on('error', () => resolve())
+  })
+}
+
+export function stopAllSessionContainers(): void {
+  for (const name of activeSessionContainers.values()) {
+    try { spawn('podman', ['rm', '-f', name], { stdio: 'ignore' }) } catch {}
+  }
+  activeSessionContainers.clear()
+}

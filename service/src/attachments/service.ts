@@ -108,6 +108,15 @@ export function attachmentListByTicket(db: Db, accountId: string, ticketId: stri
   return [...direct, ...viaComments]
 }
 
+export function attachmentListByComment(db: Db, accountId: string, commentId: string): AttachmentMeta[] {
+  const c = database.commentGet(db, commentId)
+  if (!c) throw notFound()
+  ticketOwned(db, c.ticket_id, accountId)
+  return db.select(metaCols).from(schema.attachment)
+    .where(eq(schema.attachment.comment_id, commentId))
+    .all() as AttachmentMeta[]
+}
+
 // ── Read (bytes) ────────────────────────────────────────────────────
 
 export function attachmentGetBytes(

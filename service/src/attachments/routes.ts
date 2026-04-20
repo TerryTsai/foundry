@@ -3,7 +3,7 @@ import type { Request, Response } from 'express'
 import type { Db } from '../core/db.js'
 import { run, send } from '../core/http.js'
 import { accountId } from '../core/account-id.js'
-import { attachmentGetBytes, attachmentCreate, attachmentListByTicket } from './service.js'
+import { attachmentGetBytes, attachmentCreate, attachmentListByTicket, attachmentListByComment } from './service.js'
 
 export function attachmentRoutes(db: Db) {
   const r = Router()
@@ -42,12 +42,43 @@ export function ticketAttachmentRoutes(db: Db) {
       if (!Buffer.isBuffer(req.body)) {
         res.status(400).json({ error: 'expected raw body' }); return
       }
+      const createdBy = String(req.query.created_by ?? 'founder')
       const meta = attachmentCreate(db, accountId(req), {
         ticket_id: req.params.id,
         name,
         mime,
         bytes: req.body as Buffer,
-        created_by: 'founder',
+        created_by: createdBy,
+      })
+      res.status(201).json(meta)
+    } catch (err) {
+      const status = (err as { status?: number }).status ?? 500
+      res.status(status).json({ error: (err as Error).message })
+    }
+  })
+
+  return r
+}
+
+export function commentAttachmentRoutes(db: Db) {
+  const r = Router({ mergeParams: true })
+
+  r.get('/', run(req => attachmentListByComment(db, accountId(req), req.params.id)), send())
+
+  r.post('/', (req: Request, res: Response) => {
+    try {
+      const name = String(req.query.name ?? 'attachment')
+      const mime = String(req.headers['content-type'] ?? '').split(';')[0].trim()
+      if (!Buffer.isBuffer(req.body)) {
+        res.status(400).json({ error: 'expected raw body' }); return
+      }
+      const createdBy = String(req.query.created_by ?? 'founder')
+      const meta = attachmentCreate(db, accountId(req), {
+        comment_id: req.params.id,
+        name,
+        mime,
+        bytes: req.body as Buffer,
+        created_by: createdBy,
       })
       res.status(201).json(meta)
     } catch (err) {

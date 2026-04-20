@@ -59,8 +59,9 @@ const verdictReportArgs = z.object({
 })
 
 const ticketCommentArgs = z.object({
-  ticket_id: z.string().optional().describe('Ticket to comment on. Defaults to the current session\'s ticket.'),
-  body:      z.string().describe('Comment body, markdown allowed.'),
+  ticket_id:   z.string().optional().describe('Ticket to comment on. Defaults to the current session\'s ticket.'),
+  body:        z.string().describe('Comment body, markdown allowed.'),
+  attachments: z.array(z.string()).optional().describe('Optional list of workspace-relative file paths to attach (png/jpg/webp/gif/pdf, 10 MB max each).'),
 })
 
 const ticketCancelArgs = z.object({
@@ -132,6 +133,42 @@ async function apiPost(ctx: FoundryCtx, toolName: string, toolInput: unknown, pa
   try { return JSON.parse(r.stdout) } catch { return { content: r.stdout } }
 }
 
+// Upload a file from the session workspace via curl --data-binary. The
+// workspace is bind-mounted into the container at /work, so relative
+// paths in the agent's args resolve cleanly. mount:'ro' keeps the agent
+// from mutating its workspace during the upload itself.
+async function apiUploadFile(
+  ctx: FoundryCtx, toolName: string, toolInput: unknown,
+  path: string, workspacePath: string, mime: string,
+) {
+  const url = withAccount(ctx, path)
+  const command = [
+    `curl -sf -X POST`,
+    `-H "Authorization: Bearer $(cat /foundry-secrets/token)"`,
+    `-H "Content-Type: ${mime}"`,
+    `--data-binary @${esc(`/work/${workspacePath}`)}`,
+    `"http://host.containers.internal:${ctx.config.port}${url}"`,
+  ].join(' ')
+  const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace,
+    command, toolName, toolInput, {
+      network: true,
+      mount:   'ro',
+      secretFiles: { token: ctx.sandboxToken },
+      toolUseId: ctx.toolUseId,
+    })
+  if (r.exitCode !== 0) return { error: r.stderr || r.stdout || `upload failed (exit ${r.exitCode})` }
+  try { return JSON.parse(r.stdout) } catch { return { content: r.stdout } }
+}
+
+const MIME_BY_EXT: Record<string, string> = {
+  png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg',
+  webp: 'image/webp', gif: 'image/gif', pdf: 'application/pdf',
+}
+function mimeFromPath(p: string): string | null {
+  const ext = p.toLowerCase().split('.').pop() ?? ''
+  return MIME_BY_EXT[ext] ?? null
+}
+
 async function apiDelete(ctx: FoundryCtx, toolName: string, toolInput: unknown, path: string) {
   const url = withAccount(ctx, path)
   const command = `curl -sf -X DELETE -H "Authorization: Bearer $(cat /foundry-secrets/token)" "http://host.containers.internal:${ctx.config.port}${url}"`
@@ -189,7 +226,24 @@ async function handleVerdictReport(ctx: FoundryCtx, args: z.infer<typeof verdict
 async function handleTicketComment(ctx: FoundryCtx, args: z.infer<typeof ticketCommentArgs>) {
   const targetTicket = args.ticket_id ?? ctx.ticketId
   const payload = JSON.stringify({ author: ctx.agentName, body: args.body })
-  return apiPost(ctx, 'ticketComment', args, `/ticket/${targetTicket}/comment`, payload)
+  const resp = await apiPost(ctx, 'ticketComment', args, `/ticket/${targetTicket}/comment`, payload)
+  // Attach each file from the session workspace to the newly-created
+  // comment. Errors on individual files don't block the rest.
+  const paths = args.attachments ?? []
+  if (paths.length === 0) return resp
+  const commentId = (resp as { id?: string } | undefined)?.id
+  if (!commentId) return resp
+  const uploaded: Array<{ path: string; id?: string; error?: string }> = []
+  for (const p of paths) {
+    const mime = mimeFromPath(p)
+    if (!mime) { uploaded.push({ path: p, error: 'unsupported file type' }); continue }
+    const name = p.split('/').pop() ?? 'attachment'
+    const url = `/comment/${commentId}/attachment?name=${encodeURIComponent(name)}&created_by=${encodeURIComponent(ctx.agentName)}`
+    const r = await apiUploadFile(ctx, 'ticketComment', { path: p }, url, p, mime) as { id?: string; error?: string }
+    if (r.error) uploaded.push({ path: p, error: r.error })
+    else uploaded.push({ path: p, id: r.id })
+  }
+  return { ...(resp as Record<string, unknown>), attachments: uploaded }
 }
 
 async function handleTicketCancel(ctx: FoundryCtx, args: z.infer<typeof ticketCancelArgs>) {

@@ -36,6 +36,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         gzip \
         unzip \
         file \
+        # headless browser for screenshot / DOM snapshot tools
+        chromium \
+        fonts-liberation \
+        fonts-dejavu-core \
+        # PDF -> image / PDF -> text
+        poppler-utils \
+        # image resize / metadata
+        imagemagick \
     && rm -rf /var/lib/apt/lists/*
 
 # Language-family tooling that agents commonly reach for in verification /
@@ -47,7 +55,14 @@ RUN npm install -g --silent \
     prettier \
     eslint \
     tsx \
-    wrangler
+    wrangler \
+    puppeteer-core
+
+# Browser tool wrapper. Drives a long-lived headless chromium inside
+# the session container via CDP — see reconciler/session/sandbox for
+# the lifecycle.
+COPY scripts/foundry-browser.mjs /usr/local/bin/foundry-browser
+RUN chmod +x /usr/local/bin/foundry-browser
 
 # HOME=/tmp so package managers and dev tools that write to $HOME (npm,
 # pip, cargo, etc.) succeed inside the --read-only root filesystem. /tmp

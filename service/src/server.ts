@@ -20,9 +20,10 @@ import { agentRoutes }      from './agents/routes.js'
 import { sessionRoutes }    from './sessions/routes.js'
 import { executionRoutes }  from './executions/routes.js'
 import { analyticsRoutes }  from './analytics/routes.js'
-import { attachmentRoutes, ticketAttachmentRoutes } from './attachments/routes.js'
+import { attachmentRoutes, ticketAttachmentRoutes, commentAttachmentRoutes } from './attachments/routes.js'
 
 import { reconcilerGlobalStart, reconcilerStopAll, shutdownDrain } from './reconciler/reconciler.js'
+import { stopAllSessionContainers } from './reconciler/session/sandbox/podman.js'
 
 // Fail fast if FOUNDRY_ENCRYPTION_KEY is missing or malformed — better here
 // than on the first connection write.
@@ -92,7 +93,8 @@ app.use('/attachment', attachmentRoutes(db))
 
 // Raw-body parser, scoped to attachment upload. JSON parser stays default
 // everywhere else; this one kicks in only when we actually want bytes.
-app.use('/ticket/:id/attachment', express.raw({ type: '*/*', limit: '15mb' }), ticketAttachmentRoutes(db))
+app.use('/ticket/:id/attachment',  express.raw({ type: '*/*', limit: '15mb' }), ticketAttachmentRoutes(db))
+app.use('/comment/:id/attachment', express.raw({ type: '*/*', limit: '15mb' }), commentAttachmentRoutes(db))
 
 app.use(errors)
 
@@ -107,6 +109,7 @@ process.on('SIGTERM', () => {
   console.log('SIGTERM received, draining…')
   reconcilerStopAll()
   shutdownDrain(db)
+  stopAllSessionContainers()
   try { execSync('podman kill --all', { timeout: 5000, stdio: 'ignore' }) } catch {}
   console.log('drain complete, exiting')
   process.exit(0)

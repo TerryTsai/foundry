@@ -192,3 +192,58 @@ export function runCommand(
     })
   })
 }
+
+// Run a command inside this session's persistent container, creating
+// the container lazily on first use. Used by stateful tools (browser
+// primitives) that need to share state — open tabs, cookies, running
+// processes — across multiple tool calls. The execution row pattern
+// mirrors runCommand so the UI feed and timings look identical.
+//
+// No per-exec cgroup stats yet (the container's cgroup is shared across
+// all execs). duration + exit + stdout/stderr cover the common
+// observability needs.
+import { now } from '../core/util.js'
+import * as database from '../core/db.js'
+import { ensureSessionContainer, execInContainer } from '../reconciler/session/sandbox/podman.js'
+
+export async function runInSessionContainer(
+  db: Db, config: Config, sessionId: string, workspace: string,
+  command: string, toolName: string, toolInput: unknown,
+  options: { toolUseId?: string; timeoutMs?: number; env?: Record<string, string> } = {},
+): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+  const name = await ensureSessionContainer({
+    sessionId, workspace, secretsDir: null,
+    image: config.sandboxImage,
+    memoryMb: config.sandboxMemoryMb,
+    cpus: config.sandboxCpus,
+    pidsLimit: config.sandboxPidsLimit,
+    nofileSoft: config.sandboxNofileSoft,
+    nofileHard: config.sandboxNofileHard,
+    tmpfsMb: config.sandboxTmpfsMb,
+  })
+  const row = database.executionInsert(db, {
+    session_id:  sessionId,
+    tool_name:   toolName,
+    tool_input:  JSON.stringify(toolInput),
+    tool_use_id: options.toolUseId ?? null,
+    command,
+    status:      'running',
+    timeout_ms:  options.timeoutMs ?? config.sandboxTimeout,
+    memory_mb:   null,
+    started_at:  now(),
+  })
+  const started = Date.now()
+  const res = await execInContainer(name, command, {
+    timeoutMs: options.timeoutMs ?? config.sandboxTimeout,
+    env: options.env,
+  })
+  database.executionUpdate(db, row.id, {
+    status:      res.exitCode === 0 ? 'finished' : 'failed',
+    exit_code:   res.exitCode,
+    stdout:      res.stdout,
+    stderr:      res.stderr,
+    duration_ms: Date.now() - started,
+    ended_at:    now(),
+  })
+  return res
+}
