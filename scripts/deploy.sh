@@ -40,9 +40,12 @@ cd "$REPO_DIR/web"
 npm install --prefer-offline --no-audit --no-fund --silent
 npm run build
 
-# Rebuild sandbox image if Dockerfile changed since last deploy
+# Rebuild sandbox image if anything it depends on changed since last
+# deploy: the Dockerfile itself OR any file under service/scripts/
+# (which the Dockerfile COPYs into the image).
 cd "$REPO_DIR"
-if [ -n "$DEPLOYED_SHA" ] && git diff --name-only "$DEPLOYED_SHA" "$HEAD_SHA" | grep -q "Dockerfile.sandbox"; then
+if [ -n "$DEPLOYED_SHA" ] && git diff --name-only "$DEPLOYED_SHA" "$HEAD_SHA" \
+     | grep -qE '^(service/Dockerfile\.sandbox|service/scripts/)'; then
   echo "$LOG_PREFIX rebuilding sandbox image..."
   cd "$REPO_DIR/service"
   podman build -f Dockerfile.sandbox -t foundry-sandbox . --quiet
