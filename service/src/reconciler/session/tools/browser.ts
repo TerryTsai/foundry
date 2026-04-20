@@ -1,12 +1,17 @@
 // Browser server: web access. HTTP requests, page text extraction, and
 // interactive browser primitives (screenshot, click, fill, dom).
 //
-// Everything execs into this session's persistent podman container
-// (see reconciler/session/sandbox/podman.ts). The browser primitives
-// (goto/screenshot/click/fill/text/dom/back) share state across calls
-// — open tabs, cookies, DOM, form input — because chromium runs as a
-// long-lived process inside that container. `fetch`/`scrape` are
-// stateless one-shots but use the same container for consistency.
+// Every tool execs into this session's persistent podman container
+// (reconciler/session/sandbox/podman.ts). The browser primitives share
+// state across calls — open tabs, cookies, DOM, form input — because
+// chromium keeps running inside the container between tool calls.
+// fetch/scrape are stateless curl/lynx one-shots in the same container.
+//
+// The browser primitives work by writing a small node script to
+// /tmp/foundry-browser.js and invoking it. Each invocation connects to
+// a long-lived headless chromium over CDP, does one operation,
+// disconnects. Chromium is launched lazily on first use by a shell
+// prefix that starts it if port 9222 isn't already open.
 
 import { z } from 'zod'
 
@@ -58,30 +63,70 @@ async function handleScrape(ctx: BrowserCtx, args: z.infer<typeof validate.toolS
   }
 }
 
-// ── Browser primitives (stateful: share chromium across calls) ─────
+// ── Browser primitives ─────────────────────────────────────────────
 
-// All browser primitives funnel through this helper: they exec
-// `foundry-browser <cmd> <args-json>` inside the session's persistent
-// container (chromium is launched lazily on the first call by the
-// wrapper), then parse the JSON result.
-async function browserExec(
-  ctx: BrowserCtx, toolName: string, cmd: string, args: Record<string, unknown>,
-): Promise<Record<string, unknown> | { error: string }> {
-  const json = JSON.stringify(args).replace(/'/g, "'\\''")
-  const command = `foundry-browser ${cmd} '${json}'`
-  const r = await runCommand(
-    ctx.db, ctx.config, ctx.sessionId, ctx.workspace,
-    command, toolName, args, { toolUseId: ctx.toolUseId, timeoutMs: 60_000 },
-  )
-  if (r.exitCode !== 0) {
-    return { error: r.stderr.trim() || r.stdout.trim() || `browser ${cmd} failed (exit ${r.exitCode})` }
-  }
-  try { return JSON.parse(r.stdout) as Record<string, unknown> }
-  catch { return { error: `browser ${cmd} returned invalid JSON` } }
+// Shell prefix: if chromium's CDP port isn't open yet, launch chromium
+// in the background and wait for it. No-op on subsequent calls in the
+// same session container.
+const BOOT = [
+  'if ! (echo > /dev/tcp/127.0.0.1/9222) 2>/dev/null; then',
+  '  chromium --headless=new --remote-debugging-port=9222 --remote-debugging-address=127.0.0.1 \\',
+  '    --no-sandbox --disable-gpu --disable-dev-shm-usage \\',
+  '    --user-data-dir=/tmp/foundry-chromium >/dev/null 2>&1 &',
+  '  for i in $(seq 1 150); do',
+  '    (echo > /dev/tcp/127.0.0.1/9222) 2>/dev/null && break',
+  '    sleep 0.1',
+  '  done',
+  'fi',
+].join('\n')
+
+// Build a shell command that writes a Node CDP script to /tmp and runs
+// it. `body` is a JS expression/statement list with `browser`, `ctx`,
+// and `page` in scope; its return value (if any) is JSON-serialized to
+// stdout. Developer-authored — args are JSON.stringify'd into literals,
+// so no injection concern.
+function browserScript(body: string): string {
+  const script = [
+    "const { chromium } = require('playwright-core')",
+    "async function main() {",
+    "  const browser = await chromium.connectOverCDP('http://127.0.0.1:9222')",
+    "  try {",
+    "    const ctx = browser.contexts()[0] ?? await browser.newContext()",
+    "    const page = ctx.pages()[0] ?? await ctx.newPage()",
+    "    const result = await (async () => {",
+    `      ${body}`,
+    "    })()",
+    "    if (result !== undefined) process.stdout.write(JSON.stringify(result))",
+    "  } finally { await browser.close() }",
+    "}",
+    "main().catch(e => { process.stderr.write(e?.message ?? String(e)); process.exit(1) })",
+  ].join('\n')
+  return [
+    BOOT,
+    "cat > /tmp/foundry-browser.js <<'__FOUNDRY_EOF__'",
+    script,
+    '__FOUNDRY_EOF__',
+    'node /tmp/foundry-browser.js',
+  ].join('\n')
 }
 
-// Takes a result from browserExec and turns a png_base64 field into an
-// inline image content block the LLM can actually see.
+async function runBrowser(
+  ctx: BrowserCtx, toolName: string, args: Record<string, unknown>, body: string,
+): Promise<Record<string, unknown> | { error: string }> {
+  const r = await runCommand(
+    ctx.db, ctx.config, ctx.sessionId, ctx.workspace,
+    browserScript(body), toolName, args,
+    { toolUseId: ctx.toolUseId, timeoutMs: 60_000 },
+  )
+  if (r.exitCode !== 0) {
+    return { error: r.stderr.trim() || r.stdout.trim() || `${toolName} failed (exit ${r.exitCode})` }
+  }
+  try { return JSON.parse(r.stdout) as Record<string, unknown> }
+  catch { return { error: `${toolName} returned invalid JSON` } }
+}
+
+// Takes a result with a png_base64 field and turns it into an inline
+// image content block the LLM can actually see.
 function withInlineScreenshot(
   res: Record<string, unknown> | { error: string },
 ): Record<string, unknown> | { content: Array<Record<string, unknown>> } {
@@ -98,19 +143,30 @@ function withInlineScreenshot(
   }
 }
 
+// ── Handlers ──
+
 const gotoArgs = z.object({
   url:        z.string().describe('URL to navigate to. Full absolute URL.'),
   timeout_ms: z.number().int().min(1000).max(60_000).optional().describe('Page-load timeout. Default 30000.'),
 })
 async function handleGoto(ctx: BrowserCtx, args: z.infer<typeof gotoArgs>) {
-  return browserExec(ctx, 'browserGoto', 'goto', args)
+  return runBrowser(ctx, 'browserGoto', args, `
+    await page.goto(${JSON.stringify(args.url)}, {
+      waitUntil: 'networkidle',
+      timeout: ${args.timeout_ms ?? 30_000},
+    })
+    return { url: page.url(), title: await page.title() }
+  `)
 }
 
 const screenshotArgs = z.object({
   full_page: z.boolean().optional().describe('Capture the full scrolled page instead of just the viewport.'),
 })
 async function handleScreenshot(ctx: BrowserCtx, args: z.infer<typeof screenshotArgs>) {
-  return withInlineScreenshot(await browserExec(ctx, 'browserScreenshot', 'screenshot', args))
+  return withInlineScreenshot(await runBrowser(ctx, 'browserScreenshot', args, `
+    const buf = await page.screenshot({ fullPage: ${args.full_page ? 'true' : 'false'}, type: 'png' })
+    return { png_base64: buf.toString('base64'), url: page.url(), title: await page.title() }
+  `))
 }
 
 const clickArgs = z.object({
@@ -119,7 +175,16 @@ const clickArgs = z.object({
   timeout_ms:      z.number().int().min(500).max(30_000).optional(),
 })
 async function handleClick(ctx: BrowserCtx, args: z.infer<typeof clickArgs>) {
-  return browserExec(ctx, 'browserClick', 'click', args)
+  return runBrowser(ctx, 'browserClick', args, args.wait_navigation ? `
+    await Promise.all([
+      page.waitForNavigation({ waitUntil: 'networkidle', timeout: 15000 }).catch(() => {}),
+      page.click(${JSON.stringify(args.selector)}, { timeout: ${args.timeout_ms ?? 10_000} }),
+    ])
+    return { url: page.url(), title: await page.title() }
+  ` : `
+    await page.click(${JSON.stringify(args.selector)}, { timeout: ${args.timeout_ms ?? 10_000} })
+    return { url: page.url(), title: await page.title() }
+  `)
 }
 
 const fillArgs = z.object({
@@ -129,7 +194,12 @@ const fillArgs = z.object({
   timeout_ms: z.number().int().min(500).max(30_000).optional(),
 })
 async function handleFill(ctx: BrowserCtx, args: z.infer<typeof fillArgs>) {
-  return browserExec(ctx, 'browserFill', 'fill', args)
+  return runBrowser(ctx, 'browserFill', args, `
+    await page.fill(${JSON.stringify(args.selector)}, ${JSON.stringify(args.value)}, {
+      timeout: ${args.timeout_ms ?? 10_000},
+    })
+    return { url: page.url() }
+  `)
 }
 
 const textArgs = z.object({
@@ -137,17 +207,41 @@ const textArgs = z.object({
   timeout_ms: z.number().int().min(500).max(30_000).optional(),
 })
 async function handleText(ctx: BrowserCtx, args: z.infer<typeof textArgs>) {
-  return browserExec(ctx, 'browserText', 'text', args)
+  return runBrowser(ctx, 'browserText', args, args.selector ? `
+    const text = await page.innerText(${JSON.stringify(args.selector)}, { timeout: ${args.timeout_ms ?? 10_000} })
+    return { text, url: page.url() }
+  ` : `
+    const text = await page.evaluate(() => document.body?.innerText ?? '')
+    return { text, url: page.url() }
+  `)
 }
 
 const domArgs = z.object({})
 async function handleDom(ctx: BrowserCtx, args: z.infer<typeof domArgs>) {
-  return browserExec(ctx, 'browserDom', 'dom', args)
+  return runBrowser(ctx, 'browserDom', args, `
+    const elements = await page.evaluate(() => {
+      const pick = (el) => ({
+        tag:  el.tagName.toLowerCase(),
+        id:   el.id || undefined,
+        name: el.getAttribute('name') || undefined,
+        type: el.getAttribute('type') || undefined,
+        text: (el.innerText || '').trim().slice(0, 120) || undefined,
+        role: el.getAttribute('role') || undefined,
+        aria: el.getAttribute('aria-label') || undefined,
+      })
+      const els = Array.from(document.querySelectorAll('a,button,input,select,textarea,[role=button],[role=link]'))
+      return els.slice(0, 200).map(pick)
+    })
+    return { elements, url: page.url(), title: await page.title() }
+  `)
 }
 
 const backArgs = z.object({})
 async function handleBack(ctx: BrowserCtx, args: z.infer<typeof backArgs>) {
-  return browserExec(ctx, 'browserBack', 'back', args)
+  return runBrowser(ctx, 'browserBack', args, `
+    await page.goBack({ waitUntil: 'networkidle', timeout: 15000 }).catch(() => {})
+    return { url: page.url(), title: await page.title() }
+  `)
 }
 
 // ── Tools ──
@@ -160,13 +254,13 @@ export const info: McpServerInfo = {
 }
 
 export const tools: ToolDef[] = [
-  { name: 'fetch',      description: 'Make an HTTP request and return the response. Large responses are written to a file; use the read tool to paginate.',                                                                                    schema: validate.toolFetch, handler: handleFetch },
-  { name: 'scrape',     description: 'Extract clean readable text from a web page. Large output is written to a file you can read with offset/limit.',                                                                                        schema: validate.toolScrape, handler: handleScrape },
-  { name: 'browserGoto',       description: 'Navigate the session\'s browser to a URL. Cookies, localStorage, and open tabs persist across calls — use this to start a flow or follow a manual redirect.',                                     schema: gotoArgs,       handler: handleGoto },
-  { name: 'browserScreenshot', description: 'Take a PNG screenshot of the current page in the session\'s browser. Returns the image inline. Use full_page=true to capture the whole scrolled page, not just the viewport.',                   schema: screenshotArgs, handler: handleScreenshot },
-  { name: 'browserClick',      description: 'Click an element by CSS selector. Set wait_navigation=true when clicking something that navigates (a link or a submit button).',                                                                  schema: clickArgs,      handler: handleClick },
-  { name: 'browserFill',       description: 'Type into an input or textarea by CSS selector. Clears the existing value first.',                                                                                                                schema: fillArgs,       handler: handleFill },
-  { name: 'browserText',       description: 'Extract visible text from the current page. Pass a selector to narrow to a subtree. Cheap way to check state after clicking/filling.',                                                            schema: textArgs,       handler: handleText },
-  { name: 'browserDom',        description: 'Return a compact list of interactive elements (links, buttons, inputs) on the current page with their selectors, roles, and text. Use this to discover what to click or fill without eyeballing a screenshot.', schema: domArgs,        handler: handleDom },
-  { name: 'browserBack',       description: 'Navigate the browser back one step in history.',                                                                                                                                                   schema: backArgs,       handler: handleBack },
+  { name: 'fetch',             description: 'Make an HTTP request and return the response. Large responses are written to a file; use the read tool to paginate.',                                                                                schema: validate.toolFetch,  handler: handleFetch },
+  { name: 'scrape',            description: 'Extract clean readable text from a web page. Large output is written to a file you can read with offset/limit.',                                                                                      schema: validate.toolScrape, handler: handleScrape },
+  { name: 'browserGoto',       description: 'Navigate the session\'s browser to a URL. Cookies, localStorage, and open tabs persist across calls — use this to start a flow or follow a manual redirect.',                                         schema: gotoArgs,            handler: handleGoto },
+  { name: 'browserScreenshot', description: 'Take a PNG screenshot of the current page in the session\'s browser. Returns the image inline. Use full_page=true to capture the whole scrolled page, not just the viewport.',                       schema: screenshotArgs,      handler: handleScreenshot },
+  { name: 'browserClick',      description: 'Click an element by CSS selector. Set wait_navigation=true when clicking something that navigates (a link or a submit button).',                                                                      schema: clickArgs,           handler: handleClick },
+  { name: 'browserFill',       description: 'Type into an input or textarea by CSS selector. Clears the existing value first.',                                                                                                                    schema: fillArgs,            handler: handleFill },
+  { name: 'browserText',       description: 'Extract visible text from the current page. Pass a selector to narrow to a subtree. Cheap way to check state after clicking/filling.',                                                                schema: textArgs,            handler: handleText },
+  { name: 'browserDom',        description: 'Return a compact list of interactive elements (links, buttons, inputs) on the current page with their selectors, roles, and text. Use this to discover what to click or fill without eyeballing a screenshot.', schema: domArgs,      handler: handleDom },
+  { name: 'browserBack',       description: 'Navigate the browser back one step in history.',                                                                                                                                                      schema: backArgs,            handler: handleBack },
 ]

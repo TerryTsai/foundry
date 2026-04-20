@@ -58,12 +58,6 @@ RUN PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install -g --silent \
     wrangler \
     playwright-core
 
-# Browser tool wrapper. Drives a long-lived headless chromium inside
-# the session container via CDP — see reconciler/session/sandbox for
-# the lifecycle.
-COPY scripts/foundry-browser.mjs /usr/local/bin/foundry-browser
-RUN chmod +x /usr/local/bin/foundry-browser
-
 # HOME=/tmp so package managers and dev tools that write to $HOME (npm,
 # pip, cargo, etc.) succeed inside the --read-only root filesystem. /tmp
 # is tmpfs in the sandbox so it's writable and ephemeral. Without this,
@@ -72,9 +66,9 @@ RUN chmod +x /usr/local/bin/foundry-browser
 # RCA-001.
 ENV HOME=/tmp
 
-# Node ESM doesn't find globally-installed packages by default. Point
-# NODE_PATH at the npm global prefix so /usr/local/bin/foundry-browser
-# can `import 'puppeteer-core'`.
+# Browser tools write small node scripts to /tmp and invoke them; set
+# NODE_PATH so `require('playwright-core')` finds the globally-installed
+# package without a local node_modules tree.
 ENV NODE_PATH=/usr/local/lib/node_modules
 
 WORKDIR /work
