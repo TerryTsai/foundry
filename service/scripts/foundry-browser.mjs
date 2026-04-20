@@ -5,21 +5,18 @@
 //
 // Manages a long-lived headless chromium inside the container. On first
 // invocation we spawn chromium with --remote-debugging-port and detach;
-// on later invocations we just connect to it over CDP. Session state
-// (open tabs, URL, cookies, DOM, JS heap) persists across calls so the
-// agent can drive a real interactive flow.
+// on later invocations we connect via CDP. Session state (open tabs,
+// URL, cookies, DOM, JS heap) persists across calls so the agent can
+// drive a real interactive flow: goto → screenshot → click → fill →
+// screenshot.
 //
-// Implementation note: uses createRequire() for puppeteer-core because
-// puppeteer-core ships CommonJS without an "exports" field; Node's ESM
-// resolver can't pick an entry for it. createRequire gives us CJS-style
-// resolution that finds the globally-installed package.
+// Uses playwright-core over the already-installed Debian chromium
+// (PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 at image build time — no 200 MB
+// of bundled browsers).
 
-import { createRequire } from 'module'
+import { chromium } from 'playwright-core'
 import { spawn } from 'child_process'
 import { existsSync } from 'fs'
-
-const require = createRequire(import.meta.url)
-const puppeteer = require('puppeteer-core')
 
 const PROFILE    = '/tmp/foundry-chrome'
 const DEBUG_PORT = 9222
@@ -56,10 +53,11 @@ async function ensureChromium() {
   throw new Error('chromium did not come up on debug port')
 }
 
-async function page(browser) {
-  const pages = await browser.pages()
+async function getPage(browser) {
+  const ctx = browser.contexts()[0] ?? await browser.newContext()
+  const pages = ctx.pages()
   if (pages.length > 0) return pages[0]
-  return browser.newPage()
+  return ctx.newPage()
 }
 
 function bytesBase64(buf) {
@@ -68,12 +66,12 @@ function bytesBase64(buf) {
 
 async function run(cmd, args) {
   await ensureChromium()
-  const browser = await puppeteer.connect({ browserURL: `http://127.0.0.1:${DEBUG_PORT}` })
+  const browser = await chromium.connectOverCDP(`http://127.0.0.1:${DEBUG_PORT}`)
   try {
-    const p = await page(browser)
+    const p = await getPage(browser)
     switch (cmd) {
       case 'goto': {
-        await p.goto(args.url, { waitUntil: 'networkidle2', timeout: args.timeout_ms ?? 30_000 })
+        await p.goto(args.url, { waitUntil: 'networkidle', timeout: args.timeout_ms ?? 30_000 })
         return { url: p.url(), title: await p.title() }
       }
       case 'screenshot': {
@@ -81,30 +79,31 @@ async function run(cmd, args) {
         return { png_base64: bytesBase64(buf), url: p.url(), title: await p.title() }
       }
       case 'click': {
-        await p.waitForSelector(args.selector, { timeout: args.timeout_ms ?? 10_000 })
-        await Promise.all([
-          p.click(args.selector),
-          args.wait_navigation ? p.waitForNavigation({ waitUntil: 'networkidle2', timeout: 15_000 }).catch(() => {}) : Promise.resolve(),
-        ])
+        if (args.wait_navigation) {
+          await Promise.all([
+            p.waitForNavigation({ waitUntil: 'networkidle', timeout: 15_000 }).catch(() => {}),
+            p.click(args.selector, { timeout: args.timeout_ms ?? 10_000 }),
+          ])
+        } else {
+          await p.click(args.selector, { timeout: args.timeout_ms ?? 10_000 })
+        }
         return { url: p.url(), title: await p.title() }
       }
       case 'fill': {
-        await p.waitForSelector(args.selector, { timeout: args.timeout_ms ?? 10_000 })
-        await p.$eval(args.selector, el => { el.value = '' })
-        await p.focus(args.selector)
-        await p.keyboard.type(args.value, { delay: args.delay_ms ?? 20 })
+        await p.fill(args.selector, args.value, { timeout: args.timeout_ms ?? 10_000 })
         return { url: p.url() }
       }
       case 'text': {
         if (args.selector) {
-          await p.waitForSelector(args.selector, { timeout: args.timeout_ms ?? 10_000 })
-          const txt = await p.$eval(args.selector, el => el.innerText)
+          const txt = await p.innerText(args.selector, { timeout: args.timeout_ms ?? 10_000 })
           return { text: txt, url: p.url() }
         }
         const txt = await p.evaluate(() => document.body?.innerText ?? '')
         return { text: txt, url: p.url() }
       }
       case 'dom': {
+        // Compact selectors-and-text map so the agent can decide what
+        // to click/fill next without eating tokens on full HTML.
         const data = await p.evaluate(() => {
           const pick = (el) => ({
             tag:   el.tagName.toLowerCase(),
@@ -121,14 +120,14 @@ async function run(cmd, args) {
         return { elements: data, url: p.url(), title: await p.title() }
       }
       case 'back': {
-        await p.goBack({ waitUntil: 'networkidle2', timeout: 15_000 }).catch(() => {})
+        await p.goBack({ waitUntil: 'networkidle', timeout: 15_000 }).catch(() => {})
         return { url: p.url(), title: await p.title() }
       }
       default:
         throw new Error(`unknown command: ${cmd}`)
     }
   } finally {
-    await browser.disconnect()
+    await browser.close()
   }
 }
 

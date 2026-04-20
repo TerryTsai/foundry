@@ -50,13 +50,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # formatting steps. Installed globally so tsc, prettier, eslint, and tsx
 # are on PATH without needing a project's local node_modules. Saves the
 # `npx tsc --noEmit` install-storm pattern from RCA-001.
-RUN npm install -g --silent \
+RUN PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install -g --silent \
     typescript \
     prettier \
     eslint \
     tsx \
     wrangler \
-    puppeteer-core
+    playwright-core
 
 # Browser tool wrapper. Drives a long-lived headless chromium inside
 # the session container via CDP — see reconciler/session/sandbox for
