@@ -14,6 +14,7 @@
 // prefix that starts it if port 9222 isn't already open.
 
 import { z } from 'zod'
+import { ulid } from 'ulid'
 
 import type { Db } from '../../../core/db.js'
 import type { Config } from '../../../core/config.js'
@@ -125,24 +126,6 @@ async function runBrowser(
   catch { return { error: `${toolName} returned invalid JSON` } }
 }
 
-// Takes a result with a png_base64 field and turns it into an inline
-// image content block the LLM can actually see.
-function withInlineScreenshot(
-  res: Record<string, unknown> | { error: string },
-): Record<string, unknown> | { content: Array<Record<string, unknown>> } {
-  if ('error' in res) return res
-  const png = res.png_base64
-  if (typeof png !== 'string') return res
-  const meta: Record<string, unknown> = { ...res }
-  delete meta.png_base64
-  return {
-    content: [
-      { type: 'image', data: png, mimeType: 'image/png' },
-      { type: 'text',  text: JSON.stringify(meta) },
-    ],
-  }
-}
-
 // ── Handlers ──
 
 const gotoArgs = z.object({
@@ -163,10 +146,18 @@ const screenshotArgs = z.object({
   full_page: z.boolean().optional().describe('Capture the full scrolled page instead of just the viewport.'),
 })
 async function handleScreenshot(ctx: BrowserCtx, args: z.infer<typeof screenshotArgs>) {
-  return withInlineScreenshot(await runBrowser(ctx, 'browserScreenshot', args, `
-    const buf = await page.screenshot({ fullPage: ${args.full_page ? 'true' : 'false'}, type: 'png' })
-    return { png_base64: buf.toString('base64'), url: page.url(), title: await page.title() }
-  `))
+  // Write to a workspace file and return the path. Agents attach the
+  // file to ticket comments via ticketComment's `attachments` arg —
+  // same file-based pattern as every other artifact the agent produces.
+  const path = `.foundry/screenshots/${ulid()}.png`
+  return runBrowser(ctx, 'browserScreenshot', args, `
+    const fs = require('fs')
+    const pathlib = require('path')
+    const outPath = '/work/' + ${JSON.stringify(path)}
+    fs.mkdirSync(pathlib.dirname(outPath), { recursive: true })
+    await page.screenshot({ path: outPath, fullPage: ${args.full_page ? 'true' : 'false'}, type: 'png' })
+    return { path: ${JSON.stringify(path)}, url: page.url(), title: await page.title() }
+  `)
 }
 
 const clickArgs = z.object({
@@ -257,7 +248,7 @@ export const tools: ToolDef[] = [
   { name: 'fetch',             description: 'Make an HTTP request and return the response. Large responses are written to a file; use the read tool to paginate.',                                                                                schema: validate.toolFetch,  handler: handleFetch },
   { name: 'scrape',            description: 'Extract clean readable text from a web page. Large output is written to a file you can read with offset/limit.',                                                                                      schema: validate.toolScrape, handler: handleScrape },
   { name: 'browserGoto',       description: 'Navigate the session\'s browser to a URL. Cookies, localStorage, and open tabs persist across calls — use this to start a flow or follow a manual redirect.',                                         schema: gotoArgs,            handler: handleGoto },
-  { name: 'browserScreenshot', description: 'Take a PNG screenshot of the current page in the session\'s browser. Returns the image inline. Use full_page=true to capture the whole scrolled page, not just the viewport.',                       schema: screenshotArgs,      handler: handleScreenshot },
+  { name: 'browserScreenshot', description: 'Take a PNG screenshot of the current page. Writes it to a workspace file under .foundry/screenshots/ and returns the path. Attach the path to a ticketComment to surface it for review. Use full_page=true for the whole scrolled page.', schema: screenshotArgs, handler: handleScreenshot },
   { name: 'browserClick',      description: 'Click an element by CSS selector. Set wait_navigation=true when clicking something that navigates (a link or a submit button).',                                                                      schema: clickArgs,           handler: handleClick },
   { name: 'browserFill',       description: 'Type into an input or textarea by CSS selector. Clears the existing value first.',                                                                                                                    schema: fillArgs,            handler: handleFill },
   { name: 'browserText',       description: 'Extract visible text from the current page. Pass a selector to narrow to a subtree. Cheap way to check state after clicking/filling.',                                                                schema: textArgs,            handler: handleText },
