@@ -1,17 +1,14 @@
 // Browser server: web access. HTTP requests, page text extraction, and
-// interactive browser primitives (screenshot, click, fill, dom).
+// interactive browser primitives driven by chromium over CDP.
 //
-// Every tool execs into this session's persistent podman container
-// (reconciler/session/sandbox/podman.ts). The browser primitives share
-// state across calls — open tabs, cookies, DOM, form input — because
-// chromium keeps running inside the container between tool calls.
-// fetch/scrape are stateless curl/lynx one-shots in the same container.
+// Everything runs inside the session's persistent podman container
+// (reconciler/session/sandbox/podman.ts). The browser primitives drive
+// a long-lived headless chromium — launched lazily on the first call,
+// kept alive for the session so tabs, cookies, and DOM carry across.
 //
-// The browser primitives work by writing a small node script to
-// /tmp/foundry-browser.js and invoking it. Each invocation connects to
-// a long-lived headless chromium over CDP, does one operation,
-// disconnects. Chromium is launched lazily on first use by a shell
-// prefix that starts it if port 9222 isn't already open.
+// CDP is spoken directly in shell: `curl` to discover the target's
+// WebSocket URL, `jq` to build JSON-RPC messages, `websocat` to send
+// them, `jq`/`base64` to post-process responses. No client library.
 
 import { z } from 'zod'
 import { ulid } from 'ulid'
@@ -66,64 +63,50 @@ async function handleScrape(ctx: BrowserCtx, args: z.infer<typeof validate.toolS
 
 // ── Browser primitives ─────────────────────────────────────────────
 
-// Shell prefix: if chromium's CDP port isn't open yet, launch chromium
-// in the background and wait for it. No-op on subsequent calls in the
-// same session container.
+// Shell prefix used by every browser primitive:
+//   1. Launch chromium if it's not already up (lazy, once per session).
+//   2. Poll /json for a page target and capture its WebSocket URL.
+//      A single loop handles both "chromium still booting" and "CDP
+//      is up but page target hasn't registered yet."
 const BOOT = [
-  'if ! (echo > /dev/tcp/127.0.0.1/9222) 2>/dev/null; then',
+  'set -e',
+  'if ! curl -sf http://127.0.0.1:9222/json/version >/dev/null 2>&1; then',
   '  chromium --headless=new --remote-debugging-port=9222 --remote-debugging-address=127.0.0.1 \\',
   '    --no-sandbox --disable-gpu --disable-dev-shm-usage \\',
   '    --user-data-dir=/tmp/foundry-chromium >/dev/null 2>&1 &',
-  '  for i in $(seq 1 150); do',
-  '    (echo > /dev/tcp/127.0.0.1/9222) 2>/dev/null && break',
-  '    sleep 0.1',
-  '  done',
   'fi',
+  'WS=""',
+  'for i in $(seq 1 200); do',
+  `  WS=$(curl -sf http://127.0.0.1:9222/json 2>/dev/null | jq -r '[.[] | select(.type == "page")][0].webSocketDebuggerUrl // empty')`,
+  '  [ -n "$WS" ] && break',
+  '  sleep 0.1',
+  'done',
+  '[ -n "$WS" ] || { echo "chromium CDP page target never appeared" >&2; exit 1; }',
 ].join('\n')
 
-// Build a shell command that writes a Node CDP script to /tmp and runs
-// it. `body` is a JS expression/statement list with `browser`, `ctx`,
-// and `page` in scope; its return value (if any) is JSON-serialized to
-// stdout. Developer-authored — args are JSON.stringify'd into literals,
-// so no injection concern.
-function browserScript(body: string): string {
-  const script = [
-    "const { chromium } = require('playwright-core')",
-    "async function main() {",
-    "  const browser = await chromium.connectOverCDP('http://127.0.0.1:9222')",
-    "  try {",
-    "    const ctx = browser.contexts()[0] ?? await browser.newContext()",
-    "    const page = ctx.pages()[0] ?? await ctx.newPage()",
-    "    const result = await (async () => {",
-    `      ${body}`,
-    "    })()",
-    "    if (result !== undefined) process.stdout.write(JSON.stringify(result))",
-    "  } finally { await browser.close() }",
-    "}",
-    "main().catch(e => { process.stderr.write(e?.message ?? String(e)); process.exit(1) })",
-  ].join('\n')
-  return [
-    BOOT,
-    "cat > /tmp/foundry-browser.js <<'__FOUNDRY_EOF__'",
-    script,
-    '__FOUNDRY_EOF__',
-    'node /tmp/foundry-browser.js',
-  ].join('\n')
-}
+// Return a shell snippet that evaluates a JS expression in the active
+// page and prints the returnByValue payload (parsed) to stdout.
+// The expression is passed via $EXPR so jq --arg can encode it safely.
+const EVAL_EXPR = [
+  `jq -cn --arg e "$EXPR" '{id:1, method:"Runtime.evaluate", params:{expression:$e, returnByValue:true, awaitPromise:true}}' \\`,
+  `  | websocat -t -1 "$WS" \\`,
+  `  | jq -r '.result.result.value // (.result.exceptionDetails.text // "CDP error" | halt_error)'`,
+].join('\n')
 
 async function runBrowser(
   ctx: BrowserCtx, toolName: string, args: Record<string, unknown>, body: string,
 ): Promise<Record<string, unknown> | { error: string }> {
+  const command = [BOOT, body].join('\n')
   const r = await runCommand(
     ctx.db, ctx.config, ctx.sessionId, ctx.workspace,
-    browserScript(body), toolName, args,
+    command, toolName, args,
     { toolUseId: ctx.toolUseId, timeoutMs: 60_000 },
   )
   if (r.exitCode !== 0) {
     return { error: r.stderr.trim() || r.stdout.trim() || `${toolName} failed (exit ${r.exitCode})` }
   }
-  try { return JSON.parse(r.stdout) as Record<string, unknown> }
-  catch { return { error: `${toolName} returned invalid JSON` } }
+  try { return JSON.parse(r.stdout.trim()) as Record<string, unknown> }
+  catch { return { error: `${toolName} returned invalid JSON: ${r.stdout.slice(0, 200)}` } }
 }
 
 // ── Handlers ──
@@ -133,31 +116,48 @@ const gotoArgs = z.object({
   timeout_ms: z.number().int().min(1000).max(60_000).optional().describe('Page-load timeout. Default 30000.'),
 })
 async function handleGoto(ctx: BrowserCtx, args: z.infer<typeof gotoArgs>) {
-  return runBrowser(ctx, 'browserGoto', args, `
-    await page.goto(${JSON.stringify(args.url)}, {
-      waitUntil: 'networkidle',
-      timeout: ${args.timeout_ms ?? 30_000},
-    })
-    return { url: page.url(), title: await page.title() }
-  `)
+  const body = [
+    `URL=${esc(args.url)}`,
+    `TIMEOUT_MS=${args.timeout_ms ?? 30_000}`,
+    // Fire navigation.
+    `jq -cn --arg u "$URL" '{id:1, method:"Page.navigate", params:{url:$u}}' | websocat -t -1 "$WS" >/dev/null`,
+    // Poll document.readyState until 'complete' or timeout.
+    `DEADLINE=$(( $(date +%s%3N) + TIMEOUT_MS ))`,
+    `while [ "$(date +%s%3N)" -lt "$DEADLINE" ]; do`,
+    `  EXPR='document.readyState'`,
+    `  STATE=$(${EVAL_EXPR})`,
+    `  [ "$STATE" = "complete" ] && break`,
+    `  sleep 0.2`,
+    `done`,
+    // Report final state as JSON.
+    `EXPR='JSON.stringify({url: location.href, title: document.title})'`,
+    `${EVAL_EXPR}`,
+  ].join('\n')
+  return runBrowser(ctx, 'browserGoto', args, body)
 }
 
 const screenshotArgs = z.object({
   full_page: z.boolean().optional().describe('Capture the full scrolled page instead of just the viewport.'),
 })
 async function handleScreenshot(ctx: BrowserCtx, args: z.infer<typeof screenshotArgs>) {
-  // Write to a workspace file and return the path. Agents attach the
-  // file to ticket comments via ticketComment's `attachments` arg —
-  // same file-based pattern as every other artifact the agent produces.
+  // Write to workspace file and return the path. Agents attach it to
+  // ticketComment's `attachments` arg — same file-based pattern as
+  // every other artifact the agent produces.
   const path = `.foundry/screenshots/${ulid()}.png`
-  return runBrowser(ctx, 'browserScreenshot', args, `
-    const fs = require('fs')
-    const pathlib = require('path')
-    const outPath = '/home/foundry/' + ${JSON.stringify(path)}
-    fs.mkdirSync(pathlib.dirname(outPath), { recursive: true })
-    await page.screenshot({ path: outPath, fullPage: ${args.full_page ? 'true' : 'false'}, type: 'png' })
-    return { path: ${JSON.stringify(path)}, url: page.url(), title: await page.title() }
-  `)
+  const body = [
+    `OUT=${esc(path)}`,
+    `mkdir -p "$(dirname "$OUT")"`,
+    // Capture.
+    `jq -cn --argjson fp ${args.full_page ? 'true' : 'false'} \\`,
+    `  '{id:1, method:"Page.captureScreenshot", params:{format:"png", captureBeyondViewport:$fp}}' \\`,
+    `  | websocat -t -1 "$WS" \\`,
+    `  | jq -r '.result.data // (.error.message // "capture failed" | halt_error)' \\`,
+    `  | base64 -d > "$OUT"`,
+    // Return {path, url, title} as JSON.
+    `EXPR='JSON.stringify({url: location.href, title: document.title})'`,
+    `${EVAL_EXPR} | jq --arg p "$OUT" '. + {path: $p}'`,
+  ].join('\n')
+  return runBrowser(ctx, 'browserScreenshot', args, body)
 }
 
 const clickArgs = z.object({
@@ -166,16 +166,31 @@ const clickArgs = z.object({
   timeout_ms:      z.number().int().min(500).max(30_000).optional(),
 })
 async function handleClick(ctx: BrowserCtx, args: z.infer<typeof clickArgs>) {
-  return runBrowser(ctx, 'browserClick', args, args.wait_navigation ? `
-    await Promise.all([
-      page.waitForNavigation({ waitUntil: 'networkidle', timeout: 15000 }).catch(() => {}),
-      page.click(${JSON.stringify(args.selector)}, { timeout: ${args.timeout_ms ?? 10_000} }),
-    ])
-    return { url: page.url(), title: await page.title() }
-  ` : `
-    await page.click(${JSON.stringify(args.selector)}, { timeout: ${args.timeout_ms ?? 10_000} })
-    return { url: page.url(), title: await page.title() }
-  `)
+  const clickJs = `
+    (() => {
+      const el = document.querySelector(${JSON.stringify(args.selector)})
+      if (!el) throw new Error('selector not found: ' + ${JSON.stringify(args.selector)})
+      el.click()
+      return JSON.stringify({url: location.href, title: document.title})
+    })()
+  `.trim()
+  // If wait_navigation is set, poll readyState after the click.
+  const body = args.wait_navigation ? [
+    `EXPR=${esc(clickJs)}`,
+    `${EVAL_EXPR} >/dev/null`,
+    `DEADLINE=$(( $(date +%s%3N) + 15000 ))`,
+    `while [ "$(date +%s%3N)" -lt "$DEADLINE" ]; do`,
+    `  EXPR='document.readyState'`,
+    `  [ "$(${EVAL_EXPR})" = "complete" ] && break`,
+    `  sleep 0.2`,
+    `done`,
+    `EXPR='JSON.stringify({url: location.href, title: document.title})'`,
+    `${EVAL_EXPR}`,
+  ].join('\n') : [
+    `EXPR=${esc(clickJs)}`,
+    `${EVAL_EXPR}`,
+  ].join('\n')
+  return runBrowser(ctx, 'browserClick', args, body)
 }
 
 const fillArgs = z.object({
@@ -185,12 +200,24 @@ const fillArgs = z.object({
   timeout_ms: z.number().int().min(500).max(30_000).optional(),
 })
 async function handleFill(ctx: BrowserCtx, args: z.infer<typeof fillArgs>) {
-  return runBrowser(ctx, 'browserFill', args, `
-    await page.fill(${JSON.stringify(args.selector)}, ${JSON.stringify(args.value)}, {
-      timeout: ${args.timeout_ms ?? 10_000},
-    })
-    return { url: page.url() }
-  `)
+  const js = `
+    (() => {
+      const el = document.querySelector(${JSON.stringify(args.selector)})
+      if (!el) throw new Error('selector not found: ' + ${JSON.stringify(args.selector)})
+      const proto = Object.getPrototypeOf(el)
+      const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set
+      if (setter) setter.call(el, ${JSON.stringify(args.value)})
+      else el.value = ${JSON.stringify(args.value)}
+      el.dispatchEvent(new Event('input',  { bubbles: true }))
+      el.dispatchEvent(new Event('change', { bubbles: true }))
+      return JSON.stringify({url: location.href})
+    })()
+  `.trim()
+  const body = [
+    `EXPR=${esc(js)}`,
+    `${EVAL_EXPR}`,
+  ].join('\n')
+  return runBrowser(ctx, 'browserFill', args, body)
 }
 
 const textArgs = z.object({
@@ -198,19 +225,26 @@ const textArgs = z.object({
   timeout_ms: z.number().int().min(500).max(30_000).optional(),
 })
 async function handleText(ctx: BrowserCtx, args: z.infer<typeof textArgs>) {
-  return runBrowser(ctx, 'browserText', args, args.selector ? `
-    const text = await page.innerText(${JSON.stringify(args.selector)}, { timeout: ${args.timeout_ms ?? 10_000} })
-    return { text, url: page.url() }
-  ` : `
-    const text = await page.evaluate(() => document.body?.innerText ?? '')
-    return { text, url: page.url() }
-  `)
+  const js = args.selector ? `
+    (() => {
+      const el = document.querySelector(${JSON.stringify(args.selector)})
+      if (!el) throw new Error('selector not found: ' + ${JSON.stringify(args.selector)})
+      return JSON.stringify({text: el.innerText || '', url: location.href})
+    })()
+  `.trim() : `
+    (() => JSON.stringify({text: document.body?.innerText ?? '', url: location.href}))()
+  `.trim()
+  const body = [
+    `EXPR=${esc(js)}`,
+    `${EVAL_EXPR}`,
+  ].join('\n')
+  return runBrowser(ctx, 'browserText', args, body)
 }
 
 const domArgs = z.object({})
 async function handleDom(ctx: BrowserCtx, args: z.infer<typeof domArgs>) {
-  return runBrowser(ctx, 'browserDom', args, `
-    const elements = await page.evaluate(() => {
+  const js = `
+    (() => {
       const pick = (el) => ({
         tag:  el.tagName.toLowerCase(),
         id:   el.id || undefined,
@@ -221,18 +255,29 @@ async function handleDom(ctx: BrowserCtx, args: z.infer<typeof domArgs>) {
         aria: el.getAttribute('aria-label') || undefined,
       })
       const els = Array.from(document.querySelectorAll('a,button,input,select,textarea,[role=button],[role=link]'))
-      return els.slice(0, 200).map(pick)
-    })
-    return { elements, url: page.url(), title: await page.title() }
-  `)
+      return JSON.stringify({ elements: els.slice(0, 200).map(pick), url: location.href, title: document.title })
+    })()
+  `.trim()
+  const body = [
+    `EXPR=${esc(js)}`,
+    `${EVAL_EXPR}`,
+  ].join('\n')
+  return runBrowser(ctx, 'browserDom', args, body)
 }
 
 const backArgs = z.object({})
 async function handleBack(ctx: BrowserCtx, args: z.infer<typeof backArgs>) {
-  return runBrowser(ctx, 'browserBack', args, `
-    await page.goBack({ waitUntil: 'networkidle', timeout: 15000 }).catch(() => {})
-    return { url: page.url(), title: await page.title() }
-  `)
+  const js = `
+    (() => {
+      history.back()
+      return JSON.stringify({url: location.href, title: document.title})
+    })()
+  `.trim()
+  const body = [
+    `EXPR=${esc(js)}`,
+    `${EVAL_EXPR}`,
+  ].join('\n')
+  return runBrowser(ctx, 'browserBack', args, body)
 }
 
 // ── Tools ──

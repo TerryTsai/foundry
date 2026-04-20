@@ -46,20 +46,22 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         imagemagick \
     && rm -rf /var/lib/apt/lists/*
 
-# Agent tooling that verify/format steps commonly reach for. Installed
-# globally so `tsc`, `prettier`, `eslint`, `tsx`, etc. are on PATH
-# without a project's local node_modules. The symlink at /node_modules
-# lets Node's standard walk-up lookup resolve bare imports like
-# `require('playwright-core')` from anywhere in the container — no
-# NODE_PATH needed.
-RUN PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install -g --silent \
+# CLI tooling agents reach for directly. Globally installed the normal
+# way — /usr/local/bin shims land on PATH, same as any dev desktop.
+RUN npm install -g --silent \
         typescript \
         prettier \
         eslint \
         tsx \
-        wrangler \
-        playwright-core \
-    && ln -s /usr/local/lib/node_modules /node_modules
+        wrangler
+
+# websocat: single static Rust binary for speaking WebSocket from the
+# shell. The browser tools pipe JSON-RPC CDP messages through it —
+# that way every browser tool is a plain curl/jq/websocat/base64
+# pipeline, matching the shell-script style of the github tools.
+RUN curl -sSL -o /usr/local/bin/websocat \
+        https://github.com/vi/websocat/releases/download/v1.13.0/websocat.x86_64-unknown-linux-musl \
+    && chmod +x /usr/local/bin/websocat
 
 # Agent runs in a real user home. The per-session workspace is
 # bind-mounted here at runtime, so everything the agent does — clones,
