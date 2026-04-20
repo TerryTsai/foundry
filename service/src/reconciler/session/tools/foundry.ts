@@ -274,24 +274,32 @@ async function handleThink(ctx: FoundryCtx, args: z.infer<typeof thinkArgs>) {
   return { ok: r.exitCode === 0 }
 }
 
-// Load an attachment's bytes as an image/document content block so the
-// model can actually see it. Opening prompt lists ids + metadata only;
-// this tool is how agents pull the actual pixels/PDF on demand.
+// Download an attachment into the session workspace. Goes through the
+// sandbox like every other tool — curl pulls the bytes from the
+// internal API into .foundry/attachments/<id> (keeping the attachment's
+// original filename from Content-Disposition). Agent gets the path
+// back and can read/attach/inspect it like any other workspace file.
 async function handleAttachmentGet(ctx: FoundryCtx, args: z.infer<typeof attachmentGetArgs>) {
-  const { attachmentGetInternal } = await import('../../../attachments/service.js')
-  const { asImage } = await import('../../../integrations/shared.js')
-  const att = attachmentGetInternal(ctx.db, args.id)
-  if (!att) return { error: `attachment ${args.id} not found` }
-  // Images render as image blocks; PDFs go through document blocks.
-  // (Claude's document support is the 'document' type with a base64
-  // source of media_type application/pdf — SDK accepts this.)
-  if (att.mime.startsWith('image/')) return asImage(att.bytes, att.mime)
-  return {
-    content: [{
-      type: 'document',
-      source: { type: 'base64', media_type: att.mime, data: att.bytes.toString('base64') },
-    }],
-  }
+  const url = withAccount(ctx, `/attachment/${args.id}`)
+  const dir = `.foundry/attachments/${args.id}`
+  const command = [
+    'set -e',
+    `mkdir -p ${esc(dir)}`,
+    `cd ${esc(dir)}`,
+    // -OJ saves under the server's Content-Disposition filename.
+    // --remote-header-name ignores the URL's trailing segment.
+    `curl -sfOJ --remote-header-name -H "Authorization: Bearer $TOKEN" "http://host.containers.internal:${ctx.config.port}${url}"`,
+    // Emit the saved filename as JSON.
+    `NAME=$(ls -1 | head -n1)`,
+    `printf '{"path":"%s/%s"}\\n' ${esc(dir)} "$NAME"`,
+  ].join('\n')
+  const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace,
+    command, 'attachmentGet', args, {
+      env:       { TOKEN: ctx.sandboxToken },
+      toolUseId: ctx.toolUseId,
+    })
+  if (r.exitCode !== 0) return { error: r.stderr || r.stdout || 'attachment download failed' }
+  try { return JSON.parse(r.stdout.trim()) } catch { return { error: `unexpected response: ${r.stdout.slice(0, 200)}` } }
 }
 
 // ── Tools ──
@@ -316,5 +324,5 @@ export const tools: ToolDef[] = [
   { name: 'sessionList',     description: 'List agent sessions for a ticket. Defaults to the current session\'s ticket if omitted.',                                                                                                    schema: sessionListArgs,     handler: handleSessionList },
   { name: 'connectionList',  description: 'List configured external connections (LLM backends, integrations). Secrets are masked.',                                                                                                     schema: connectionListArgs,  handler: handleConnectionList },
   { name: 'think',           description: 'Use this tool to reason, plan, or analyze before taking action. No side effects. Still runs in the sandbox for consistent execution tracking.',                                              schema: thinkArgs,           handler: handleThink },
-  { name: 'attachmentGet',   description: 'Load an attachment (image or PDF) from the current ticket. The opening prompt lists attachment ids; call this only when you actually need to see the content.',                                schema: attachmentGetArgs,   handler: handleAttachmentGet },
+  { name: 'attachmentGet',   description: 'Download an attachment (image or PDF) into the session workspace under .foundry/attachments/<id>/. Returns the workspace path — use read/run/etc. to inspect the bytes.', schema: attachmentGetArgs, handler: handleAttachmentGet },
 ]
