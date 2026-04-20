@@ -71,8 +71,15 @@ async function handleScrape(ctx: BrowserCtx, args: z.infer<typeof validate.toolS
 const BOOT = [
   'set -e',
   'if ! curl -sf http://127.0.0.1:9222/json/version >/dev/null 2>&1; then',
+  // --window-size sets the viewport up front. All Page.captureScreenshot
+  // calls return an image at this size. Per-call Emulation overrides
+  // are racy in headless chromium — pre-baking the size keeps capture
+  // deterministic. 1280x800 is the one-desktop default; agents that
+  // need a different frame can run `chromium --headless --screenshot`
+  // via the `run` tool for a one-off.
   '  chromium --headless=new --remote-debugging-port=9222 --remote-debugging-address=127.0.0.1 \\',
   '    --no-sandbox --disable-gpu --disable-dev-shm-usage \\',
+  '    --window-size=1280,800 --hide-scrollbars \\',
   '    --user-data-dir=/tmp/foundry-chromium >/dev/null 2>&1 &',
   'fi',
   'WS=""',
@@ -139,23 +146,17 @@ async function handleGoto(ctx: BrowserCtx, args: z.infer<typeof gotoArgs>) {
   return runBrowser(ctx, 'browserGoto', args, body)
 }
 
-const screenshotArgs = z.object({
-  full_page: z.boolean().optional().describe('Capture the full scrolled page instead of just the viewport.'),
-})
+const screenshotArgs = z.object({})
 async function handleScreenshot(ctx: BrowserCtx, args: z.infer<typeof screenshotArgs>) {
-  // Write to workspace file and return the path. Agents attach it to
-  // ticketComment's `attachments` arg — same file-based pattern as
-  // every other artifact the agent produces.
+  // Capture the active page viewport via CDP. No per-call size args:
+  // viewport is fixed by chromium's --window-size in BOOT. Per-call
+  // Emulation overrides are non-deterministic, and captureBeyondViewport
+  // silently breaks the CDP connection on tall captures.
   const path = `.foundry/screenshots/${ulid()}.png`
   const body = [
     `OUT=${esc(path)}`,
     `mkdir -p "$(dirname "$OUT")"`,
-    // Capture. -B 16M on websocat avoids truncating large screenshot
-    // responses (default read buffer is 64 KB; real screenshots run
-    // 80 KB+ and a truncated JSON would silently produce an empty PNG
-    // that the next ticketComment upload then rejects as empty).
-    `jq -cn --argjson fp ${args.full_page ? 'true' : 'false'} \\`,
-    `  '{id:1, method:"Page.captureScreenshot", params:{format:"png", captureBeyondViewport:$fp}}' \\`,
+    `jq -cn '{id:1, method:"Page.captureScreenshot", params:{format:"png"}}' \\`,
     `  | websocat -t -1 -B 16777216 "$WS" \\`,
     `  | jq -r '.result.data // (.error.message // "capture failed" | halt_error)' \\`,
     `  | base64 -d > "$OUT"`,
@@ -302,7 +303,7 @@ export const tools: ToolDef[] = [
   { name: 'fetch',             description: 'Make an HTTP request and return the response. Large responses are written to a file; use the read tool to paginate.',                                                                                schema: validate.toolFetch,  handler: handleFetch },
   { name: 'scrape',            description: 'Extract clean readable text from a web page. Large output is written to a file you can read with offset/limit.',                                                                                      schema: validate.toolScrape, handler: handleScrape },
   { name: 'browserGoto',       description: 'Navigate the session\'s browser to a URL. Returns {url, title, status} where status is the HTTP status of the main document response — check it before assuming the page loaded.',               schema: gotoArgs,            handler: handleGoto },
-  { name: 'browserScreenshot', description: 'Take a PNG screenshot of the current page. Writes it to a workspace file under .foundry/screenshots/ and returns the path. Attach the path to a ticketComment to surface it for review. Use full_page=true for the whole scrolled page.', schema: screenshotArgs, handler: handleScreenshot },
+  { name: 'browserScreenshot', description: 'Capture the active page in the session\'s browser (at the fixed viewport — 1280x800). Saves a PNG under .foundry/screenshots/ and returns the path. Attach the path to a ticketComment to surface it for review.', schema: screenshotArgs, handler: handleScreenshot },
   { name: 'browserClick',      description: 'Click an element by CSS selector. Set wait_navigation=true when clicking something that navigates (a link or a submit button).',                                                                      schema: clickArgs,           handler: handleClick },
   { name: 'browserFill',       description: 'Type into an input or textarea by CSS selector. Clears the existing value first.',                                                                                                                    schema: fillArgs,            handler: handleFill },
   { name: 'browserText',       description: 'Extract visible text from the current page. Pass a selector to narrow to a subtree. Cheap way to check state after clicking/filling.',                                                                schema: textArgs,            handler: handleText },
