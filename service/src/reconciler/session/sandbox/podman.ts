@@ -61,7 +61,7 @@ export function startSessionContainer(opts: SessionContainerOpts): Promise<strin
     '--ulimit', `nofile=${opts.nofileSoft}:${opts.nofileHard}`,
     '--cap-drop', 'ALL', '--read-only',
     '--tmpfs', `/tmp:rw,size=${opts.tmpfsMb}m`, '--tmpfs', `/run:rw,size=8m`,
-    '-v', `${opts.workspace}:/work:rw`, '-w', '/work',
+    '-v', `${opts.workspace}:/home/foundry:rw`, '-w', '/home/foundry',
     opts.image,
     // PID 1 just idles. Tools bring their own processes (chromium,
     // dev servers, compilers, …) via podman exec.

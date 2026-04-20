@@ -130,7 +130,7 @@ async function apiPost(ctx: FoundryCtx, toolName: string, toolInput: unknown, pa
 }
 
 // Upload a file from the session workspace via curl --data-binary. The
-// workspace is bind-mounted into the container at /work, so relative
+// workspace is bind-mounted into the container at /home/foundry, so relative
 // paths in the agent's args resolve cleanly.
 async function apiUploadFile(
   ctx: FoundryCtx, toolName: string, toolInput: unknown,
@@ -141,7 +141,7 @@ async function apiUploadFile(
     `curl -sf -X POST`,
     `-H "Authorization: Bearer $TOKEN"`,
     `-H "Content-Type: ${mime}"`,
-    `--data-binary @${esc(`/work/${workspacePath}`)}`,
+    `--data-binary @${esc(`/home/foundry/${workspacePath}`)}`,
     `"http://host.containers.internal:${ctx.config.port}${url}"`,
   ].join(' ')
   const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace,

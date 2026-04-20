@@ -29,7 +29,7 @@ const pagesRemoveArgs      = z.object({
 })
 const pagesDeployArgs      = z.object({
   project_name: z.string().regex(/^[a-z0-9][a-z0-9-]*$/, 'Project name must be lowercase alphanumeric with hyphens').describe('Pages project slug (lowercase, hyphens ok). Created if missing.'),
-  dir:          z.string().describe('Static output directory relative to /work (e.g. "public", "dist"). Must contain at least one file (e.g. index.html). Server-side handlers go in /work/functions/ and are deployed automatically.'),
+  dir:          z.string().describe('Static output directory relative to /home/foundry (e.g. "public", "dist"). Must contain at least one file (e.g. index.html). Server-side handlers go in /home/foundry/functions/ and are deployed automatically.'),
   branch:       z.string().optional().describe('Deploy branch; default "main".'),
   account_id:   z.string().optional(),
 })
@@ -53,13 +53,13 @@ const r2ListObjectsArgs = z.object({
 const r2UploadArgs = z.object({
   bucket:     z.string().describe('Bucket name.'),
   key:        z.string().describe('Object key (path in bucket).'),
-  file:       z.string().describe('Workspace file path to upload (relative to /work).'),
+  file:       z.string().describe('Workspace file path to upload (relative to /home/foundry).'),
   account_id: z.string().optional(),
 })
 const r2DownloadArgs = z.object({
   bucket:     z.string().describe('Bucket name.'),
   key:        z.string().describe('Object key.'),
-  file:       z.string().describe('Workspace path to save to (relative to /work).'),
+  file:       z.string().describe('Workspace path to save to (relative to /home/foundry).'),
   account_id: z.string().optional(),
 })
 const r2DeleteArgs = z.object({
@@ -198,17 +198,17 @@ async function handlePagesRemove(ctx: CloudflareCtx, args: z.infer<typeof pagesR
   return { ok: true, result: parseCfResponse(r.stdout) }
 }
 
-// Deploy to Cloudflare Pages. /work is mounted rw so wrangler sees the
+// Deploy to Cloudflare Pages. /home/foundry is mounted rw so wrangler sees the
 // full project tree (static assets, functions/, wrangler.toml). The
-// `dir` arg is the path to the static output directory relative to /work.
+// `dir` arg is the path to the static output directory relative to /home/foundry.
 async function handlePagesDeploy(ctx: CloudflareCtx, args: z.infer<typeof pagesDeployArgs>) {
   const acct = resolveAccountId(ctx, args.account_id)
   const branch = args.branch ?? 'main'
-  const dir = `/work/${args.dir}`
+  const dir = `/home/foundry/${args.dir}`
   const command = [
-    `if [ ! -d ${JSON.stringify(dir)} ]; then echo "ERR: directory ${args.dir} does not exist in /work" >&2; exit 1; fi`,
+    `if [ ! -d ${JSON.stringify(dir)} ]; then echo "ERR: directory ${args.dir} does not exist in /home/foundry" >&2; exit 1; fi`,
     `if [ -z "$(ls -A ${JSON.stringify(dir)} 2>/dev/null)" ]; then echo "ERR: directory ${args.dir} is empty — add at least an index.html" >&2; exit 1; fi`,
-    `if [ -f /work/wrangler.toml ] && ! grep -q pages_build_output_dir /work/wrangler.toml; then echo 'pages_build_output_dir = "${args.dir}"' >> /work/wrangler.toml; fi`,
+    `if [ -f /home/foundry/wrangler.toml ] && ! grep -q pages_build_output_dir /home/foundry/wrangler.toml; then echo 'pages_build_output_dir = "${args.dir}"' >> /home/foundry/wrangler.toml; fi`,
     `wrangler pages project create ${JSON.stringify(args.project_name)} --production-branch ${JSON.stringify(branch)} || true`,
     `wrangler pages deploy ${JSON.stringify(dir)} --project-name ${JSON.stringify(args.project_name)} --branch ${JSON.stringify(branch)} --commit-dirty=true`,
   ].join('\n')
@@ -228,7 +228,7 @@ async function handlePagesDeploy(ctx: CloudflareCtx, args: z.infer<typeof pagesD
 }
 
 // Typed wrangler operations — each constructs a fixed command from typed
-// args. /work is mounted rw so file paths resolve normally.
+// args. /home/foundry is mounted rw so file paths resolve normally.
 async function runWrangler(ctx: CloudflareCtx, toolName: string, args: unknown, command: string) {
   const acct = resolveAccountId(ctx, (args as { account_id?: string }).account_id)
   const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace,
@@ -257,10 +257,10 @@ async function handleR2ListObjects(ctx: CloudflareCtx, args: z.infer<typeof r2Li
   return runWrangler(ctx, 'r2ListObjects', args, `r2 object list ${JSON.stringify(args.bucket)}${prefix}`)
 }
 async function handleR2Upload(ctx: CloudflareCtx, args: z.infer<typeof r2UploadArgs>) {
-  return runWrangler(ctx, 'r2Upload', args, `r2 object put ${JSON.stringify(args.bucket + '/' + args.key)} --file=${JSON.stringify('/work/' + args.file)}`)
+  return runWrangler(ctx, 'r2Upload', args, `r2 object put ${JSON.stringify(args.bucket + '/' + args.key)} --file=${JSON.stringify('/home/foundry/' + args.file)}`)
 }
 async function handleR2Download(ctx: CloudflareCtx, args: z.infer<typeof r2DownloadArgs>) {
-  return runWrangler(ctx, 'r2Download', args, `r2 object get ${JSON.stringify(args.bucket + '/' + args.key)} --file=${JSON.stringify('/work/' + args.file)}`)
+  return runWrangler(ctx, 'r2Download', args, `r2 object get ${JSON.stringify(args.bucket + '/' + args.key)} --file=${JSON.stringify('/home/foundry/' + args.file)}`)
 }
 async function handleR2Delete(ctx: CloudflareCtx, args: z.infer<typeof r2DeleteArgs>) {
   return runWrangler(ctx, 'r2Delete', args, `r2 object delete ${JSON.stringify(args.bucket + '/' + args.key)}`)
@@ -315,13 +315,13 @@ export const tools: ToolDef[] = [
   { name: 'pagesList',        description: 'List Cloudflare Pages projects on the account.',                                                                                                                                         schema: pagesListArgs,        handler: handlePagesList },
   { name: 'pagesDeployments', description: 'List recent deployments for a Pages project.',                                                                                                                                           schema: pagesDeploymentsArgs, handler: handlePagesDeployments },
   { name: 'pagesRemove',      description: 'Delete a Cloudflare Pages project. Irreversible — removes all deployments and releases the *.pages.dev subdomain.',                                                                      schema: pagesRemoveArgs,      handler: handlePagesRemove },
-  { name: 'pagesDeploy',      description: 'Deploy to Cloudflare Pages. Creates the project on first use. `dir` is the static output directory relative to /work (e.g. "public"). If the project has a functions/ directory at /work/functions/, Pages Functions are deployed automatically alongside the static assets.', schema: pagesDeployArgs, handler: handlePagesDeploy },
+  { name: 'pagesDeploy',      description: 'Deploy to Cloudflare Pages. Creates the project on first use. `dir` is the static output directory relative to /home/foundry (e.g. "public"). If the project has a functions/ directory at /home/foundry/functions/, Pages Functions are deployed automatically alongside the static assets.', schema: pagesDeployArgs, handler: handlePagesDeploy },
   { name: 'r2CreateBucket',   description: 'Create a new R2 bucket on the account.',                                                                                                                                                schema: r2CreateBucketArgs,   handler: handleR2CreateBucket },
   { name: 'r2DeleteBucket',   description: 'Delete an R2 bucket. The bucket must be empty.',                                                                                                                                        schema: r2DeleteBucketArgs,   handler: handleR2DeleteBucket },
   { name: 'r2ListBuckets',    description: 'List R2 buckets on the account.',                                                                                                                                                        schema: r2ListBucketsArgs,    handler: handleR2ListBuckets },
   { name: 'r2ListObjects',    description: 'List objects in an R2 bucket with optional prefix filter.',                                                                                                                              schema: r2ListObjectsArgs,    handler: handleR2ListObjects },
-  { name: 'r2Upload',         description: 'Upload a workspace file to an R2 bucket. `file` is relative to /work.',                                                                                                                 schema: r2UploadArgs,         handler: handleR2Upload },
-  { name: 'r2Download',       description: 'Download an R2 object to the workspace. `file` is relative to /work.',                                                                                                                  schema: r2DownloadArgs,       handler: handleR2Download },
+  { name: 'r2Upload',         description: 'Upload a workspace file to an R2 bucket. `file` is relative to /home/foundry.',                                                                                                                 schema: r2UploadArgs,         handler: handleR2Upload },
+  { name: 'r2Download',       description: 'Download an R2 object to the workspace. `file` is relative to /home/foundry.',                                                                                                                  schema: r2DownloadArgs,       handler: handleR2Download },
   { name: 'r2Delete',         description: 'Delete an object from an R2 bucket.',                                                                                                                                                   schema: r2DeleteArgs,         handler: handleR2Delete },
   { name: 'd1Create',         description: 'Create a new D1 SQLite database on the account.',                                                                                                                                       schema: d1CreateArgs,         handler: handleD1Create },
   { name: 'd1Delete',         description: 'Delete a D1 database. Irreversible — all data is lost.',                                                                                                                                schema: d1DeleteArgs,         handler: handleD1Delete },

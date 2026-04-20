@@ -1,6 +1,6 @@
 // Sandbox server: isolated Linux environment with a persistent per-session
 // working directory. Every tool call spawns its own podman container with
-// the session tmpdir bind-mounted at /work. State persists between calls
+// the session tmpdir bind-mounted at /home/foundry. State persists between calls
 // because the tmpdir lives on the host; the container is ephemeral.
 //
 // Mutating tools (write, patch, remove) reject paths inside `.git/` and
@@ -34,9 +34,9 @@ export interface SandboxCtx {
 // ── Local helpers ──
 
 function workPath(p?: string): string {
-  if (!p) return '/work'
+  if (!p) return '/home/foundry'
   if (p.startsWith('/')) return p
-  return `/work/${p}`
+  return `/home/foundry/${p}`
 }
 
 function writeTmp(workspace: string, content: string, ext = 'txt'): string {
@@ -50,7 +50,7 @@ function writeTmp(workspace: string, content: string, ext = 'txt'): string {
 function assertSafeWritePath(p: string): void {
   if (!p) throw new Error('path is required')
   const abs = workPath(p)
-  const rel = abs.startsWith('/work/') ? abs.slice('/work/'.length) : abs
+  const rel = abs.startsWith('/home/foundry/') ? abs.slice('/home/foundry/'.length) : abs
   const segments = rel.split('/')
   if (segments.includes('..'))    throw new Error(`path traversal rejected: ${p}`)
   if (segments[0] === '.git')     throw new Error(`.git/ paths are protected: ${p}`)
@@ -76,7 +76,7 @@ async function handleRun(ctx: SandboxCtx, args: z.infer<typeof validate.toolExec
 const runScriptSchema = z.object({
   script:      z.string().describe('Script body (multi-line). Written to a temp file and executed.'),
   interpreter: z.enum(['sh', 'python', 'node']).default('sh').describe('Interpreter to use.'),
-  cwd:         z.string().optional().describe('Working directory inside the container (default /work).'),
+  cwd:         z.string().optional().describe('Working directory inside the container (default /home/foundry).'),
 })
 
 async function handleRunScript(ctx: SandboxCtx, args: z.infer<typeof runScriptSchema>) {
@@ -84,8 +84,8 @@ async function handleRunScript(ctx: SandboxCtx, args: z.infer<typeof runScriptSc
   const scriptPath = writeTmp(ctx.workspace, args.script, ext)
   const interp = { sh: 'sh', python: 'python3', node: 'node' }[args.interpreter]
   const command = args.cwd
-    ? `cd ${esc(args.cwd)} && ${interp} /work/${scriptPath}`
-    : `${interp} /work/${scriptPath}`
+    ? `cd ${esc(args.cwd)} && ${interp} /home/foundry/${scriptPath}`
+    : `${interp} /home/foundry/${scriptPath}`
   try {
     const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace, command, 'runScript', args, { toolUseId: ctx.toolUseId })
     return { ...bounded(ctx.workspace, r.stdout), stderr: r.stderr, exitCode: r.exitCode }
@@ -114,7 +114,7 @@ async function handleWrite(ctx: SandboxCtx, args: z.infer<typeof validate.toolWr
   }
   const tmpRel = writeTmp(ctx.workspace, args.content)
   const dest = esc(workPath(args.path))
-  const command = `mkdir -p "$(dirname ${dest})" && mv /work/${esc(tmpRel)} ${dest}`
+  const command = `mkdir -p "$(dirname ${dest})" && mv /home/foundry/${esc(tmpRel)} ${dest}`
   try {
     const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace, command, 'write', { path: args.path }, { toolUseId: ctx.toolUseId })
     return r.exitCode === 0 ? { ok: true } : { ok: false, error: r.stderr || 'write failed' }
@@ -134,8 +134,8 @@ async function handlePatch(ctx: SandboxCtx, args: z.infer<typeof validate.toolPa
   }), 'json')
   const command = `python3 -c '
 import json, os, sys
-m = json.load(open("/work/${meta}"))
-os.unlink("/work/${meta}")
+m = json.load(open("/home/foundry/${meta}"))
+os.unlink("/home/foundry/${meta}")
 c = open(m["path"]).read()
 if m["old"] not in c:
     print("old_string not found in file", file=sys.stderr); sys.exit(1)
@@ -173,7 +173,7 @@ async function handleSearch(ctx: SandboxCtx, args: z.infer<typeof validate.toolS
   const parts = ['grep', '-rn', '--color=never']
   if (args.glob) parts.push('--include', esc(args.glob))
   parts.push('-e', esc(args.pattern), esc(searchPath))
-  const command = `${parts.join(' ')} | sed 's|/work/||g' || true`
+  const command = `${parts.join(' ')} | sed 's|/home/foundry/||g' || true`
   try {
     const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace, command, 'search', args, { toolUseId: ctx.toolUseId })
     const output = r.stdout.trimEnd()
@@ -188,7 +188,7 @@ async function handleFind(ctx: SandboxCtx, args: z.infer<typeof validate.toolFin
   const depth = args.max_depth ?? 3
   const searchPath = workPath(args.path)
   const parts = ['find', esc(searchPath), '-maxdepth', String(depth), '-type', 'f', '-name', esc(args.pattern), '-print']
-  const command = `${parts.join(' ')} | sed 's|/work/||g'`
+  const command = `${parts.join(' ')} | sed 's|/home/foundry/||g'`
   try {
     const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace, command, 'find', args, { toolUseId: ctx.toolUseId })
     const output = r.stdout.trim()
@@ -209,9 +209,9 @@ export const info: McpServerInfo = {
 }
 
 export const tools: ToolDef[] = [
-  { name: 'run',       description: 'Run a single shell command in the session sandbox. The workspace is bind-mounted at /work and persists across calls within this session. The sandbox starts with an EMPTY /work — populate it yourself (e.g. via gitClone). Pre-installed: git, node/npm/npx, tsc, prettier, eslint, tsx, python3, curl, wget, jq, lynx, make, gcc, and standard unix tools. $HOME is /tmp so package managers work without flags. Network is always available. Prefer one command per call for clean audit trails — avoid chaining with && or ;. Large stdout is written to a file; use the read tool to paginate.', schema: validate.toolExec, handler: handleRun },
+  { name: 'run',       description: 'Run a single shell command in the session sandbox. The workspace is bind-mounted at /home/foundry and persists across calls within this session. The sandbox starts with an EMPTY /home/foundry — populate it yourself (e.g. via gitClone). Pre-installed: git, node/npm/npx, tsc, prettier, eslint, tsx, python3, curl, wget, jq, lynx, make, gcc, and standard unix tools. $HOME is /tmp so package managers work without flags. Network is always available. Prefer one command per call for clean audit trails — avoid chaining with && or ;. Large stdout is written to a file; use the read tool to paginate.', schema: validate.toolExec, handler: handleRun },
   { name: 'runScript',  description: 'Run a multi-line script in the sandbox. Provide the script body and choose an interpreter (sh, python, or node). The script is written to a temp file and executed — no shell quoting or && chaining needed. Same sandbox environment as `run`.', schema: runScriptSchema, handler: handleRunScript },
-  { name: 'read',       description: 'Read the contents of a file from the workspace. Use offset and limit to paginate. Large output is written to a file you can read with offset/limit. Reads against an empty workspace return "not found" — populate /work first.',                                                                                  schema: validate.toolRead,   handler: handleRead },
+  { name: 'read',       description: 'Read the contents of a file from the workspace. Use offset and limit to paginate. Large output is written to a file you can read with offset/limit. Reads against an empty workspace return "not found" — populate /home/foundry first.',                                                                                  schema: validate.toolRead,   handler: handleRead },
   { name: 'write',      description: 'Create or overwrite a file in the workspace. Parent directories are created as needed. .git/ and .foundry/ paths are protected.',                                                                                                                                                                                    schema: validate.toolWrite,  handler: handleWrite },
   { name: 'patch',      description: 'Apply a targeted edit to a file by replacing an exact string match. Fails if the old_string is not found or appears more than once. .git/ and .foundry/ paths are protected.',                                                                                                                                       schema: validate.toolPatch,  handler: handlePatch },
   { name: 'remove',     description: 'Delete a file or directory from the workspace (recursive). .git/ and .foundry/ paths are protected.',                                                                                                                                                                                                                schema: removeSchema,        handler: handleRemove },

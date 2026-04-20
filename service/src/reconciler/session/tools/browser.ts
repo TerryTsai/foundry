@@ -153,7 +153,7 @@ async function handleScreenshot(ctx: BrowserCtx, args: z.infer<typeof screenshot
   return runBrowser(ctx, 'browserScreenshot', args, `
     const fs = require('fs')
     const pathlib = require('path')
-    const outPath = '/work/' + ${JSON.stringify(path)}
+    const outPath = '/home/foundry/' + ${JSON.stringify(path)}
     fs.mkdirSync(pathlib.dirname(outPath), { recursive: true })
     await page.screenshot({ path: outPath, fullPage: ${args.full_page ? 'true' : 'false'}, type: 'png' })
     return { path: ${JSON.stringify(path)}, url: page.url(), title: await page.title() }

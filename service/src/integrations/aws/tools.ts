@@ -44,13 +44,13 @@ const s3ListArgs = z.object({
 const s3UploadArgs = z.object({
   bucket: z.string().describe('Bucket name.'),
   key:    z.string().describe('Object key.'),
-  file:   z.string().describe('Workspace file (relative to /work).'),
+  file:   z.string().describe('Workspace file (relative to /home/foundry).'),
   region: z.string().optional(),
 })
 const s3DownloadArgs = z.object({
   bucket: z.string().describe('Bucket name.'),
   key:    z.string().describe('Object key.'),
-  file:   z.string().describe('Workspace path to save to (relative to /work).'),
+  file:   z.string().describe('Workspace path to save to (relative to /home/foundry).'),
   region: z.string().optional(),
 })
 const s3DeleteArgs = z.object({
@@ -60,7 +60,7 @@ const s3DeleteArgs = z.object({
 })
 const s3SyncUploadArgs = z.object({
   bucket: z.string().describe('Bucket name.'),
-  dir:    z.string().describe('Workspace directory to sync (relative to /work).'),
+  dir:    z.string().describe('Workspace directory to sync (relative to /home/foundry).'),
   prefix: z.string().optional().describe('S3 key prefix. Default: bucket root.'),
   delete: z.boolean().optional().describe('Delete remote files not in local dir. Default false.'),
   region: z.string().optional(),
@@ -91,12 +91,12 @@ const lambdaCreateArgs = z.object({
   runtime: z.string().describe('Runtime (e.g. nodejs20.x, python3.12).'),
   handler: z.string().describe('Handler (e.g. index.handler).'),
   role:    z.string().describe('IAM role ARN for execution.'),
-  zip:     z.string().describe('Path to zip file (relative to /work) or S3 URI (s3://bucket/key).'),
+  zip:     z.string().describe('Path to zip file (relative to /home/foundry) or S3 URI (s3://bucket/key).'),
   region:  z.string().optional(),
 })
 const lambdaUpdateArgs = z.object({
   name:   z.string().describe('Function name.'),
-  zip:    z.string().describe('Path to zip file (relative to /work) or S3 URI.'),
+  zip:    z.string().describe('Path to zip file (relative to /home/foundry) or S3 URI.'),
   region: z.string().optional(),
 })
 const lambdaDeleteArgs = z.object({
@@ -205,10 +205,10 @@ async function handleS3List(ctx: AwsCtx, args: z.infer<typeof s3ListArgs>) {
   return runAws(ctx, 's3List', args, `s3api list-objects-v2 --bucket ${JSON.stringify(args.bucket)}${prefix}`)
 }
 async function handleS3Upload(ctx: AwsCtx, args: z.infer<typeof s3UploadArgs>) {
-  return runAws(ctx, 's3Upload', args, `s3 cp ${JSON.stringify('/work/' + args.file)} s3://${args.bucket}/${args.key}`)
+  return runAws(ctx, 's3Upload', args, `s3 cp ${JSON.stringify('/home/foundry/' + args.file)} s3://${args.bucket}/${args.key}`)
 }
 async function handleS3Download(ctx: AwsCtx, args: z.infer<typeof s3DownloadArgs>) {
-  return runAws(ctx, 's3Download', args, `s3 cp s3://${args.bucket}/${args.key} ${JSON.stringify('/work/' + args.file)}`)
+  return runAws(ctx, 's3Download', args, `s3 cp s3://${args.bucket}/${args.key} ${JSON.stringify('/home/foundry/' + args.file)}`)
 }
 async function handleS3Delete(ctx: AwsCtx, args: z.infer<typeof s3DeleteArgs>) {
   return runAws(ctx, 's3Delete', args, `s3 rm s3://${args.bucket}/${args.key}`)
@@ -216,7 +216,7 @@ async function handleS3Delete(ctx: AwsCtx, args: z.infer<typeof s3DeleteArgs>) {
 async function handleS3SyncUpload(ctx: AwsCtx, args: z.infer<typeof s3SyncUploadArgs>) {
   const dest = args.prefix ? `s3://${args.bucket}/${args.prefix}` : `s3://${args.bucket}`
   const del = args.delete ? ' --delete' : ''
-  return runAws(ctx, 's3SyncUpload', args, `s3 sync ${JSON.stringify('/work/' + args.dir)} ${dest}${del}`)
+  return runAws(ctx, 's3SyncUpload', args, `s3 sync ${JSON.stringify('/home/foundry/' + args.dir)} ${dest}${del}`)
 }
 async function handleS3SetWebsite(ctx: AwsCtx, args: z.infer<typeof s3SetWebsiteArgs>) {
   const errorDoc = args.error ? `,ErrorDocument={Key=${JSON.stringify(args.error)}}` : ''
@@ -247,7 +247,7 @@ async function handleLambdaList(ctx: AwsCtx, args: z.infer<typeof lambdaListArgs
 async function handleLambdaCreate(ctx: AwsCtx, args: z.infer<typeof lambdaCreateArgs>) {
   const code = args.zip.startsWith('s3://')
     ? (() => { const [b, ...k] = args.zip.slice(5).split('/'); return `S3Bucket=${b},S3Key=${k.join('/')}`; })()
-    : `ZipFile=fileb:///work/${args.zip}`
+    : `ZipFile=fileb:///home/foundry/${args.zip}`
   // IAM role propagation takes ~10s. Retry once on InvalidParameterValueException.
   const cmd = `lambda create-function --function-name ${JSON.stringify(args.name)} --runtime ${args.runtime} --handler ${args.handler} --role ${JSON.stringify(args.role)} --code ${code}`
   const r: any = await runAws(ctx, 'lambdaCreate', args, cmd)
@@ -260,7 +260,7 @@ async function handleLambdaCreate(ctx: AwsCtx, args: z.infer<typeof lambdaCreate
 async function handleLambdaUpdate(ctx: AwsCtx, args: z.infer<typeof lambdaUpdateArgs>) {
   const code = args.zip.startsWith('s3://')
     ? (() => { const [b, ...k] = args.zip.slice(5).split('/'); return `--s3-bucket ${b} --s3-key ${k.join('/')}`; })()
-    : `--zip-file fileb:///work/${args.zip}`
+    : `--zip-file fileb:///home/foundry/${args.zip}`
   return runAws(ctx, 'lambdaUpdate', args, `lambda update-function-code --function-name ${JSON.stringify(args.name)} ${code}`)
 }
 async function handleLambdaDelete(ctx: AwsCtx, args: z.infer<typeof lambdaDeleteArgs>) {
@@ -399,8 +399,8 @@ export const tools: ToolDef[] = [
   { name: 's3CreateBucket',       description: 'Create a new S3 bucket.',                                                                                                                                         schema: s3CreateBucketArgs,       handler: handleS3CreateBucket },
   { name: 's3DeleteBucket',       description: 'Delete an empty S3 bucket.',                                                                                                                                      schema: s3DeleteBucketArgs,       handler: handleS3DeleteBucket },
   { name: 's3List',               description: 'List S3 buckets, or objects in a bucket with optional prefix filter.',                                                                                             schema: s3ListArgs,               handler: handleS3List },
-  { name: 's3Upload',             description: 'Upload a workspace file to S3. `file` is relative to /work.',                                                                                                     schema: s3UploadArgs,             handler: handleS3Upload },
-  { name: 's3Download',           description: 'Download an S3 object to the workspace. `file` is relative to /work.',                                                                                            schema: s3DownloadArgs,           handler: handleS3Download },
+  { name: 's3Upload',             description: 'Upload a workspace file to S3. `file` is relative to /home/foundry.',                                                                                                     schema: s3UploadArgs,             handler: handleS3Upload },
+  { name: 's3Download',           description: 'Download an S3 object to the workspace. `file` is relative to /home/foundry.',                                                                                            schema: s3DownloadArgs,           handler: handleS3Download },
   { name: 's3Delete',             description: 'Delete an object from S3.',                                                                                                                                       schema: s3DeleteArgs,             handler: handleS3Delete },
   { name: 's3SyncUpload',         description: 'Sync a workspace directory to an S3 bucket. Optionally delete remote files not present locally.',                                                                  schema: s3SyncUploadArgs,         handler: handleS3SyncUpload },
   { name: 's3SetWebsite',         description: 'Enable static website hosting on an S3 bucket.',                                                                                                                  schema: s3SetWebsiteArgs,         handler: handleS3SetWebsite },

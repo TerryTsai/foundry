@@ -46,29 +46,25 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         imagemagick \
     && rm -rf /var/lib/apt/lists/*
 
-# Language-family tooling that agents commonly reach for in verification /
-# formatting steps. Installed globally so tsc, prettier, eslint, and tsx
-# are on PATH without needing a project's local node_modules. Saves the
-# `npx tsc --noEmit` install-storm pattern from RCA-001.
+# Agent tooling that verify/format steps commonly reach for. Installed
+# globally so `tsc`, `prettier`, `eslint`, `tsx`, etc. are on PATH
+# without a project's local node_modules. The symlink at /node_modules
+# lets Node's standard walk-up lookup resolve bare imports like
+# `require('playwright-core')` from anywhere in the container — no
+# NODE_PATH needed.
 RUN PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install -g --silent \
-    typescript \
-    prettier \
-    eslint \
-    tsx \
-    wrangler \
-    playwright-core
+        typescript \
+        prettier \
+        eslint \
+        tsx \
+        wrangler \
+        playwright-core \
+    && ln -s /usr/local/lib/node_modules /node_modules
 
-# HOME=/tmp so package managers and dev tools that write to $HOME (npm,
-# pip, cargo, etc.) succeed inside the --read-only root filesystem. /tmp
-# is tmpfs in the sandbox so it's writable and ephemeral. Without this,
-# `npm install` fails on `mkdir: /root/.npm: Read-only file system` and
-# agents spiral trying to work around it — the exact pattern that drove
-# RCA-001.
-ENV HOME=/tmp
-
-# Browser tools write small node scripts to /tmp and invoke them; set
-# NODE_PATH so `require('playwright-core')` finds the globally-installed
-# package without a local node_modules tree.
-ENV NODE_PATH=/usr/local/lib/node_modules
-
-WORKDIR /work
+# Agent runs in a real user home. The per-session workspace is
+# bind-mounted here at runtime, so everything the agent does — clones,
+# npm installs, dev servers, tool scratch files — lives under $HOME
+# the way Unix expects.
+RUN useradd -m foundry
+WORKDIR /home/foundry
+ENV HOME=/home/foundry

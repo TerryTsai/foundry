@@ -1,21 +1,21 @@
 // GitHub development-flow server. Git is a peer integration like any other
 // MCP server — the agent is responsible for populating the workspace via
 // gitClone, making changes, and publishing via gitPullRequest. The
-// framework provides an empty workspace at /work and nothing else.
+// framework provides an empty workspace at /home/foundry and nothing else.
 //
 // Execution model:
 //
-//   gitClone runs in a TIER-2 sandbox: fresh container, /work mounted
+//   gitClone runs in a TIER-2 sandbox: fresh container, /home/foundry mounted
 //   read-write, INSTALL_TOKEN read from a mounted secret file, network
 //   enabled. After clone completes, the embedded token is stripped from
 //   .git/config so subsequent tier-1 calls can't read it.
 //
 //   gitStatus/gitDiff/gitAdd/gitRemove/gitCommit run in the SESSION
 //   sandbox (tier-1) via runCommand — same model as exec/read/write.
-//   They need only filesystem access to /work; no credentials, no
+//   They need only filesystem access to /home/foundry; no credentials, no
 //   network. Get execution rows like every other tool.
 //
-//   gitPullRequest runs in a TIER-2 sandbox: /work mounted read-only,
+//   gitPullRequest runs in a TIER-2 sandbox: /home/foundry mounted read-only,
 //   fresh install token in env, network enabled. Pushes the session
 //   branch and calls the GitHub PR create API. Token dies with the
 //   container.
@@ -113,7 +113,7 @@ export interface GithubCtx {
   db:        Db
   config:    Config
   sessionId: string
-  workspace: string   // same tmpdir the sandbox server bind-mounts at /work
+  workspace: string   // same tmpdir the sandbox server bind-mounts at /home/foundry
   ticket:    Ticket
   agentName: string
   toolUseId?: string
@@ -172,11 +172,11 @@ async function handleGitClone(ctx: GithubCtx, args: z.infer<typeof gitCloneArgs>
     const command = [
       'set -e',
       'export GIT_TERMINAL_PROMPT=0',
-      'git clone -q "https://x-access-token:${INSTALL_TOKEN}@github.com/${OWNER}/${REPO}" /work',
-      'git -C /work remote set-url origin "https://github.com/${OWNER}/${REPO}.git"',
-      'git -C /work config user.email foundry@localhost',
-      'git -C /work config user.name Foundry',
-      'git -C /work checkout -q -b "foundry/${SESSION_ID}"',
+      'git clone -q "https://x-access-token:${INSTALL_TOKEN}@github.com/${OWNER}/${REPO}" /home/foundry',
+      'git -C /home/foundry remote set-url origin "https://github.com/${OWNER}/${REPO}.git"',
+      'git -C /home/foundry config user.email foundry@localhost',
+      'git -C /home/foundry config user.name Foundry',
+      'git -C /home/foundry checkout -q -b "foundry/${SESSION_ID}"',
     ].join('\n')
 
     const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace,
@@ -275,7 +275,7 @@ async function handleGitPullRequest(ctx: GithubCtx, args: z.infer<typeof gitPull
 
     const command = [
       'set -e',
-      'cd /work',
+      'cd /home/foundry',
       'export GIT_TERMINAL_PROMPT=0',
       'BASE=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed "s|refs/remotes/origin/||" || echo main)',
       'AHEAD=$(git rev-list --count "${BASE}..HEAD")',
@@ -349,7 +349,7 @@ async function handleGitRebase(ctx: GithubCtx, _args: z.infer<typeof gitRebaseAr
 
     const command = [
       'set -e',
-      'cd /work',
+      'cd /home/foundry',
       'export GIT_TERMINAL_PROMPT=0',
       'git fetch -q "https://x-access-token:${INSTALL_TOKEN}@github.com/${OWNER}/${REPO}" main:refs/remotes/origin/main',
       'git rebase -q origin/main',
@@ -387,7 +387,7 @@ async function handleGitMerge(ctx: GithubCtx, args: z.infer<typeof gitMergeArgs>
 
     const command = [
       'set -e',
-      'cd /work',
+      'cd /home/foundry',
       'export GIT_TERMINAL_PROMPT=0',
       'BASE=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed "s|refs/remotes/origin/||" || echo main)',
       'AHEAD=$(git rev-list --count "${BASE}..HEAD")',
@@ -502,8 +502,8 @@ export const info: McpServerInfo = {
 }
 
 export const tools: ToolDef[] = [
-  { name: 'gitClone',       description: 'Clone the configured GitHub repo into the empty session workspace at /work. Creates the per-session branch `foundry/<session-id>` and switches to it. Typical first step of a code session — the workspace starts empty, nothing is pre-cloned. Optional owner/repo args override the project default if you need a different repo.', schema: gitCloneArgs, handler: handleGitClone },
-  { name: 'gitStatus',      description: 'Show the working tree status in porcelain format. Requires a workspace populated by gitClone (or manually) — fails if /work is not a git repo.',                                                                                                                                                                                    schema: gitStatusArgs, handler: handleGitStatus },
+  { name: 'gitClone',       description: 'Clone the configured GitHub repo into the empty session workspace at /home/foundry. Creates the per-session branch `foundry/<session-id>` and switches to it. Typical first step of a code session — the workspace starts empty, nothing is pre-cloned. Optional owner/repo args override the project default if you need a different repo.', schema: gitCloneArgs, handler: handleGitClone },
+  { name: 'gitStatus',      description: 'Show the working tree status in porcelain format. Requires a workspace populated by gitClone (or manually) — fails if /home/foundry is not a git repo.',                                                                                                                                                                                    schema: gitStatusArgs, handler: handleGitStatus },
   { name: 'gitDiff',        description: 'Show the diff. By default shows unstaged changes; set staged=true to see the staged diff. Optionally scope to specific paths. Requires a git workspace (see gitClone).',                                                                                                                                                             schema: gitDiffArgs, handler: handleGitDiff },
   { name: 'gitAdd',         description: 'Stage specific paths for commit. Only literal repo-relative paths are accepted — no -A, no wildcards, no glob expansion. Paths inside .git/, .foundry/, node_modules/, build outputs, and caches are rejected. Requires a git workspace (see gitClone).',                                                                             schema: gitAddArgs, handler: handleGitAdd },
   { name: 'gitRemove',      description: 'Remove paths from the working tree and index (git rm). Same validation as gitAdd — literal paths only, protected directories rejected. Requires a git workspace (see gitClone).',                                                                                                                                                    schema: gitRemoveArgs, handler: handleGitRemove },
