@@ -210,6 +210,26 @@ export async function ensureSessionContainer(opts: SessionContainerOpts): Promis
   return startSessionContainer(opts)
 }
 
+// Container entrypoint: launch chromium (headless, CDP on 9222) and
+// wait on it. Chromium's lifetime == container's lifetime, so:
+//  - podman rm -f cleans both in one shot
+//  - if chromium crashes, the container exits; next exec fails loudly
+//    instead of silently driving nothing
+//  - the wrapper script has no "is it running" logic to maintain
+const SESSION_CONTAINER_CMD =
+  'chromium --headless=new --disable-gpu --no-sandbox --disable-dev-shm-usage --hide-scrollbars ' +
+  '--user-data-dir=/tmp/foundry-chrome --remote-debugging-port=9222 ' +
+  '--remote-debugging-address=127.0.0.1 about:blank & ' +
+  'CHROME_PID=$!; ' +
+  // Wait for the CDP endpoint to answer before the container "looks
+  // ready" to callers. Bail if chromium dies during startup.
+  'for i in $(seq 1 75); do ' +
+  '  curl -sf http://127.0.0.1:9222/json/version >/dev/null 2>&1 && break; ' +
+  '  kill -0 $CHROME_PID 2>/dev/null || { echo "chromium died during startup" >&2; exit 1; }; ' +
+  '  sleep 0.2; ' +
+  'done; ' +
+  'wait $CHROME_PID'
+
 export function startSessionContainer(opts: SessionContainerOpts): Promise<string> {
   const name = `foundry-sess-${opts.sessionId}`
   const args = [
@@ -222,21 +242,38 @@ export function startSessionContainer(opts: SessionContainerOpts): Promise<strin
     '-v', `${opts.workspace}:/work:rw`, '-w', '/work',
     ...(opts.secretsDir ? ['-v', `${opts.secretsDir}:/foundry-secrets:ro`] : []),
     opts.image,
-    // Keep the container alive. Browser / other stateful tools spawn
-    // their own daemons (chromium --remote-debugging-port=…) inside.
-    'sleep', 'infinity',
+    'sh', '-c', SESSION_CONTAINER_CMD,
   ]
   return new Promise((resolve, reject) => {
     const child = spawn('podman', args)
     let err = ''
     child.stderr.on('data', (d: Buffer) => { err += d.toString() })
     child.on('close', (code) => {
-      if (code === 0) {
-        activeSessionContainers.set(opts.sessionId, name)
-        resolve(name)
-      } else reject(new Error(`podman run failed (${code}): ${err.trim()}`))
+      if (code !== 0) { reject(new Error(`podman run failed (${code}): ${err.trim()}`)); return }
+      activeSessionContainers.set(opts.sessionId, name)
+      // Wait for chromium to be reachable before declaring the
+      // container "ready." The `podman run -d` above returns as soon
+      // as the container is created, not when chromium is listening.
+      waitForDebugPort(name).then(
+        () => resolve(name),
+        (e) => { stopSessionContainer(opts.sessionId).catch(() => {}); reject(e) },
+      )
     })
   })
+}
+
+// Poll the container's CDP endpoint until it answers (or we give up).
+// Uses `podman exec` rather than host-side curl so we don't depend on
+// the container's debug port being reachable from the host's network
+// namespace.
+async function waitForDebugPort(containerName: string): Promise<void> {
+  const deadline = Date.now() + 15_000
+  while (Date.now() < deadline) {
+    const r = await execInContainer(containerName, 'curl -sf http://127.0.0.1:9222/json/version >/dev/null 2>&1 && echo ok', { timeoutMs: 2_000 })
+    if (r.exitCode === 0 && r.stdout.trim() === 'ok') return
+    await new Promise(r => setTimeout(r, 200))
+  }
+  throw new Error('chromium CDP port did not become ready in 15s')
 }
 
 export interface ExecInContainerResult {

@@ -3,55 +3,16 @@
 // the sandbox image. Each invocation takes one command and its args
 // (JSON via argv[3]) and prints a JSON result on stdout.
 //
-// Manages a long-lived headless chromium inside the container. On first
-// invocation we spawn chromium with --remote-debugging-port and detach;
-// on later invocations we connect via CDP. Session state (open tabs,
-// URL, cookies, DOM, JS heap) persists across calls so the agent can
-// drive a real interactive flow: goto → screenshot → click → fill →
-// screenshot.
-//
-// Uses playwright-core over the already-installed Debian chromium
-// (PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 at image build time — no 200 MB
-// of bundled browsers).
+// Chromium's lifecycle is owned by the persistent session container
+// (see startSessionContainer in reconciler/session/sandbox/podman.ts).
+// The container's entrypoint launches chromium with
+// --remote-debugging-port=9222 and waits on it; startSessionContainer
+// blocks until the CDP port is reachable before returning. So by the
+// time this wrapper runs, chromium is already up. We just connect.
 
 import { chromium } from 'playwright-core'
-import { spawn } from 'child_process'
-import { existsSync } from 'fs'
 
-const PROFILE    = '/tmp/foundry-chrome'
 const DEBUG_PORT = 9222
-const CHROME_BIN = existsSync('/usr/bin/chromium')         ? '/usr/bin/chromium'
-                 : existsSync('/usr/bin/chromium-browser') ? '/usr/bin/chromium-browser'
-                 : 'chromium'
-
-async function chromiumAlive() {
-  try {
-    const res = await fetch(`http://127.0.0.1:${DEBUG_PORT}/json/version`, { signal: AbortSignal.timeout(500) })
-    return res.ok
-  } catch { return false }
-}
-
-async function ensureChromium() {
-  if (await chromiumAlive()) return
-  const child = spawn(CHROME_BIN, [
-    '--headless=new',
-    '--disable-gpu',
-    '--no-sandbox',
-    '--disable-dev-shm-usage',
-    '--hide-scrollbars',
-    `--user-data-dir=${PROFILE}`,
-    `--remote-debugging-port=${DEBUG_PORT}`,
-    '--remote-debugging-address=127.0.0.1',
-    'about:blank',
-  ], { detached: true, stdio: 'ignore' })
-  child.unref()
-  const deadline = Date.now() + 15_000
-  while (Date.now() < deadline) {
-    if (await chromiumAlive()) return
-    await new Promise(r => setTimeout(r, 200))
-  }
-  throw new Error('chromium did not come up on debug port')
-}
 
 async function getPage(browser) {
   const ctx = browser.contexts()[0] ?? await browser.newContext()
@@ -65,7 +26,6 @@ function bytesBase64(buf) {
 }
 
 async function run(cmd, args) {
-  await ensureChromium()
   const browser = await chromium.connectOverCDP(`http://127.0.0.1:${DEBUG_PORT}`)
   try {
     const p = await getPage(browser)
@@ -102,8 +62,6 @@ async function run(cmd, args) {
         return { text: txt, url: p.url() }
       }
       case 'dom': {
-        // Compact selectors-and-text map so the agent can decide what
-        // to click/fill next without eating tokens on full HTML.
         const data = await p.evaluate(() => {
           const pick = (el) => ({
             tag:   el.tagName.toLowerCase(),
