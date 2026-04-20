@@ -129,8 +129,11 @@ async function handleGoto(ctx: BrowserCtx, args: z.infer<typeof gotoArgs>) {
     `  [ "$STATE" = "complete" ] && break`,
     `  sleep 0.2`,
     `done`,
-    // Report final state as JSON.
-    `EXPR='JSON.stringify({url: location.href, title: document.title})'`,
+    // Report final state as JSON. `status` is the HTTP status of the
+    // main-document response (from PerformanceNavigationTiming) so
+    // agents can tell a 404 from a real page even when the server
+    // returns a custom error body with a reasonable <title>.
+    `EXPR='JSON.stringify({url: location.href, title: document.title, status: performance.getEntriesByType("navigation")[0]?.responseStatus ?? null})'`,
     `${EVAL_EXPR}`,
   ].join('\n')
   return runBrowser(ctx, 'browserGoto', args, body)
@@ -298,7 +301,7 @@ export const info: McpServerInfo = {
 export const tools: ToolDef[] = [
   { name: 'fetch',             description: 'Make an HTTP request and return the response. Large responses are written to a file; use the read tool to paginate.',                                                                                schema: validate.toolFetch,  handler: handleFetch },
   { name: 'scrape',            description: 'Extract clean readable text from a web page. Large output is written to a file you can read with offset/limit.',                                                                                      schema: validate.toolScrape, handler: handleScrape },
-  { name: 'browserGoto',       description: 'Navigate the session\'s browser to a URL. Cookies, localStorage, and open tabs persist across calls — use this to start a flow or follow a manual redirect.',                                         schema: gotoArgs,            handler: handleGoto },
+  { name: 'browserGoto',       description: 'Navigate the session\'s browser to a URL. Returns {url, title, status} where status is the HTTP status of the main document response — check it before assuming the page loaded.',               schema: gotoArgs,            handler: handleGoto },
   { name: 'browserScreenshot', description: 'Take a PNG screenshot of the current page. Writes it to a workspace file under .foundry/screenshots/ and returns the path. Attach the path to a ticketComment to surface it for review. Use full_page=true for the whole scrolled page.', schema: screenshotArgs, handler: handleScreenshot },
   { name: 'browserClick',      description: 'Click an element by CSS selector. Set wait_navigation=true when clicking something that navigates (a link or a submit button).',                                                                      schema: clickArgs,           handler: handleClick },
   { name: 'browserFill',       description: 'Type into an input or textarea by CSS selector. Clears the existing value first.',                                                                                                                    schema: fillArgs,            handler: handleFill },
