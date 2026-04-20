@@ -72,4 +72,9 @@ RUN chmod +x /usr/local/bin/foundry-browser
 # RCA-001.
 ENV HOME=/tmp
 
+# Node ESM doesn't find globally-installed packages by default. Point
+# NODE_PATH at the npm global prefix so /usr/local/bin/foundry-browser
+# can `import 'puppeteer-core'`.
+ENV NODE_PATH=/usr/local/lib/node_modules
+
 WORKDIR /work
