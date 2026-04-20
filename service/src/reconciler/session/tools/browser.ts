@@ -89,7 +89,7 @@ const BOOT = [
 // The expression is passed via $EXPR so jq --arg can encode it safely.
 const EVAL_EXPR = [
   `jq -cn --arg e "$EXPR" '{id:1, method:"Runtime.evaluate", params:{expression:$e, returnByValue:true, awaitPromise:true}}' \\`,
-  `  | websocat -t -1 "$WS" \\`,
+  `  | websocat -t -1 -B 16777216 "$WS" \\`,
   `  | jq -r '.result.result.value // (.result.exceptionDetails.text // "CDP error" | halt_error)'`,
 ].join('\n')
 
@@ -120,7 +120,7 @@ async function handleGoto(ctx: BrowserCtx, args: z.infer<typeof gotoArgs>) {
     `URL=${esc(args.url)}`,
     `TIMEOUT_MS=${args.timeout_ms ?? 30_000}`,
     // Fire navigation.
-    `jq -cn --arg u "$URL" '{id:1, method:"Page.navigate", params:{url:$u}}' | websocat -t -1 "$WS" >/dev/null`,
+    `jq -cn --arg u "$URL" '{id:1, method:"Page.navigate", params:{url:$u}}' | websocat -t -1 -B 16777216 "$WS" >/dev/null`,
     // Poll document.readyState until 'complete' or timeout.
     `DEADLINE=$(( $(date +%s%3N) + TIMEOUT_MS ))`,
     `while [ "$(date +%s%3N)" -lt "$DEADLINE" ]; do`,
@@ -147,12 +147,18 @@ async function handleScreenshot(ctx: BrowserCtx, args: z.infer<typeof screenshot
   const body = [
     `OUT=${esc(path)}`,
     `mkdir -p "$(dirname "$OUT")"`,
-    // Capture.
+    // Capture. -B 16M on websocat avoids truncating large screenshot
+    // responses (default read buffer is 64 KB; real screenshots run
+    // 80 KB+ and a truncated JSON would silently produce an empty PNG
+    // that the next ticketComment upload then rejects as empty).
     `jq -cn --argjson fp ${args.full_page ? 'true' : 'false'} \\`,
     `  '{id:1, method:"Page.captureScreenshot", params:{format:"png", captureBeyondViewport:$fp}}' \\`,
-    `  | websocat -t -1 "$WS" \\`,
+    `  | websocat -t -1 -B 16777216 "$WS" \\`,
     `  | jq -r '.result.data // (.error.message // "capture failed" | halt_error)' \\`,
     `  | base64 -d > "$OUT"`,
+    // Defensive: fail if the PNG is empty or missing the magic header.
+    `[ -s "$OUT" ] && head -c 8 "$OUT" | od -An -tx1 | tr -d ' \\n' | grep -q '^89504e470d0a1a0a' \\`,
+    `  || { echo "screenshot produced invalid PNG" >&2; rm -f "$OUT"; exit 1; }`,
     // Return {path, url, title} as JSON.
     `EXPR='JSON.stringify({url: location.href, title: document.title})'`,
     `${EVAL_EXPR} | jq --arg p "$OUT" '. + {path: $p}'`,
