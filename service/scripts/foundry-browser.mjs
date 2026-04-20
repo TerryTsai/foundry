@@ -3,16 +3,65 @@
 // the sandbox image. Each invocation takes one command and its args
 // (JSON via argv[3]) and prints a JSON result on stdout.
 //
-// Chromium's lifecycle is owned by the persistent session container
-// (see startSessionContainer in reconciler/session/sandbox/podman.ts).
-// The container's entrypoint launches chromium with
-// --remote-debugging-port=9222 and waits on it; startSessionContainer
-// blocks until the CDP port is reachable before returning. So by the
-// time this wrapper runs, chromium is already up. We just connect.
+// The persistent session container's entrypoint is `sleep infinity`
+// (see startSessionContainer in reconciler/session/sandbox/podman.ts)
+// so chromium isn't pre-launched. This wrapper starts chromium lazily
+// on the first call, writes the pid to /tmp/foundry-chromium.pid, and
+// reuses that same process on every subsequent call. The CDP session
+// keeps cookies, open tabs, and DOM state alive across tool calls —
+// the whole point of having a persistent container.
 
 import { chromium } from 'playwright-core'
+import { spawn } from 'node:child_process'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import net from 'node:net'
 
 const DEBUG_PORT = 9222
+const PID_FILE   = '/tmp/foundry-chromium.pid'
+
+function isPortOpen(port) {
+  return new Promise(resolve => {
+    const sock = net.connect({ host: '127.0.0.1', port }, () => { sock.end(); resolve(true) })
+    sock.on('error', () => resolve(false))
+    sock.setTimeout(300, () => { sock.destroy(); resolve(false) })
+  })
+}
+
+function pidAlive(pid) {
+  try { process.kill(pid, 0); return true } catch { return false }
+}
+
+async function ensureChromium() {
+  // Existing pidfile + live process + port open → reuse.
+  if (existsSync(PID_FILE)) {
+    const pid = Number(readFileSync(PID_FILE, 'utf-8').trim())
+    if (pid && pidAlive(pid) && await isPortOpen(DEBUG_PORT)) return
+  }
+  // Launch a detached headless chromium. Use --user-data-dir under /tmp
+  // (tmpfs is writable; container root fs is read-only) so chromium can
+  // write its profile. --no-sandbox because the podman container already
+  // drops caps and runs as non-root — chromium's built-in sandbox wants
+  // capabilities we intentionally don't grant.
+  const child = spawn('chromium', [
+    `--remote-debugging-port=${DEBUG_PORT}`,
+    '--remote-debugging-address=127.0.0.1',
+    '--headless=new',
+    '--no-sandbox',
+    '--disable-gpu',
+    '--disable-dev-shm-usage',
+    '--user-data-dir=/tmp/foundry-chromium-profile',
+    'about:blank',
+  ], { detached: true, stdio: 'ignore' })
+  child.unref()
+  writeFileSync(PID_FILE, String(child.pid))
+  // Wait up to 15 s for the CDP port to open.
+  const deadline = Date.now() + 15_000
+  while (Date.now() < deadline) {
+    if (await isPortOpen(DEBUG_PORT)) return
+    await new Promise(r => setTimeout(r, 150))
+  }
+  throw new Error('chromium failed to open CDP port within 15s')
+}
 
 async function getPage(browser) {
   const ctx = browser.contexts()[0] ?? await browser.newContext()
@@ -26,6 +75,7 @@ function bytesBase64(buf) {
 }
 
 async function run(cmd, args) {
+  await ensureChromium()
   const browser = await chromium.connectOverCDP(`http://127.0.0.1:${DEBUG_PORT}`)
   try {
     const p = await getPage(browser)

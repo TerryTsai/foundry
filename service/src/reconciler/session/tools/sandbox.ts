@@ -62,7 +62,7 @@ function assertSafeWritePath(p: string): void {
 async function handleShell(ctx: SandboxCtx, toolName: string, args: z.infer<typeof validate.toolExec>) {
   const command = args.cwd ? `cd ${esc(args.cwd)} && ${args.command}` : args.command
   try {
-    const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace, command, toolName, args, { network: args.network ?? false, toolUseId: ctx.toolUseId })
+    const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace, command, toolName, args, { toolUseId: ctx.toolUseId })
     return { ...bounded(ctx.workspace, r.stdout), stderr: r.stderr, exitCode: r.exitCode }
   } catch (err) {
     return { content: '', stderr: '', exitCode: -1, error: err instanceof Error ? err.message : String(err) }
@@ -77,7 +77,6 @@ const runScriptSchema = z.object({
   script:      z.string().describe('Script body (multi-line). Written to a temp file and executed.'),
   interpreter: z.enum(['sh', 'python', 'node']).default('sh').describe('Interpreter to use.'),
   cwd:         z.string().optional().describe('Working directory inside the container (default /work).'),
-  network:     z.boolean().optional().describe('Enable network access (default false).'),
 })
 
 async function handleRunScript(ctx: SandboxCtx, args: z.infer<typeof runScriptSchema>) {
@@ -88,7 +87,7 @@ async function handleRunScript(ctx: SandboxCtx, args: z.infer<typeof runScriptSc
     ? `cd ${esc(args.cwd)} && ${interp} /work/${scriptPath}`
     : `${interp} /work/${scriptPath}`
   try {
-    const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace, command, 'runScript', args, { network: args.network ?? false, toolUseId: ctx.toolUseId })
+    const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace, command, 'runScript', args, { toolUseId: ctx.toolUseId })
     return { ...bounded(ctx.workspace, r.stdout), stderr: r.stderr, exitCode: r.exitCode }
   } catch (err) {
     return { content: '', stderr: '', exitCode: -1, error: err instanceof Error ? err.message : String(err) }
@@ -210,8 +209,8 @@ export const info: McpServerInfo = {
 }
 
 export const tools: ToolDef[] = [
-  { name: 'run',       description: 'Run a single shell command in the session sandbox. The workspace is bind-mounted at /work and persists across calls within this session. The sandbox starts with an EMPTY /work — populate it yourself (e.g. via gitClone). Pre-installed: git, node/npm/npx, tsc, prettier, eslint, tsx, python3, curl, wget, jq, lynx, make, gcc, and standard unix tools. $HOME is /tmp so package managers work without flags. Network is disabled by default; pass network:true for outbound access. Prefer one command per call for clean audit trails — avoid chaining with && or ;. Large stdout is written to a file; use the read tool to paginate.', schema: validate.toolExec, handler: handleRun },
-  { name: 'runScript',  description: 'Run a multi-line script in the sandbox. Provide the script body and choose an interpreter (sh, python, or node). The script is written to a temp file and executed — no shell quoting or && chaining needed. Same sandbox environment as `run`. Network disabled by default; pass network:true for outbound access.', schema: runScriptSchema, handler: handleRunScript },
+  { name: 'run',       description: 'Run a single shell command in the session sandbox. The workspace is bind-mounted at /work and persists across calls within this session. The sandbox starts with an EMPTY /work — populate it yourself (e.g. via gitClone). Pre-installed: git, node/npm/npx, tsc, prettier, eslint, tsx, python3, curl, wget, jq, lynx, make, gcc, and standard unix tools. $HOME is /tmp so package managers work without flags. Network is always available. Prefer one command per call for clean audit trails — avoid chaining with && or ;. Large stdout is written to a file; use the read tool to paginate.', schema: validate.toolExec, handler: handleRun },
+  { name: 'runScript',  description: 'Run a multi-line script in the sandbox. Provide the script body and choose an interpreter (sh, python, or node). The script is written to a temp file and executed — no shell quoting or && chaining needed. Same sandbox environment as `run`.', schema: runScriptSchema, handler: handleRunScript },
   { name: 'read',       description: 'Read the contents of a file from the workspace. Use offset and limit to paginate. Large output is written to a file you can read with offset/limit. Reads against an empty workspace return "not found" — populate /work first.',                                                                                  schema: validate.toolRead,   handler: handleRead },
   { name: 'write',      description: 'Create or overwrite a file in the workspace. Parent directories are created as needed. .git/ and .foundry/ paths are protected.',                                                                                                                                                                                    schema: validate.toolWrite,  handler: handleWrite },
   { name: 'patch',      description: 'Apply a targeted edit to a file by replacing an exact string match. Fails if the old_string is not found or appears more than once. .git/ and .foundry/ paths are protected.',                                                                                                                                       schema: validate.toolPatch,  handler: handlePatch },

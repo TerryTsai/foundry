@@ -6,9 +6,9 @@
 // to the container, and consistent observability in the activity
 // timeline.
 //
-// The token is mounted at /foundry-secrets/token (mode 0400) — never
-// passed via env vars or podman argv. Each call reads it inline:
-//   curl -H "Authorization: Bearer $(cat /foundry-secrets/token)" …
+// The token is passed via the podman exec env ($TOKEN) — never printed
+// in argv. Each call references it inline:
+//   curl -H "Authorization: Bearer $TOKEN" …
 // The agent sees the tool by name and arguments; the curl is an
 // implementation detail.
 
@@ -107,12 +107,10 @@ function withAccount(ctx: FoundryCtx, path: string): string {
 
 async function apiGet(ctx: FoundryCtx, toolName: string, toolInput: unknown, path: string) {
   const url = withAccount(ctx, path)
-  const command = `curl -sf -H "Authorization: Bearer $(cat /foundry-secrets/token)" "http://host.containers.internal:${ctx.config.port}${url}"`
+  const command = `curl -sf -H "Authorization: Bearer $TOKEN" "http://host.containers.internal:${ctx.config.port}${url}"`
   const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace,
     command, toolName, toolInput, {
-      network: true,
-      mount:   'none',
-      secretFiles: { token: ctx.sandboxToken },
+      env:       { TOKEN: ctx.sandboxToken },
       toolUseId: ctx.toolUseId,
     })
   if (r.exitCode !== 0) return { error: r.stderr || r.stdout || `API call failed (exit ${r.exitCode})` }
@@ -121,12 +119,10 @@ async function apiGet(ctx: FoundryCtx, toolName: string, toolInput: unknown, pat
 
 async function apiPost(ctx: FoundryCtx, toolName: string, toolInput: unknown, path: string, body: string) {
   const url = withAccount(ctx, path)
-  const command = `curl -sf -X POST -H "Authorization: Bearer $(cat /foundry-secrets/token)" -H "Content-Type: application/json" -d ${esc(body)} "http://host.containers.internal:${ctx.config.port}${url}"`
+  const command = `curl -sf -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d ${esc(body)} "http://host.containers.internal:${ctx.config.port}${url}"`
   const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace,
     command, toolName, toolInput, {
-      network: true,
-      mount:   'none',
-      secretFiles: { token: ctx.sandboxToken },
+      env:       { TOKEN: ctx.sandboxToken },
       toolUseId: ctx.toolUseId,
     })
   if (r.exitCode !== 0) return { error: r.stderr || r.stdout || `API call failed (exit ${r.exitCode})` }
@@ -135,8 +131,7 @@ async function apiPost(ctx: FoundryCtx, toolName: string, toolInput: unknown, pa
 
 // Upload a file from the session workspace via curl --data-binary. The
 // workspace is bind-mounted into the container at /work, so relative
-// paths in the agent's args resolve cleanly. mount:'ro' keeps the agent
-// from mutating its workspace during the upload itself.
+// paths in the agent's args resolve cleanly.
 async function apiUploadFile(
   ctx: FoundryCtx, toolName: string, toolInput: unknown,
   path: string, workspacePath: string, mime: string,
@@ -144,16 +139,14 @@ async function apiUploadFile(
   const url = withAccount(ctx, path)
   const command = [
     `curl -sf -X POST`,
-    `-H "Authorization: Bearer $(cat /foundry-secrets/token)"`,
+    `-H "Authorization: Bearer $TOKEN"`,
     `-H "Content-Type: ${mime}"`,
     `--data-binary @${esc(`/work/${workspacePath}`)}`,
     `"http://host.containers.internal:${ctx.config.port}${url}"`,
   ].join(' ')
   const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace,
     command, toolName, toolInput, {
-      network: true,
-      mount:   'ro',
-      secretFiles: { token: ctx.sandboxToken },
+      env:       { TOKEN: ctx.sandboxToken },
       toolUseId: ctx.toolUseId,
     })
   if (r.exitCode !== 0) return { error: r.stderr || r.stdout || `upload failed (exit ${r.exitCode})` }
@@ -171,12 +164,10 @@ function mimeFromPath(p: string): string | null {
 
 async function apiDelete(ctx: FoundryCtx, toolName: string, toolInput: unknown, path: string) {
   const url = withAccount(ctx, path)
-  const command = `curl -sf -X DELETE -H "Authorization: Bearer $(cat /foundry-secrets/token)" "http://host.containers.internal:${ctx.config.port}${url}"`
+  const command = `curl -sf -X DELETE -H "Authorization: Bearer $TOKEN" "http://host.containers.internal:${ctx.config.port}${url}"`
   const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace,
     command, toolName, toolInput, {
-      network: true,
-      mount:   'none',
-      secretFiles: { token: ctx.sandboxToken },
+      env:       { TOKEN: ctx.sandboxToken },
       toolUseId: ctx.toolUseId,
     })
   if (r.exitCode !== 0) return { error: r.stderr || r.stdout || `API call failed (exit ${r.exitCode})` }
@@ -279,7 +270,7 @@ async function handleThink(ctx: FoundryCtx, args: z.infer<typeof thinkArgs>) {
   // The container boots, echoes "ok", dies. Gives a real execution row
   // with timing for how long the model spent on this reasoning step.
   const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace,
-    'echo ok', 'think', args, { mount: 'none', toolUseId: ctx.toolUseId })
+    'echo ok', 'think', args, { toolUseId: ctx.toolUseId })
   return { ok: r.exitCode === 0 }
 }
 

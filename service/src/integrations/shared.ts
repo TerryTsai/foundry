@@ -129,29 +129,19 @@ export function asImage(bytes: Buffer, mime: string): { content: [{ type: 'image
 }
 
 // ── Sandbox exec wrapper ──
-// runCommand spawns a podman container with the workspace bind-mounted,
-// runs the command, captures stdout/stderr, and creates an execution row
-// in the DB for audit. Used by every tool that runs inside the sandbox
-// (exec, read, write, patch, remove, search, find, fetch, scrape, and
-// the git tools in tools/github.ts).
+// runCommand execs a command into this session's persistent podman
+// container (lazily started by ensureSessionContainer on first use).
+// State — filesystem writes, background processes, chromium, dev
+// servers, installed packages — persists across calls within a
+// session. Used by every tool that touches the sandbox.
 //
-// The options object supports the tier-2 model: secret-using tools pass
-// env vars (never serialized to the execution row) and can downgrade the
-// workspace mount to 'ro' or remove it entirely.
+// Secrets travel via `env` only. Values are kept out of podman argv by
+// podman exec's -e `KEY=value` pairs, and the scrubSecrets pass catches
+// accidental echoes in stdout/stderr before the execution row is saved.
 
 export interface RunCommandOptions {
-  network?: boolean
-  env?:     Record<string, string>   // passed to podman; NOT logged to DB
-  mount?:   'rw' | 'ro' | 'none'     // workspace bind mode, default 'rw'; ignored when artifacts are set
-  /** Isolated workspace model. When either is set, /work is not mounted;
-   *  /input (ro) holds the copied-in artifact allowlist, /output (rw)
-   *  is a scratch that gets copied back to /work on success. */
-  artifactsIn?:  { src: string; dest: string }[]
-  artifactsOut?: { src: string; dest: string }[]
-  /** Files staged into /foundry-secrets (read-only). Use for credentials
-   *  the command needs to read but that shouldn't be visible in
-   *  /proc/self/environ. Map keys are filenames under /foundry-secrets. */
-  secretFiles?: Record<string, string>
+  env?:       Record<string, string>  // extra env vars for the exec; NOT logged to DB
+  timeoutMs?: number                   // override config.sandboxTimeout
   /** tool_use block id from the SDK handler's `extra._meta`. Persisted
    *  on the execution row so the UI can correlate the sandbox-domain
    *  execution back to the agent-domain tool_use block that caused it. */
@@ -168,19 +158,14 @@ export function toolUseId(extra: unknown): string | undefined {
 }
 
 export function runCommand(
-  db: Db, config: Config, sessionId: string, workspace: string,
+  db: Db, config: Config, sessionId: string, _workspace: string,
   command: string, toolName: string, toolInput: unknown, options: RunCommandOptions = {},
 ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
   const { emitter } = executionCreate(db, config, {
     command, session_id: sessionId, tool_name: toolName, tool_input: toolInput,
     tool_use_id: options.toolUseId,
-    network: options.network ?? false,
-    env:     options.env ?? {},
-    mount:   options.mount ?? 'rw',
-    artifactsIn:  options.artifactsIn,
-    artifactsOut: options.artifactsOut,
-    secretFiles:  options.secretFiles,
-    workspace,
+    timeout_ms:  options.timeoutMs,
+    env:         options.env,
   })
   const stdout: string[] = []
   const stderr: string[] = []
@@ -188,62 +173,7 @@ export function runCommand(
     emitter.on('stdout', (line: string) => stdout.push(line))
     emitter.on('stderr', (line: string) => stderr.push(line))
     emitter.once('exit', (code: number) => {
-      resolve({ stdout: stdout.join('\n'), stderr: stderr.join('\n'), exitCode: code })
+      resolve({ stdout: stdout.join(''), stderr: stderr.join(''), exitCode: code })
     })
   })
-}
-
-// Run a command inside this session's persistent container, creating
-// the container lazily on first use. Used by stateful tools (browser
-// primitives) that need to share state — open tabs, cookies, running
-// processes — across multiple tool calls. The execution row pattern
-// mirrors runCommand so the UI feed and timings look identical.
-//
-// No per-exec cgroup stats yet (the container's cgroup is shared across
-// all execs). duration + exit + stdout/stderr cover the common
-// observability needs.
-import { now } from '../core/util.js'
-import * as database from '../core/db.js'
-import { ensureSessionContainer, execInContainer } from '../reconciler/session/sandbox/podman.js'
-
-export async function runInSessionContainer(
-  db: Db, config: Config, sessionId: string, workspace: string,
-  command: string, toolName: string, toolInput: unknown,
-  options: { toolUseId?: string; timeoutMs?: number; env?: Record<string, string> } = {},
-): Promise<{ stdout: string; stderr: string; exitCode: number }> {
-  const name = await ensureSessionContainer({
-    sessionId, workspace, secretsDir: null,
-    image: config.sandboxImage,
-    memoryMb: config.sandboxMemoryMb,
-    cpus: config.sandboxCpus,
-    pidsLimit: config.sandboxPidsLimit,
-    nofileSoft: config.sandboxNofileSoft,
-    nofileHard: config.sandboxNofileHard,
-    tmpfsMb: config.sandboxTmpfsMb,
-  })
-  const row = database.executionInsert(db, {
-    session_id:  sessionId,
-    tool_name:   toolName,
-    tool_input:  JSON.stringify(toolInput),
-    tool_use_id: options.toolUseId ?? null,
-    command,
-    status:      'running',
-    timeout_ms:  options.timeoutMs ?? config.sandboxTimeout,
-    memory_mb:   null,
-    started_at:  now(),
-  })
-  const started = Date.now()
-  const res = await execInContainer(name, command, {
-    timeoutMs: options.timeoutMs ?? config.sandboxTimeout,
-    env: options.env,
-  })
-  database.executionUpdate(db, row.id, {
-    status:      res.exitCode === 0 ? 'finished' : 'failed',
-    exit_code:   res.exitCode,
-    stdout:      res.stdout,
-    stderr:      res.stderr,
-    duration_ms: Date.now() - started,
-    ended_at:    now(),
-  })
-  return res
 }

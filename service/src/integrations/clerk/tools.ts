@@ -31,11 +31,10 @@ async function api(ctx: ClerkCtx, toolName: string, args: unknown, method: 'GET'
   const bodyFlag = body !== undefined
     ? ` -H "Content-Type: application/json" --data ${JSON.stringify(JSON.stringify(body))}`
     : ''
-  const cmd = `curl -sf -X ${method} -H "Authorization: Bearer $(cat /foundry-secrets/secret-key)" "https://api.clerk.com/v1${path}"${bodyFlag}`
+  const cmd = `curl -sf -X ${method} -H "Authorization: Bearer $SECRET_KEY" "https://api.clerk.com/v1${path}"${bodyFlag}`
   const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace,
     cmd, toolName, args, {
-      network: true, mount: 'none',
-      secretFiles: { 'secret-key': ctx.secrets.secret_key ?? '' },
+      env:       { SECRET_KEY: ctx.secrets.secret_key ?? '' },
       toolUseId: ctx.toolUseId,
     })
   if (r.exitCode !== 0) return { ok: false as const, error: r.stderr || r.stdout || 'request failed' }

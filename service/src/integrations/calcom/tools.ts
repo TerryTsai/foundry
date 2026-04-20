@@ -25,21 +25,17 @@ const pingArgs          = z.object({})
 
 async function api(ctx: CalcomCtx, toolName: string, args: unknown, method: 'GET' | 'POST' | 'DELETE', path: string, extraQuery?: Record<string, string>, body?: unknown) {
   const qs = new URLSearchParams(extraQuery)
-  // Build the URL shell — apiKey is read from a mounted secret file at exec
-  // time. Keeping it out of podman argv (and out of the container env)
-  // reduces the plaintext-credential boundary surface.
   const base = `https://api.cal.com/v1${path}`
   const sep1 = base.includes('?') ? '&' : '?'
   const sep2 = qs.toString() ? '&' : ''
-  const url = `${base}${sep1}apiKey=$(cat /foundry-secrets/api-key)${sep2}${qs.toString()}`
+  const url = `${base}${sep1}apiKey=$API_KEY${sep2}${qs.toString()}`
   const bodyFlag = body !== undefined
     ? ` -H "Content-Type: application/json" --data ${JSON.stringify(JSON.stringify(body))}`
     : ''
   const cmd = `curl -sf -X ${method} "${url}"${bodyFlag}`
   const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace,
     cmd, toolName, args, {
-      network: true, mount: 'none',
-      secretFiles: { 'api-key': ctx.secrets.api_key ?? '' },
+      env:       { API_KEY: ctx.secrets.api_key ?? '' },
       toolUseId: ctx.toolUseId,
     })
   if (r.exitCode !== 0) return { ok: false as const, error: r.stderr || r.stdout || 'request failed' }

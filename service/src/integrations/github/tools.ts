@@ -172,7 +172,6 @@ async function handleGitClone(ctx: GithubCtx, args: z.infer<typeof gitCloneArgs>
     const command = [
       'set -e',
       'export GIT_TERMINAL_PROMPT=0',
-      'INSTALL_TOKEN="$(cat /foundry-secrets/install-token)"',
       'git clone -q "https://x-access-token:${INSTALL_TOKEN}@github.com/${OWNER}/${REPO}" /work',
       'git -C /work remote set-url origin "https://github.com/${OWNER}/${REPO}.git"',
       'git -C /work config user.email foundry@localhost',
@@ -182,14 +181,12 @@ async function handleGitClone(ctx: GithubCtx, args: z.infer<typeof gitCloneArgs>
 
     const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace,
       command, 'gitClone', { owner, repo: name }, {
-        network: true,
-        mount:   'rw',
         env: {
           OWNER:         owner,
           REPO:          name,
           SESSION_ID:    ctx.sessionId,
+          INSTALL_TOKEN: installToken,
         },
-        secretFiles: { 'install-token': installToken },
         toolUseId: ctx.toolUseId,
       })
 
@@ -280,7 +277,6 @@ async function handleGitPullRequest(ctx: GithubCtx, args: z.infer<typeof gitPull
       'set -e',
       'cd /work',
       'export GIT_TERMINAL_PROMPT=0',
-      'INSTALL_TOKEN="$(cat /foundry-secrets/install-token)"',
       'BASE=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed "s|refs/remotes/origin/||" || echo main)',
       'AHEAD=$(git rev-list --count "${BASE}..HEAD")',
       'if [ "$AHEAD" -eq 0 ]; then',
@@ -302,15 +298,13 @@ async function handleGitPullRequest(ctx: GithubCtx, args: z.infer<typeof gitPull
 
     const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace,
       command, 'gitPullRequest', {}, {
-        network: true,
-        mount:   'ro',
         env: {
           OWNER:         owner,
           REPO:          name,
           BRANCH:        branch,
           PR_BODY_JSON:  prBodyTemplate,
+          INSTALL_TOKEN: installToken,
         },
-        secretFiles: { 'install-token': installToken },
         toolUseId: ctx.toolUseId,
       })
 
@@ -357,20 +351,17 @@ async function handleGitRebase(ctx: GithubCtx, _args: z.infer<typeof gitRebaseAr
       'set -e',
       'cd /work',
       'export GIT_TERMINAL_PROMPT=0',
-      'INSTALL_TOKEN="$(cat /foundry-secrets/install-token)"',
       'git fetch -q "https://x-access-token:${INSTALL_TOKEN}@github.com/${OWNER}/${REPO}" main:refs/remotes/origin/main',
       'git rebase -q origin/main',
     ].join('\n')
 
     const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace,
       command, 'gitRebase', {}, {
-        network: true,
-        mount:   'rw',
         env: {
-          OWNER: owner,
-          REPO:  name,
+          OWNER:         owner,
+          REPO:          name,
+          INSTALL_TOKEN: installToken,
         },
-        secretFiles: { 'install-token': installToken },
         toolUseId: ctx.toolUseId,
       })
 
@@ -398,7 +389,6 @@ async function handleGitMerge(ctx: GithubCtx, args: z.infer<typeof gitMergeArgs>
       'set -e',
       'cd /work',
       'export GIT_TERMINAL_PROMPT=0',
-      'INSTALL_TOKEN="$(cat /foundry-secrets/install-token)"',
       'BASE=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed "s|refs/remotes/origin/||" || echo main)',
       'AHEAD=$(git rev-list --count "${BASE}..HEAD")',
       'if [ "$AHEAD" -eq 0 ]; then',
@@ -419,15 +409,13 @@ async function handleGitMerge(ctx: GithubCtx, args: z.infer<typeof gitMergeArgs>
 
     const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace,
       command, 'gitMerge', {}, {
-        network: true,
-        mount:   'ro',
         env: {
           OWNER:         owner,
           REPO:          name,
           BRANCH:        branch,
           PR_BODY_JSON:  prBodyTemplate,
+          INSTALL_TOKEN: installToken,
         },
-        secretFiles: { 'install-token': installToken },
         toolUseId: ctx.toolUseId,
       })
 

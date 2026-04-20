@@ -1,17 +1,23 @@
 import type { Response } from 'express'
+import { EventEmitter } from 'events'
+import { eq } from 'drizzle-orm'
 
 import { type Db } from '../core/db.js'
 import * as database from '../core/db.js'
 import type { Execution } from '../core/schema.js'
 import type { Config } from '../core/config.js'
 import { mustExist, assertStatus, now } from '../core/util.js'
-import { spawnRun, type RunHandle } from '../reconciler/session/sandbox/podman.js'
-import { prepareWorkspace, finishExecution } from '../reconciler/session/sandbox/workspace.js'
+import { scrubSecrets } from '../integrations/shared.js'
+import {
+  ensureSessionContainer, execInContainer, stopSessionContainer, type ExecHandle,
+} from '../reconciler/session/sandbox/podman.js'
 import { executionOwned, sessionOwned } from '../projects/service.js'
-import { eq } from 'drizzle-orm'
 import * as schema from '../core/schema.js'
 
-const activeRuns = new Map<string, RunHandle>()
+// Track live exec handles so we can kill in-flight commands on ticket
+// cancel. Container teardown also kills them, but explicit kills give
+// a cleaner exit code trail.
+const activeExecs = new Map<string, ExecHandle>()
 
 export function executionList(db: Db, accountId: string): Execution[] {
   // Restrict to executions whose session sits in a project the requester
@@ -37,62 +43,132 @@ export function executionBySession(db: Db, accountId: string, sessionId: string)
   return database.executionBySession(db, sessionId)
 }
 
-export function executionCreate(db: Db, config: Config, input: {
-  command:    string
+export interface ExecutionCreateInput {
+  command:     string
   session_id?: string
   tool_name?:  string
   tool_input?: unknown
   tool_use_id?: string
   timeout_ms?: number
-  memory_mb?:  number
-  network?:    boolean
-  workspace?:  string
-  env?:        Record<string, string>
-  mount?:      'rw' | 'ro' | 'none'
-  artifactsIn?:  { src: string; dest: string }[]
-  artifactsOut?: { src: string; dest: string }[]
-  secretFiles?: Record<string, string>
-}): { id: string; emitter: RunHandle['emitter'] } {
-  const { command, session_id, tool_name, tool_input, tool_use_id,
-          timeout_ms = config.sandboxTimeout, memory_mb,
-          network = false, env = {}, mount = 'rw', artifactsIn, artifactsOut, secretFiles } = input
-  // tool_use_id is the natural join key to the matching activity row.
-  // Both tables stamp it at write time — no UPDATE needed, no race.
-  // Do NOT treat this as "redundant with activity.tool_use_id" (see
-  // schema.ts on execution for the long version).
+  /** Env vars passed to the exec (including secrets — curl handlers
+   *  reference them as `$TOKEN` etc. instead of reading from a
+   *  mounted secrets dir). Values are scrubbed from stdout/stderr
+   *  before the execution row is persisted. */
+  env?:         Record<string, string>
+}
+
+// Unified execution path — every tool call routes through here. Creates
+// the execution row, ensures the session's persistent container is up,
+// execs the command, streams stdout/stderr, and finalizes the row
+// with cpu/net deltas on exit.
+export function executionCreate(
+  db: Db, config: Config, input: ExecutionCreateInput,
+): { id: string; emitter: ExecHandle['emitter'] } {
+  if (!input.session_id) {
+    throw new Error('executionCreate: session_id is required for persistent-container execution')
+  }
+  const sessionId = input.session_id
+  // Resolve the session's workspace (set up once by withWorkspace) so
+  // startSessionContainer can bind-mount it. Sessions always have a
+  // workspace by the time they make a tool call.
+  const session = mustExist(database.sessionGet(db, sessionId))
+  void session // for future use; right now just validates existence
+
+  const timeout_ms = input.timeout_ms ?? config.sandboxTimeout
+
   const row = database.executionInsert(db, {
-    session_id:  session_id  ?? null,
-    tool_name:   tool_name   ?? null,
-    tool_input:  tool_input !== undefined ? JSON.stringify(tool_input) : null,
-    tool_use_id: tool_use_id ?? null,
-    command, status: 'running', timeout_ms, memory_mb: memory_mb ?? null,
-    started_at: now(),
+    session_id:  sessionId,
+    tool_name:   input.tool_name   ?? null,
+    tool_input:  input.tool_input !== undefined ? JSON.stringify(input.tool_input) : null,
+    tool_use_id: input.tool_use_id ?? null,
+    command:     input.command,
+    status:      'running',
+    timeout_ms,
+    memory_mb:   null,
+    started_at:  now(),
   })
 
-  const dirs = prepareWorkspace({ executionId: row.id, workspace: input.workspace, artifactsIn, artifactsOut, secretFiles })
-  const handle = spawnRun({
-    command, workspace: dirs.workspace, statsDir: dirs.statsDir, secretsDir: dirs.secretsDir,
-    image: config.sandboxImage, env, network, mount,
-    isolated: dirs.isolated, inputDir: dirs.inputDir, outputDir: dirs.outputDir,
-    timeoutMs:  timeout_ms,
-    memoryMb:   memory_mb ?? config.sandboxMemoryMb,
-    cpus:       config.sandboxCpus,
-    pidsLimit:  config.sandboxPidsLimit,
-    nofileSoft: config.sandboxNofileSoft,
-    nofileHard: config.sandboxNofileHard,
-    tmpfsMb:    config.sandboxTmpfsMb,
-  })
   const startTime = Date.now()
   const stdout: string[] = []
   const stderr: string[] = []
-  activeRuns.set(row.id, handle)
-  handle.emitter.on('stdout', (line: string) => stdout.push(line))
-  handle.emitter.on('stderr', (line: string) => stderr.push(line))
-  handle.emitter.on('exit', (code, stats) => {
-    finishExecution(db, { executionId: row.id, startTime, dirs, artifactsOut, stdout, stderr }, code, stats)
-    activeRuns.delete(row.id)
-  })
-  return { id: row.id, emitter: handle.emitter }
+
+  // Proxy emitter returned synchronously — streaming endpoint and
+  // handler callers attach listeners before the container is up.
+  const outward = new EventEmitter()
+
+  // Start the exec asynchronously so we can return the emitter
+  // synchronously — streaming consumers register listeners on outward
+  // before the container is necessarily up.
+  void (async () => {
+    try {
+      const containerName = await ensureSessionContainer({
+        sessionId,
+        workspace:  sessionWorkspaceDir(sessionId),
+        image:      config.sandboxImage,
+        memoryMb:   config.sandboxMemoryMb,
+        cpus:       config.sandboxCpus,
+        pidsLimit:  config.sandboxPidsLimit,
+        nofileSoft: config.sandboxNofileSoft,
+        nofileHard: config.sandboxNofileHard,
+        tmpfsMb:    config.sandboxTmpfsMb,
+      })
+      const handle = execInContainer(containerName, input.command, {
+        timeoutMs: timeout_ms,
+        env:       input.env,
+      })
+      activeExecs.set(row.id, handle)
+      handle.emitter.on('stdout', (s: string) => { stdout.push(s); outward.emit('stdout', s) })
+      handle.emitter.on('stderr', (s: string) => { stderr.push(s); outward.emit('stderr', s) })
+      handle.emitter.once('exit', (code: number, stats) => {
+        activeExecs.delete(row.id)
+        database.executionUpdate(db, row.id, {
+          status:         code === 0 ? 'finished' : 'failed',
+          exit_code:      code,
+          ended_at:       now(),
+          duration_ms:    Date.now() - startTime,
+          stdout:         scrubSecrets(stdout.join('')) || null,
+          stderr:         scrubSecrets(stderr.join('')) || null,
+          exit_signal:    stats?.exitSignal    ?? null,
+          cpu_ms:         stats?.cpuMs         ?? null,
+          net_rx_bytes:   stats?.netRxBytes    ?? null,
+          net_tx_bytes:   stats?.netTxBytes    ?? null,
+        })
+        outward.emit('exit', code)
+      })
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      database.executionUpdate(db, row.id, {
+        status:      'failed',
+        exit_code:   -1,
+        ended_at:    now(),
+        duration_ms: Date.now() - startTime,
+        stderr:      msg,
+      })
+      outward.emit('stderr', msg)
+      outward.emit('exit', -1)
+      return null
+    }
+  })()
+
+  return { id: row.id, emitter: outward }
+}
+
+// Map session_id → workspace host path. Set by the session runner (see
+// pipeline/workspace.ts) before any tool call; tools in-flight always
+// have a valid entry here. Keyed by session id rather than threaded
+// through every call site.
+const sessionWorkspaces = new Map<string, string>()
+
+export function registerSessionWorkspace(sessionId: string, workspace: string): void {
+  sessionWorkspaces.set(sessionId, workspace)
+}
+export function unregisterSessionWorkspace(sessionId: string): void {
+  sessionWorkspaces.delete(sessionId)
+}
+function sessionWorkspaceDir(sessionId: string): string {
+  const w = sessionWorkspaces.get(sessionId)
+  if (!w) throw new Error(`no workspace registered for session ${sessionId}`)
+  return w
 }
 
 export function executionKill(db: Db, accountId: string, id: string): { ok: true } {
@@ -103,26 +179,26 @@ export function executionKill(db: Db, accountId: string, id: string): { ok: true
 }
 
 function killOne(db: Db, id: string): void {
-  const handle = activeRuns.get(id)
-  if (handle) { handle.kill(); activeRuns.delete(id) }
+  const handle = activeExecs.get(id)
+  if (handle) { handle.kill(); activeExecs.delete(id) }
   database.executionUpdate(db, id, { status: 'cancelled', exit_code: -1, ended_at: now() })
 }
 
-// Kill every in-flight execution belonging to any running session of
-// the ticket. Called on ticket cancel so the SDK's in-progress tool
-// calls return immediately — the session's shouldStop() poller then
-// sees the ticket is no longer running and bails out of its loop.
-// No ownership check here; the caller (tickets/service.ts ticketCancel)
-// already authorized via ticketOwned.
+// Called on ticket cancel. Tearing down each running session's
+// container kills its chromium, its dev servers, and every in-flight
+// exec in one shot — no need to walk executions individually.
 export function killRunningExecutionsForTicket(db: Db, ticketId: string): void {
   const sessions = database.sessionsByTicketRaw(db, ticketId)
   for (const s of sessions) {
     if (s.status !== 'running') continue
+    // Best-effort: mark any live exec rows for this session as cancelled,
+    // then kill the container so chromium / dev servers / anything still
+    // running inside dies cleanly.
     const execs = database.executionBySession(db, s.id)
     for (const e of execs) {
-      if (e.status !== 'running') continue
-      killOne(db, e.id)
+      if (e.status === 'running') killOne(db, e.id)
     }
+    void stopSessionContainer(s.id)
   }
 }
 
@@ -137,11 +213,11 @@ export function executionStream(db: Db, accountId: string, id: string, res: Resp
 
   if (row.status !== 'running') { sse('exit', { code: row.exit_code ?? -1 }); res.end(); return }
 
-  const handle = activeRuns.get(id)
+  const handle = activeExecs.get(id)
   if (!handle) { sse('exit', { code: -1 }); res.end(); return }
 
-  const onStdout = (line: string) => sse('stdout', { line })
-  const onStderr = (line: string) => sse('stderr', { line })
+  const onStdout = (s: string) => sse('stdout', { line: s })
+  const onStderr = (s: string) => sse('stderr', { line: s })
   const onExit   = (code: number) => { sse('exit', { code }); res.end() }
 
   handle.emitter.on('stdout', onStdout)

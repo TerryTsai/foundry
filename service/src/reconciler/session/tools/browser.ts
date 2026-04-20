@@ -1,15 +1,12 @@
 // Browser server: web access. HTTP requests, page text extraction, and
 // interactive browser primitives (screenshot, click, fill, dom).
 //
-// `fetch` and `scrape` are stateless one-shots that keep running in
-// fresh containers.
-//
-// The browser primitives (goto/screenshot/click/fill/text/dom/back)
-// share state across tool calls — open tabs, cookies, DOM, form input.
-// They exec into this session's persistent container (see podman.ts
-// for lifecycle) and drive a long-lived headless chromium via the
-// /usr/local/bin/foundry-browser CDP wrapper installed in the sandbox
-// image.
+// Everything execs into this session's persistent podman container
+// (see reconciler/session/sandbox/podman.ts). The browser primitives
+// (goto/screenshot/click/fill/text/dom/back) share state across calls
+// — open tabs, cookies, DOM, form input — because chromium runs as a
+// long-lived process inside that container. `fetch`/`scrape` are
+// stateless one-shots but use the same container for consistency.
 
 import { z } from 'zod'
 
@@ -17,7 +14,7 @@ import type { Db } from '../../../core/db.js'
 import type { Config } from '../../../core/config.js'
 import * as validate from './sandbox-schema.js'
 import { toInt } from '../../../core/util.js'
-import { asImage, bounded, esc, runCommand, runInSessionContainer } from '../../../integrations/shared.js'
+import { bounded, esc, runCommand } from '../../../integrations/shared.js'
 
 import type { } from './registry.js'
 import type { McpServerInfo, ToolDef } from '../../../integrations/types.js'
@@ -30,7 +27,7 @@ export interface BrowserCtx {
   toolUseId?: string
 }
 
-// ── Stateless one-shot handlers (fresh container per call) ─────────
+// ── HTTP one-shots ─────────────────────────────────────────────────
 
 async function handleFetch(ctx: BrowserCtx, args: z.infer<typeof validate.toolFetch>) {
   const curlArgs = ['-s', '-w', '\\n%{http_code}', '-X', args.method ?? 'GET']
@@ -41,7 +38,7 @@ async function handleFetch(ctx: BrowserCtx, args: z.infer<typeof validate.toolFe
   curlArgs.push(args.url)
   const command = `curl ${curlArgs.map(a => esc(a)).join(' ')}`
   try {
-    const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace, command, 'fetch', args, { network: true, toolUseId: ctx.toolUseId })
+    const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace, command, 'fetch', args, { toolUseId: ctx.toolUseId })
     const lines = r.stdout.trimEnd().split('\n')
     const statusCode = toInt(lines.pop() ?? '0')
     return { ...bounded(ctx.workspace, lines.join('\n')), status: statusCode }
@@ -54,24 +51,25 @@ async function handleScrape(ctx: BrowserCtx, args: z.infer<typeof validate.toolS
   const url = esc(args.url)
   const command = `lynx -dump -nolist -width=120 ${url} 2>/dev/null || curl -sL ${url} | sed 's/<[^>]*>//g' | sed '/^$/d'`
   try {
-    const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace, command, 'scrape', args, { network: true, toolUseId: ctx.toolUseId })
+    const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace, command, 'scrape', args, { toolUseId: ctx.toolUseId })
     return bounded(ctx.workspace, r.stdout.trim())
   } catch (err) {
     return { content: '', error: err instanceof Error ? err.message : String(err) }
   }
 }
 
-// ── Stateful primitives (persistent session container) ─────────────
+// ── Browser primitives (stateful: share chromium across calls) ─────
 
 // All browser primitives funnel through this helper: they exec
 // `foundry-browser <cmd> <args-json>` inside the session's persistent
-// container, then parse the JSON result.
+// container (chromium is launched lazily on the first call by the
+// wrapper), then parse the JSON result.
 async function browserExec(
   ctx: BrowserCtx, toolName: string, cmd: string, args: Record<string, unknown>,
 ): Promise<Record<string, unknown> | { error: string }> {
   const json = JSON.stringify(args).replace(/'/g, "'\\''")
   const command = `foundry-browser ${cmd} '${json}'`
-  const r = await runInSessionContainer(
+  const r = await runCommand(
     ctx.db, ctx.config, ctx.sessionId, ctx.workspace,
     command, toolName, args, { toolUseId: ctx.toolUseId, timeoutMs: 60_000 },
   )

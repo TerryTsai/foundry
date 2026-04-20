@@ -33,11 +33,10 @@ async function api(ctx: PosthogCtx, toolName: string, args: unknown, method: 'GE
   const bodyFlag = body !== undefined
     ? ` -H "Content-Type: application/json" --data ${JSON.stringify(JSON.stringify(body))}`
     : ''
-  const cmd = `curl -sf -X ${method} -H "Authorization: Bearer $(cat /foundry-secrets/api-key)" "${host(ctx)}${path}"${bodyFlag}`
+  const cmd = `curl -sf -X ${method} -H "Authorization: Bearer $API_KEY" "${host(ctx)}${path}"${bodyFlag}`
   const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace,
     cmd, toolName, args, {
-      network: true, mount: 'none',
-      secretFiles: { 'api-key': ctx.secrets.api_key ?? '' },
+      env:       { API_KEY: ctx.secrets.api_key ?? '' },
       toolUseId: ctx.toolUseId,
     })
   if (r.exitCode !== 0) return { ok: false as const, error: r.stderr || r.stdout || 'request failed' }

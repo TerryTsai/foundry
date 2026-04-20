@@ -12,7 +12,6 @@ import { z } from 'zod'
 export const toolExec = z.object({
   command: z.string().describe('Shell command to run'),
   cwd:     z.string().optional().describe('Working directory. Absolute or relative to /work. Default: /work'),
-  network: z.boolean().optional().describe('Enable network access (default: false)'),
 })
 
 export const toolRead = z.object({

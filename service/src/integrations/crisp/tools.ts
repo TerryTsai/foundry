@@ -30,14 +30,16 @@ const conversationCloseArgs = z.object({
 const pingArgs = z.object({})
 
 async function api(ctx: CrispCtx, toolName: string, args: unknown, method: 'GET' | 'POST' | 'PATCH', path: string, body?: unknown) {
-  const headers = ['-u "$(cat /foundry-secrets/identifier):$(cat /foundry-secrets/key)"', '-H "X-Crisp-Tier: plugin"']
+  const headers = ['-u "$IDENTIFIER:$KEY"', '-H "X-Crisp-Tier: plugin"']
   if (body !== undefined) headers.push('-H "Content-Type: application/json"')
   const bodyFlag = body !== undefined ? ` --data ${JSON.stringify(JSON.stringify(body))}` : ''
   const cmd = `curl -sf -X ${method} ${headers.join(' ')} "https://api.crisp.chat/v1${path}"${bodyFlag}`
   const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace,
     cmd, toolName, args, {
-      network: true, mount: 'none',
-      secretFiles: { 'identifier': ctx.secrets.identifier ?? '', 'key': ctx.secrets.key ?? '' },
+      env: {
+        IDENTIFIER: ctx.secrets.identifier ?? '',
+        KEY:        ctx.secrets.key        ?? '',
+      },
       toolUseId: ctx.toolUseId,
     })
   if (r.exitCode !== 0) return { ok: false as const, error: r.stderr || r.stdout || 'request failed' }

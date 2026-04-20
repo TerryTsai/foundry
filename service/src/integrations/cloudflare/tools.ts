@@ -116,7 +116,7 @@ const CF_BASE = 'https://api.cloudflare.com/client/v4'
 function curl(method: 'GET' | 'POST' | 'DELETE' | 'PUT', path: string, body?: unknown): string {
   const parts = [
     'curl', '-sf', '-X', method,
-    '-H', '"Authorization: Bearer $(cat /foundry-secrets/api-token)"',
+    '-H', '"Authorization: Bearer $API_TOKEN"',
     '-H', '"Content-Type: application/json"',
   ]
   if (body !== undefined) parts.push('-d', JSON.stringify(JSON.stringify(body)))
@@ -148,10 +148,8 @@ function resolveAccountId(ctx: CloudflareCtx, override?: string): string {
 async function runCf(ctx: CloudflareCtx, toolName: string, args: unknown, command: string) {
   return runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace,
     command, toolName, args, {
-      network:     true,
-      mount:       'none',
-      secretFiles: { 'api-token': ctx.secrets.api_token ?? '' },
-      toolUseId:   ctx.toolUseId,
+      env:       { API_TOKEN: ctx.secrets.api_token ?? '' },
+      toolUseId: ctx.toolUseId,
     })
 }
 
@@ -208,10 +206,6 @@ async function handlePagesDeploy(ctx: CloudflareCtx, args: z.infer<typeof pagesD
   const branch = args.branch ?? 'main'
   const dir = `/work/${args.dir}`
   const command = [
-    // Wrangler reads CLOUDFLARE_API_TOKEN from env. Read it from the
-    // mounted secret file once and export, so the value never appears in
-    // podman argv.
-    `export CLOUDFLARE_API_TOKEN="$(cat /foundry-secrets/api-token)"`,
     `if [ ! -d ${JSON.stringify(dir)} ]; then echo "ERR: directory ${args.dir} does not exist in /work" >&2; exit 1; fi`,
     `if [ -z "$(ls -A ${JSON.stringify(dir)} 2>/dev/null)" ]; then echo "ERR: directory ${args.dir} is empty — add at least an index.html" >&2; exit 1; fi`,
     `if [ -f /work/wrangler.toml ] && ! grep -q pages_build_output_dir /work/wrangler.toml; then echo 'pages_build_output_dir = "${args.dir}"' >> /work/wrangler.toml; fi`,
@@ -220,10 +214,10 @@ async function handlePagesDeploy(ctx: CloudflareCtx, args: z.infer<typeof pagesD
   ].join('\n')
   const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace,
     command, 'pagesDeploy', args, {
-      network: true,
-      mount:   'rw',
-      env: { CLOUDFLARE_ACCOUNT_ID: acct },
-      secretFiles: { 'api-token': ctx.secrets.api_token ?? '' },
+      env: {
+        CLOUDFLARE_API_TOKEN:  ctx.secrets.api_token ?? '',
+        CLOUDFLARE_ACCOUNT_ID: acct,
+      },
       toolUseId: ctx.toolUseId,
     })
   if (r.exitCode !== 0) return { ok: false, error: r.stderr || r.stdout }
@@ -237,16 +231,12 @@ async function handlePagesDeploy(ctx: CloudflareCtx, args: z.infer<typeof pagesD
 // args. /work is mounted rw so file paths resolve normally.
 async function runWrangler(ctx: CloudflareCtx, toolName: string, args: unknown, command: string) {
   const acct = resolveAccountId(ctx, (args as { account_id?: string }).account_id)
-  // Wrangler reads CLOUDFLARE_API_TOKEN from env. Source it from the
-  // mounted file once at the top of the shell pipeline so the value never
-  // appears in podman argv or the container's process environment until
-  // wrangler itself is spawned.
-  const wrapped = `export CLOUDFLARE_API_TOKEN="$(cat /foundry-secrets/api-token)"\nwrangler ${command}`
   const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace,
-    wrapped, toolName, args, {
-      network: true, mount: 'rw',
-      env: { CLOUDFLARE_ACCOUNT_ID: acct },
-      secretFiles: { 'api-token': ctx.secrets.api_token ?? '' },
+    `wrangler ${command}`, toolName, args, {
+      env: {
+        CLOUDFLARE_API_TOKEN:  ctx.secrets.api_token ?? '',
+        CLOUDFLARE_ACCOUNT_ID: acct,
+      },
       toolUseId: ctx.toolUseId,
     })
   if (r.exitCode !== 0) return { ok: false, error: r.stderr || r.stdout }
