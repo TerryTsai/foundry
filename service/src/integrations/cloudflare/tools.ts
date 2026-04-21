@@ -201,6 +201,14 @@ async function handlePagesRemove(ctx: CloudflareCtx, args: z.infer<typeof pagesR
 // Deploy to Cloudflare Pages. /home/foundry is mounted rw so wrangler sees the
 // full project tree (static assets, functions/, wrangler.toml). The
 // `dir` arg is the path to the static output directory relative to /home/foundry.
+//
+// After wrangler reports a successful deploy, we poll the commit-specific
+// URL until it actually responds (2xx or 3xx) before returning — Cloudflare's
+// edge takes a few seconds to propagate a fresh deploy, and returning before
+// the URL is live means the agent's very next browserGoto sees a 404 and
+// starts debugging something that isn't broken. Cap the poll at 60 s; if the
+// URL still isn't live we return anyway with `ready: false` so the caller
+// can surface the anomaly instead of silently claiming success.
 async function handlePagesDeploy(ctx: CloudflareCtx, args: z.infer<typeof pagesDeployArgs>) {
   const acct = resolveAccountId(ctx, args.account_id)
   const branch = args.branch ?? 'main'
@@ -210,7 +218,17 @@ async function handlePagesDeploy(ctx: CloudflareCtx, args: z.infer<typeof pagesD
     `if [ -z "$(ls -A ${JSON.stringify(dir)} 2>/dev/null)" ]; then echo "ERR: directory ${args.dir} is empty — add at least an index.html" >&2; exit 1; fi`,
     `if [ -f /home/foundry/wrangler.toml ] && ! grep -q pages_build_output_dir /home/foundry/wrangler.toml; then echo 'pages_build_output_dir = "${args.dir}"' >> /home/foundry/wrangler.toml; fi`,
     `wrangler pages project create ${JSON.stringify(args.project_name)} --production-branch ${JSON.stringify(branch)} || true`,
-    `wrangler pages deploy ${JSON.stringify(dir)} --project-name ${JSON.stringify(args.project_name)} --branch ${JSON.stringify(branch)} --commit-dirty=true`,
+    `wrangler pages deploy ${JSON.stringify(dir)} --project-name ${JSON.stringify(args.project_name)} --branch ${JSON.stringify(branch)} --commit-dirty=true | tee /tmp/foundry-wrangler.out`,
+    // Pull the commit-specific URL out of wrangler's output and wait
+    // for Cloudflare's edge to start serving it.
+    `DEPLOY_URL=$(grep -oE 'https://[a-z0-9]+\\.[a-z0-9-]+\\.pages\\.dev' /tmp/foundry-wrangler.out | head -1)`,
+    `if [ -n "$DEPLOY_URL" ]; then`,
+    `  for i in $(seq 1 30); do`,
+    `    STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "$DEPLOY_URL" || echo 000)`,
+    `    case "$STATUS" in 2??|3??) echo "FOUNDRY_READY=$DEPLOY_URL status=$STATUS waited=$((i*2))s"; break ;; esac`,
+    `    sleep 2`,
+    `  done`,
+    `fi`,
   ].join('\n')
   const r = await runCommand(ctx.db, ctx.config, ctx.sessionId, ctx.workspace,
     command, 'pagesDeploy', args, {
@@ -219,12 +237,22 @@ async function handlePagesDeploy(ctx: CloudflareCtx, args: z.infer<typeof pagesD
         CLOUDFLARE_ACCOUNT_ID: acct,
       },
       toolUseId: ctx.toolUseId,
+      timeoutMs: 180_000,
     })
   if (r.exitCode !== 0) return { ok: false, error: r.stderr || r.stdout }
   const deployMatch = r.stdout.match(/https:\/\/[a-z0-9]+\.[a-z0-9-]+\.pages\.dev/i)
   const deployUrl   = deployMatch?.[0] ?? null
   const projectUrl  = deployUrl ? deployUrl.replace(/^https:\/\/[a-z0-9]+\./i, 'https://') : null
-  return { ok: true, deployUrl, projectUrl, stdout: r.stdout }
+  const readyMatch  = r.stdout.match(/FOUNDRY_READY=\S+ status=(\d+) waited=(\d+)s/)
+  const ready       = !!readyMatch
+  return {
+    ok: true,
+    deployUrl,
+    projectUrl,
+    ready,
+    ...(readyMatch ? { status: Number(readyMatch[1]), waited_s: Number(readyMatch[2]) } : {}),
+    stdout: r.stdout,
+  }
 }
 
 // Typed wrangler operations — each constructs a fixed command from typed
