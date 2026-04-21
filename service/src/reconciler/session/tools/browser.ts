@@ -148,29 +148,32 @@ async function handleGoto(ctx: BrowserCtx, args: z.infer<typeof gotoArgs>) {
 
 const screenshotArgs = z.object({})
 async function handleScreenshot(ctx: BrowserCtx, args: z.infer<typeof screenshotArgs>) {
-  // Capture the active page viewport via CDP. No per-call size args:
-  // viewport is fixed by chromium's --window-size in BOOT. Per-call
-  // Emulation overrides are non-deterministic, and captureBeyondViewport
-  // silently breaks the CDP connection on tall captures.
-  const path = `.foundry/screenshots/${ulid()}.png`
+  // Capture the active page viewport via CDP. Format is JPEG, not PNG:
+  // chromium's headless PNG encoder has a content-dependent failure
+  // where some pages (e.g. Reddit-clone-style dark UIs with sticky
+  // headers and flex grids) cause Page.captureScreenshot to return an
+  // empty response every single time for that page. JPEG on the exact
+  // same content is 5/5 reliable. Quality 85 is visually lossless for
+  // UI-review screenshots. Viewport is fixed at 1280x800 via
+  // chromium's --window-size in BOOT — captureBeyondViewport is
+  // another known footgun that silently breaks the CDP connection.
+  const path = `.foundry/screenshots/${ulid()}.jpg`
   const body = [
     `OUT=${esc(path)}`,
     `mkdir -p "$(dirname "$OUT")"`,
-    // Wait for the compositor to render before capturing.
-    // document.readyState flips to 'complete' *before* the first paint
-    // in headless chromium, and a capture against that gap returns an
-    // empty response that silently poisons subsequent captures. 2x rAF
-    // + a short settle sleep make it reliable across navigations.
+    // document.readyState flips to 'complete' before the first paint
+    // in headless chromium, and a capture against that gap returns
+    // empty. 2x rAF + a short settle sleep make it deterministic.
     `EXPR='new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))'`,
     `${EVAL_EXPR} >/dev/null`,
     `sleep 0.5`,
-    `jq -cn '{id:1, method:"Page.captureScreenshot", params:{format:"png"}}' \\`,
+    `jq -cn '{id:1, method:"Page.captureScreenshot", params:{format:"jpeg", quality:85}}' \\`,
     `  | websocat -t -1 -B 16777216 "$WS" \\`,
     `  | jq -r '.result.data // (.error.message // "capture failed" | halt_error)' \\`,
     `  | base64 -d > "$OUT"`,
-    // Defensive: fail if the PNG is empty or missing the magic header.
-    `[ -s "$OUT" ] && head -c 8 "$OUT" | od -An -tx1 | tr -d ' \\n' | grep -q '^89504e470d0a1a0a' \\`,
-    `  || { echo "screenshot produced invalid PNG" >&2; rm -f "$OUT"; exit 1; }`,
+    // Defensive: fail if the JPEG is empty or missing the magic bytes.
+    `[ -s "$OUT" ] && head -c 3 "$OUT" | od -An -tx1 | tr -d ' \\n' | grep -q '^ffd8ff' \\`,
+    `  || { echo "screenshot produced invalid JPEG" >&2; rm -f "$OUT"; exit 1; }`,
     // Return {path, url, title} as JSON.
     `EXPR='JSON.stringify({url: location.href, title: document.title})'`,
     `${EVAL_EXPR} | jq --arg p "$OUT" '. + {path: $p}'`,
@@ -311,7 +314,7 @@ export const tools: ToolDef[] = [
   { name: 'fetch',             description: 'Make an HTTP request and return the response. Large responses are written to a file; use the read tool to paginate.',                                                                                schema: validate.toolFetch,  handler: handleFetch },
   { name: 'scrape',            description: 'Extract clean readable text from a web page. Large output is written to a file you can read with offset/limit.',                                                                                      schema: validate.toolScrape, handler: handleScrape },
   { name: 'browserGoto',       description: 'Navigate the session\'s browser to a URL. Returns {url, title, status} where status is the HTTP status of the main document response — check it before assuming the page loaded.',               schema: gotoArgs,            handler: handleGoto },
-  { name: 'browserScreenshot', description: 'Capture the active page in the session\'s browser (at the fixed viewport — 1280x800). Saves a PNG under .foundry/screenshots/ and returns the path. Attach the path to a ticketComment to surface it for review.', schema: screenshotArgs, handler: handleScreenshot },
+  { name: 'browserScreenshot', description: 'Capture the active page in the session\'s browser (at the fixed viewport — 1280x800). Saves a JPEG under .foundry/screenshots/ and returns the path. Attach the path to a ticketComment to surface it for review.', schema: screenshotArgs, handler: handleScreenshot },
   { name: 'browserClick',      description: 'Click an element by CSS selector. Set wait_navigation=true when clicking something that navigates (a link or a submit button).',                                                                      schema: clickArgs,           handler: handleClick },
   { name: 'browserFill',       description: 'Type into an input or textarea by CSS selector. Clears the existing value first.',                                                                                                                    schema: fillArgs,            handler: handleFill },
   { name: 'browserText',       description: 'Extract visible text from the current page. Pass a selector to narrow to a subtree. Cheap way to check state after clicking/filling.',                                                                schema: textArgs,            handler: handleText },
