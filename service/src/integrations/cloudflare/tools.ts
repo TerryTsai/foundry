@@ -219,13 +219,17 @@ async function handlePagesDeploy(ctx: CloudflareCtx, args: z.infer<typeof pagesD
     `if [ -f /home/foundry/wrangler.toml ] && ! grep -q pages_build_output_dir /home/foundry/wrangler.toml; then echo 'pages_build_output_dir = "${args.dir}"' >> /home/foundry/wrangler.toml; fi`,
     `wrangler pages project create ${JSON.stringify(args.project_name)} --production-branch ${JSON.stringify(branch)} || true`,
     `wrangler pages deploy ${JSON.stringify(dir)} --project-name ${JSON.stringify(args.project_name)} --branch ${JSON.stringify(branch)} --commit-dirty=true | tee /tmp/foundry-wrangler.out`,
-    // Pull the commit-specific URL out of wrangler's output and wait
-    // for Cloudflare's edge to start serving it.
+    // Poll the canonical project URL (<project>.pages.dev), not the
+    // commit-specific alias (<commit>.<project>.pages.dev). On fresh
+    // deploys the commit subdomain hits DNS propagation delay and
+    // returns chrome-error (status 0), while the project URL is
+    // already registered from project-create and resolves immediately.
     `DEPLOY_URL=$(grep -oE 'https://[a-z0-9]+\\.[a-z0-9-]+\\.pages\\.dev' /tmp/foundry-wrangler.out | head -1)`,
-    `if [ -n "$DEPLOY_URL" ]; then`,
+    `PROJECT_URL="https://$(echo "$DEPLOY_URL" | sed -E 's|^https://[a-z0-9]+\\.||')"`,
+    `if [ -n "$PROJECT_URL" ]; then`,
     `  for i in $(seq 1 30); do`,
-    `    STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "$DEPLOY_URL" || echo 000)`,
-    `    case "$STATUS" in 2??|3??) echo "FOUNDRY_READY=$DEPLOY_URL status=$STATUS waited=$((i*2))s"; break ;; esac`,
+    `    STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "$PROJECT_URL" || echo 000)`,
+    `    case "$STATUS" in 2??|3??) echo "FOUNDRY_READY=$PROJECT_URL status=$STATUS waited=$((i*2))s"; break ;; esac`,
     `    sleep 2`,
     `  done`,
     `fi`,
@@ -241,16 +245,19 @@ async function handlePagesDeploy(ctx: CloudflareCtx, args: z.infer<typeof pagesD
     })
   if (r.exitCode !== 0) return { ok: false, error: r.stderr || r.stdout }
   const deployMatch = r.stdout.match(/https:\/\/[a-z0-9]+\.[a-z0-9-]+\.pages\.dev/i)
-  const deployUrl   = deployMatch?.[0] ?? null
-  const projectUrl  = deployUrl ? deployUrl.replace(/^https:\/\/[a-z0-9]+\./i, 'https://') : null
+  const commitUrl   = deployMatch?.[0] ?? null
+  const url         = commitUrl ? commitUrl.replace(/^https:\/\/[a-z0-9]+\./i, 'https://') : null
   const readyMatch  = r.stdout.match(/FOUNDRY_READY=\S+ status=(\d+) waited=(\d+)s/)
   const ready       = !!readyMatch
+  // `url` is the canonical project URL the agent should navigate to.
+  // `commitUrl` is the per-deploy alias; useful for verifying a specific
+  // deployment but flaky on fresh DNS — prefer `url` for verification.
   return {
     ok: true,
-    deployUrl,
-    projectUrl,
+    url,
     ready,
     ...(readyMatch ? { status: Number(readyMatch[1]), waited_s: Number(readyMatch[2]) } : {}),
+    commitUrl,
     stdout: r.stdout,
   }
 }
@@ -343,7 +350,7 @@ export const tools: ToolDef[] = [
   { name: 'pagesList',        description: 'List Cloudflare Pages projects on the account.',                                                                                                                                         schema: pagesListArgs,        handler: handlePagesList },
   { name: 'pagesDeployments', description: 'List recent deployments for a Pages project.',                                                                                                                                           schema: pagesDeploymentsArgs, handler: handlePagesDeployments },
   { name: 'pagesRemove',      description: 'Delete a Cloudflare Pages project. Irreversible — removes all deployments and releases the *.pages.dev subdomain.',                                                                      schema: pagesRemoveArgs,      handler: handlePagesRemove },
-  { name: 'pagesDeploy',      description: 'Deploy to Cloudflare Pages. Creates the project on first use. `dir` is the static output directory relative to /home/foundry (e.g. "public"). If the project has a functions/ directory at /home/foundry/functions/, Pages Functions are deployed automatically alongside the static assets.', schema: pagesDeployArgs, handler: handlePagesDeploy },
+  { name: 'pagesDeploy',      description: 'Deploy to Cloudflare Pages. Creates the project on first use. `dir` is the static output directory relative to /home/foundry (e.g. "public"). Functions in /home/foundry/functions/ are deployed alongside static assets. Waits for the canonical project URL to respond (2xx/3xx) before returning. Returns {url, ready, status, waited_s, commitUrl} — ALWAYS use `url` for browserGoto; the `commitUrl` alias can hit DNS propagation delay on fresh deploys.', schema: pagesDeployArgs, handler: handlePagesDeploy },
   { name: 'r2CreateBucket',   description: 'Create a new R2 bucket on the account.',                                                                                                                                                schema: r2CreateBucketArgs,   handler: handleR2CreateBucket },
   { name: 'r2DeleteBucket',   description: 'Delete an R2 bucket. The bucket must be empty.',                                                                                                                                        schema: r2DeleteBucketArgs,   handler: handleR2DeleteBucket },
   { name: 'r2ListBuckets',    description: 'List R2 buckets on the account.',                                                                                                                                                        schema: r2ListBucketsArgs,    handler: handleR2ListBuckets },
