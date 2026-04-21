@@ -156,6 +156,14 @@ async function handleScreenshot(ctx: BrowserCtx, args: z.infer<typeof screenshot
   const body = [
     `OUT=${esc(path)}`,
     `mkdir -p "$(dirname "$OUT")"`,
+    // Wait for the compositor to render before capturing.
+    // document.readyState flips to 'complete' *before* the first paint
+    // in headless chromium, and a capture against that gap returns an
+    // empty response that silently poisons subsequent captures. 2x rAF
+    // + a short settle sleep make it reliable across navigations.
+    `EXPR='new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))'`,
+    `${EVAL_EXPR} >/dev/null`,
+    `sleep 0.5`,
     `jq -cn '{id:1, method:"Page.captureScreenshot", params:{format:"png"}}' \\`,
     `  | websocat -t -1 -B 16777216 "$WS" \\`,
     `  | jq -r '.result.data // (.error.message // "capture failed" | halt_error)' \\`,
