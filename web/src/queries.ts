@@ -64,8 +64,9 @@ export const qk = {
     byId:     (id: string) => ['execution', id] as const,
   },
   analytics: {
-    get:      (opts: { days?: number; projectId?: string; agentId?: string }) =>
+    get:      (opts: { days?: number; projectId?: string; agentId?: string; tag?: string }) =>
               ['analytics', opts] as const,
+    tags:     () => ['analytics', 'tags'] as const,
   },
 }
 
@@ -104,5 +105,7 @@ export const sessionUsageOpts      = (id: string) => queryOptions({ queryKey: qk
 
 export const executionGetOpts    = (id: string) => queryOptions({ queryKey: qk.execution.byId(id), queryFn: () => executionApi.get(id) })
 
-export const analyticsGetOpts    = (opts: { days?: number; projectId?: string; agentId?: string } = {}) =>
+export const analyticsGetOpts    = (opts: { days?: number; projectId?: string; agentId?: string; tag?: string } = {}) =>
   queryOptions({ queryKey: qk.analytics.get(opts), queryFn: () => analyticsApi.get(opts) })
+export const analyticsTagsOpts   = () =>
+  queryOptions({ queryKey: qk.analytics.tags(), queryFn: () => analyticsApi.tags() })

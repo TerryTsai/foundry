@@ -4,7 +4,7 @@ import { PageShell } from '../../components/layout/PageShell.js'
 import { AppHeader } from '../../components/layout/AppHeader.js'
 import { usePersistedState } from '../../lib/persisted-state.js'
 import {
-  analyticsGetOpts, projectListOpts, agentListOpts, qk,
+  analyticsGetOpts, analyticsTagsOpts, projectListOpts, agentListOpts, qk,
 } from '../../queries.js'
 import type { Analytics, AnalyticsDay, AnalyticsAgent, AnalyticsTag, AnalyticsTool } from '../../types.js'
 import { fmtTokens, fmtDuration, fmtBytes, fmtCost } from '../../lib/format.js'
@@ -427,17 +427,20 @@ export function AnalyticsPage() {
   const queryClient = useQueryClient()
   const { data: projects = [] } = useQuery(projectListOpts())
   const { data: agents = [] }   = useQuery(agentListOpts())
+  const { data: allTags = [] }  = useQuery(analyticsTagsOpts())
 
   const [range,   setRange]   = useState<Set<string>>(new Set(['30d']))
   const [project, setProject] = useState<Set<string>>(new Set())
   const [agent,   setAgent]   = useState<Set<string>>(new Set())
+  const [tag,     setTag]     = useState<Set<string>>(new Set())
 
   const days = RANGE_BY_LABEL[[...range][0] ?? '30d'] ?? 30
   const pickedProjectName = [...project][0]
   const pickedAgentName   = [...agent][0]
+  const pickedTag         = [...tag][0]
   const projectId = pickedProjectName ? projects.find(p => p.name === pickedProjectName)?.id : undefined
   const agentId   = pickedAgentName   ? agents.find(a => a.name === pickedAgentName)?.id     : undefined
-  const filters = { days, projectId, agentId }
+  const filters = { days, projectId, agentId, tag: pickedTag }
 
   const { data, isFetching } = useQuery(analyticsGetOpts(filters))
   const loading = isFetching
@@ -468,6 +471,7 @@ export function AnalyticsPage() {
           <MultiSelect label="Range"   options={RANGE_LABELS}    selected={range}   onChange={setRange} />
           <MultiSelect label="Project" options={projectOptions} selected={project} onChange={setProject} />
           <MultiSelect label="Agent"   options={agentOptions}   selected={agent}   onChange={setAgent} />
+          <MultiSelect label="Tag"     options={allTags}        selected={tag}     onChange={setTag} />
         </div>
       </div>
 

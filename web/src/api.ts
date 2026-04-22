@@ -72,14 +72,16 @@ export const projectApi = {
 // Account-level analytics. Aggregates all owned projects by default, with
 // optional filters. Replaces the per-project analytics endpoint.
 export const analyticsApi = {
-  get: (opts: { days?: number; projectId?: string; agentId?: string } = {}) => {
+  get: (opts: { days?: number; projectId?: string; agentId?: string; tag?: string } = {}) => {
     const qs = new URLSearchParams()
     if (opts.days      !== undefined) qs.set('days',      String(opts.days))
     if (opts.projectId !== undefined) qs.set('projectId', opts.projectId)
     if (opts.agentId   !== undefined) qs.set('agentId',   opts.agentId)
+    if (opts.tag       !== undefined) qs.set('tag',       opts.tag)
     const s = qs.toString()
     return get<Analytics>(`/analytics${s ? `?${s}` : ''}`)
   },
+  tags: () => get<string[]>('/analytics/tags'),
 }
 
 // Tickets

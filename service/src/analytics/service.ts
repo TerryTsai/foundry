@@ -7,7 +7,7 @@ import * as schema from '../core/schema.js'
 // narrowed to a single project or agent. Returns summary totals, a
 // daily time series, per-agent rollup, and per-tag rollup.
 
-export function analytics(db: Db, accountId: string, opts: { days: number; projectId?: string; agentId?: string }) {
+export function analytics(db: Db, accountId: string, opts: { days: number; projectId?: string; agentId?: string; tag?: string }) {
   const { days } = opts
   const cutoff = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10)
 
@@ -21,6 +21,11 @@ export function analytics(db: Db, accountId: string, opts: { days: number; proje
 
   const projList = sql.join(projectIds.map(id => sql`${id}`), sql`, `)
   const agentFilter = opts.agentId ? sql`AND s.agent_id = ${opts.agentId}` : sql``
+  // Tag filter applies at the ticket level via JSON-array membership. Empty
+  // when no tag picked. Reused across every query that touches ticket t.
+  const tagFilter = opts.tag
+    ? sql`AND EXISTS (SELECT 1 FROM json_each(t.tags) WHERE value = ${opts.tag})`
+    : sql``
 
   const summary = db.get<SummaryRow>(sql`
     WITH rs AS (
@@ -28,6 +33,7 @@ export function analytics(db: Db, accountId: string, opts: { days: number; proje
       FROM session s JOIN ticket t ON s.ticket_id = t.id
       WHERE t.project_id IN (${projList}) AND date(s.started_at) >= ${cutoff}
       ${agentFilter}
+      ${tagFilter}
     )
     SELECT
       COALESCE(SUM(rs.cost_usd), 0) AS total_cost_usd,
@@ -47,13 +53,16 @@ export function analytics(db: Db, accountId: string, opts: { days: number; proje
 
   // Ticket counts ignore the agent filter on purpose — tickets aren't
   // session-level and the founder needs a stable "work in this project" view.
+  // The tag filter does apply: tag is a ticket attribute, so filtering by
+  // tag should narrow the ticket counts too.
   const tickets = db.get<TicketCountsRow>(sql`
     SELECT
       COUNT(*) AS total_tickets,
-      COALESCE(SUM(CASE WHEN status IN ('created','waiting','running') THEN 1 ELSE 0 END), 0) AS tickets_open,
-      COALESCE(SUM(CASE WHEN status = 'finished' THEN 1 ELSE 0 END), 0) AS tickets_done,
-      COALESCE(SUM(CASE WHEN status = 'failed'   THEN 1 ELSE 0 END), 0) AS tickets_failed
-    FROM ticket WHERE project_id IN (${projList})
+      COALESCE(SUM(CASE WHEN t.status IN ('created','waiting','running') THEN 1 ELSE 0 END), 0) AS tickets_open,
+      COALESCE(SUM(CASE WHEN t.status = 'finished' THEN 1 ELSE 0 END), 0) AS tickets_done,
+      COALESCE(SUM(CASE WHEN t.status = 'failed'   THEN 1 ELSE 0 END), 0) AS tickets_failed
+    FROM ticket t WHERE t.project_id IN (${projList})
+    ${tagFilter}
   `)!
 
   const daily = db.all<DailyRow>(sql`
@@ -67,6 +76,7 @@ export function analytics(db: Db, accountId: string, opts: { days: number; proje
       FROM session s JOIN ticket t ON s.ticket_id = t.id
       WHERE t.project_id IN (${projList}) AND date(s.started_at) >= ${cutoff}
       ${agentFilter}
+      ${tagFilter}
     ),
     sm AS (
       SELECT sd.day, COALESCE(SUM(a.tokens_in),0) AS tokens_in, COALESCE(SUM(a.tokens),0) AS tokens_out
@@ -81,8 +91,8 @@ export function analytics(db: Db, accountId: string, opts: { days: number; proje
       COALESCE(SUM(sd.cost_usd), 0) AS cost_usd,
       COALESCE(sm.tokens_in, 0) AS tokens_in,
       COALESCE(sm.tokens_out, 0) AS tokens_out,
-      (SELECT COUNT(*) FROM ticket t WHERE t.project_id IN (${projList}) AND date(t.created_at) = dates.d) AS tickets_created,
-      (SELECT COUNT(*) FROM ticket t WHERE t.project_id IN (${projList}) AND t.status = 'finished' AND date(t.updated_at) = dates.d) AS tickets_completed
+      (SELECT COUNT(*) FROM ticket t WHERE t.project_id IN (${projList}) AND date(t.created_at) = dates.d ${tagFilter}) AS tickets_created,
+      (SELECT COUNT(*) FROM ticket t WHERE t.project_id IN (${projList}) AND t.status = 'finished' AND date(t.updated_at) = dates.d ${tagFilter}) AS tickets_completed
     FROM dates
     LEFT JOIN sd ON sd.day = dates.d
     LEFT JOIN sm ON sm.day = dates.d
@@ -113,6 +123,7 @@ export function analytics(db: Db, accountId: string, opts: { days: number; proje
     ) m_agg ON m_agg.session_id = s.id
     WHERE t.project_id IN (${projList}) AND date(s.started_at) >= ${cutoff}
     ${agentFilter}
+    ${tagFilter}
     GROUP BY a.id
     ORDER BY cost_usd DESC
   `)
@@ -137,6 +148,7 @@ export function analytics(db: Db, accountId: string, opts: { days: number; proje
       FROM activity GROUP BY session_id
     ) m_agg ON m_agg.session_id = s.id
     WHERE t.project_id IN (${projList})
+    ${tagFilter}
     GROUP BY tj.value
     ORDER BY tickets DESC
   `)
@@ -159,6 +171,7 @@ export function analytics(db: Db, accountId: string, opts: { days: number; proje
     WHERE t.project_id IN (${projList}) AND date(s.started_at) >= ${cutoff}
       AND e.tool_name IS NOT NULL
       ${agentFilter}
+      ${tagFilter}
     GROUP BY a.id, e.tool_name
     ORDER BY a.created_at, a.id, calls DESC
   `)
@@ -202,6 +215,22 @@ interface ToolRow {
   agent_created_at: string
   name: string
   calls: number; ok: number; fail: number; duration_ms: number
+}
+
+// All distinct tags across every project the account owns. Powers the
+// analytics page's tag picker without requiring a separate per-project
+// fetch when the user is viewing the cross-project view.
+export function tagsList(db: Db, accountId: string): string[] {
+  const ownedIds = database.projectAll(db, [eq(schema.project.owner_id, accountId)]).map(p => p.id)
+  if (ownedIds.length === 0) return []
+  const projList = sql.join(ownedIds.map(id => sql`${id}`), sql`, `)
+  const rows = db.all<{ tag: string }>(sql`
+    SELECT DISTINCT tj.value AS tag
+    FROM ticket t, json_each(t.tags) AS tj
+    WHERE t.project_id IN (${projList})
+    ORDER BY tj.value
+  `)
+  return rows.map(r => r.tag)
 }
 
 function emptyAnalytics() {
