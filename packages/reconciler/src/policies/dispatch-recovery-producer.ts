@@ -1,11 +1,11 @@
-import * as database from '../../core/db.js'
+import * as database from '@foundry/db'
 import { type Policy, transition, dispatchSession } from './shared.js'
 
 // Ticket is in waiting but no producer session has ever run for it
 // (rare — usually means the dispatch landed during a crash or a manual
 // status edit dropped it into waiting). Send a fresh producer.
 export const dispatchRecoveryProducer: Policy = (ctx) => {
-  const { db, ticket, agents, slots } = ctx
+  const { db, deps, ticket, agents, slots } = ctx
   if (ticket.status !== 'waiting') return 'pass'
 
   const agent = agents.find(a => a.id === ticket.agent_id)
@@ -18,6 +18,6 @@ export const dispatchRecoveryProducer: Policy = (ctx) => {
   if (slots.remaining <= 0) return 'pass'
   if (!transition(db, ticket.id, 'waiting', 'running', 'reconciler', { reason: 'retry' })) return 'pass'
   slots.remaining--
-  dispatchSession(db, { ...ticket, status: 'running' }, agent, 'producer')
+  dispatchSession(db, deps, { ...ticket, status: 'running' }, agent, 'producer')
   return 'acted'
 }

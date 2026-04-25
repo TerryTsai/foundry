@@ -5,15 +5,17 @@
 // POLICIES list to change reconciler behavior — that's the whole
 // interface.
 //
-// All session execution lives under ./session/. The reconciler's job is
-// purely "what should run next"; it never executes a session itself.
+// Reconciler never executes a session itself — runSession arrives via
+// ReconcilerDeps from the composition root.
 
 import { eq } from 'drizzle-orm'
-import { type Db } from '../core/db.js'
-import * as database from '../core/db.js'
-import * as schema from '../core/schema.js'
-import { now } from '../core/util.js'
-import { agentList } from '@foundry/crud'
+import { type Db } from '@foundry/db'
+import * as database from '@foundry/db'
+import * as schema from '@foundry/db'
+import type { Agent, Project, Ticket } from '@foundry/db'
+import { now } from '@foundry/model'
+
+import type { ReconcilerDeps } from './types.js'
 
 import { dispatchProducer }         from './policies/dispatch-producer.js'
 import { settleRunning }            from './policies/settle-running.js'
@@ -41,47 +43,57 @@ const POLICIES = [
 
 // ── tick ─────────────────────────────────────────────────────────────
 
-export async function reconcilerTick(db: Db): Promise<void> {
+export async function reconcilerTick(db: Db, deps: ReconcilerDeps): Promise<void> {
   for (const project of database.projectsActive(db)) {
-    // build per-project context once
-    const agents = agentList(db, { accountId: project.owner_id })
-    const ticketsByStatus = (status: string) =>
-      database.ticketAll(db, [eq(schema.ticket.project_id, project.id), eq(schema.ticket.status, status)])
-    const running = ticketsByStatus('running')
-    const slots   = { remaining: project.max_agents - running.length }
+    tickProject(db, deps, project)
+  }
+}
 
-    // FIFO across non-terminal tickets — whatever waited longest goes first
-    const queue = [...running, ...ticketsByStatus('waiting'), ...ticketsByStatus('created')]
-      .sort((a, b) => {
-        const ea = database.eventLatest(db, 'ticket', a.id)?.created_at ?? '1970-01-01'
-        const eb = database.eventLatest(db, 'ticket', b.id)?.created_at ?? '1970-01-01'
-        return ea.localeCompare(eb)
-      })
+// Walk every non-terminal ticket in one project through the policy list.
+function tickProject(db: Db, deps: ReconcilerDeps, project: Project): void {
+  const agents = deps.crud.agentList(db, { accountId: project.owner_id })
+  const ticketsByStatus = (status: string) =>
+    database.ticketAll(db, [eq(schema.ticket.project_id, project.id), eq(schema.ticket.status, status)])
+  const running = ticketsByStatus('running')
+  const slots   = { remaining: project.max_agents - running.length }
 
-    // walk each ticket through the policy list — first match acts, rest skip
-    for (const ticket of queue) {
-      const ctx = { db, project, agents, ticket, slots }
-      for (const policy of POLICIES) {
-        if (policy(ctx) === 'acted') break
-      }
-    }
+  // FIFO across non-terminal tickets — whatever waited longest goes first
+  const queue = [...running, ...ticketsByStatus('waiting'), ...ticketsByStatus('created')]
+    .sort((a, b) => {
+      const ea = database.eventLatest(db, 'ticket', a.id)?.created_at ?? '1970-01-01'
+      const eb = database.eventLatest(db, 'ticket', b.id)?.created_at ?? '1970-01-01'
+      return ea.localeCompare(eb)
+    })
+
+  for (const ticket of queue) {
+    runPolicies({ db, deps, project, agents, ticket, slots })
+  }
+}
+
+// First policy that returns 'acted' wins for this ticket; later policies don't run.
+function runPolicies(ctx: { db: Db; deps: ReconcilerDeps; project: Project; agents: Agent[]; ticket: Ticket; slots: { remaining: number } }): void {
+  for (const policy of POLICIES) {
+    if (policy(ctx) === 'acted') return
   }
 }
 
 // ── lifecycle ────────────────────────────────────────────────────────
 
 let globalInterval: ReturnType<typeof setInterval> | null = null
+let globalDeps: ReconcilerDeps | null = null
 
-export function reconcilerGlobalStart(db: Db): void {
+export function reconcilerGlobalStart(db: Db, deps: ReconcilerDeps): void {
   if (globalInterval) return
+  globalDeps = deps
   globalInterval = setInterval(() => {
-    reconcilerTick(db).catch((err: unknown) =>
+    reconcilerTick(db, deps).catch((err: unknown) =>
       console.error('reconciler error:', err))
   }, 5000)
 }
 
 export function reconcilerStopAll(): void {
   if (globalInterval) { clearInterval(globalInterval); globalInterval = null }
+  globalDeps = null
 }
 
 export function shutdownDrain(db: Db): void {
@@ -96,4 +108,11 @@ export function shutdownDrain(db: Db): void {
     }
   }
   if (running.length) console.log(`drained ${running.length} running session(s)`)
+}
+
+// Cached deps accessor for callers (e.g. routes) that need to invoke
+// reconcilerTick on demand without re-threading deps. Set during
+// reconcilerGlobalStart; cleared by reconcilerStopAll.
+export function reconcilerDepsActive(): ReconcilerDeps | null {
+  return globalDeps
 }

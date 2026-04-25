@@ -1,4 +1,4 @@
-import * as database from '../../core/db.js'
+import * as database from '@foundry/db'
 import { type Policy, transition, dispatchSession, parseVerifierIds } from './shared.js'
 
 // Ticket is in waiting, all verifiers in the current round have run,
@@ -7,7 +7,7 @@ import { type Policy, transition, dispatchSession, parseVerifierIds } from './sh
 // iteration can address the feedback. Comment ingestion of the verdicts
 // happens in the producer's system prompt at the next dispatch.
 export const retryAfterFail: Policy = (ctx) => {
-  const { db, ticket, agents, slots } = ctx
+  const { db, deps, ticket, agents, slots } = ctx
   if (ticket.status !== 'waiting') return 'pass'
 
   const agent = agents.find(a => a.id === ticket.agent_id)
@@ -39,7 +39,7 @@ export const retryAfterFail: Policy = (ctx) => {
   if (slots.remaining > 0
    && transition(db, ticket.id, 'waiting', 'running', 'reconciler', { reason: 'retry' })) {
     slots.remaining--
-    dispatchSession(db, { ...ticket, status: 'running' }, agent, 'producer')
+    dispatchSession(db, deps, { ...ticket, status: 'running' }, agent, 'producer')
   }
   return 'acted'
 }

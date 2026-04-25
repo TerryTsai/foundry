@@ -1,11 +1,11 @@
-import * as database from '../../core/db.js'
+import * as database from '@foundry/db'
 import { type Policy, transition, dispatchSession, parseVerifierIds } from './shared.js'
 
 // Ticket is in waiting, verifiers are configured, and at least one
 // declared verifier hasn't been dispatched for the current round
 // (post the latest producer session). Send the next missing one.
 export const dispatchVerifier: Policy = (ctx) => {
-  const { db, ticket, agents, slots } = ctx
+  const { db, deps, ticket, agents, slots } = ctx
   if (ticket.status !== 'waiting') return 'pass'
 
   const agent = agents.find(a => a.id === ticket.agent_id)
@@ -33,7 +33,7 @@ export const dispatchVerifier: Policy = (ctx) => {
     if (slots.remaining <= 0) return 'pass'
     if (!transition(db, ticket.id, 'waiting', 'running', 'reconciler', { reason: 'verifier', verifier_name: verifier.name })) return 'pass'
     slots.remaining--
-    dispatchSession(db, { ...ticket, status: 'running' }, verifier, 'verifier')
+    dispatchSession(db, deps, { ...ticket, status: 'running' }, verifier, 'verifier')
     return 'acted'
   }
   return 'pass'   // every verifier already dispatched

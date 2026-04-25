@@ -21,8 +21,25 @@ import { executionRoutes }  from './executions/routes.js'
 import { analyticsRoutes }  from './analytics/routes.js'
 import { attachmentRoutes, ticketAttachmentRoutes, commentAttachmentRoutes } from './attachments/routes.js'
 
-import { reconcilerGlobalStart, reconcilerStopAll, shutdownDrain } from './reconciler/reconciler.js'
-import { stopAllSessionContainers } from '@foundry/sandbox'
+import { reconcilerGlobalStart, reconcilerStopAll, shutdownDrain, type ReconcilerDeps } from '@foundry/reconciler'
+import { runSession, type EngineDeps } from '@foundry/engine'
+import { sessionJwt } from '@foundry/auth'
+import {
+  asText, isMcpEnvelope, parseConn, toolUseId,
+  filterTools, parseToolSelection, byConnectionKind,
+  foundryServer, githubServer, sandboxServer, browserServer,
+  workspaceEmpty, workspaceDestroy,
+} from '@foundry/mcp'
+import {
+  executionCreate as sandboxExecutionCreate,
+  registerSessionWorkspace, unregisterSessionWorkspace,
+  stopSessionContainer,
+  stopAllSessionContainers,
+} from '@foundry/sandbox'
+import {
+  agentList,
+  encryptSecret, decryptSecret, attachmentListByTicketInternal,
+} from '@foundry/crud'
 
 // Fail fast if FOUNDRY_ENCRYPTION_KEY is missing or malformed — better here
 // than on the first connection write.
@@ -99,10 +116,42 @@ app.use('/comment/:id/attachment', express.raw({ type: '*/*', limit: '15mb' }), 
 
 app.use(errors)
 
+// ── Composition root: build EngineDeps + ReconcilerDeps ──
+// The engine and reconciler are both logic modules and cannot import
+// each other or any of their callees. The composition root assembles
+// the dependency bags from concrete implementations and threads them in.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- structural mirror in @foundry/reconciler
+const ENGINE_DEPS: EngineDeps = {
+  auth: {
+    sessionJwtMint: (db, sessionId, ttlMs) => sessionJwt.mint(db, sessionId, ttlMs),
+  },
+  mcp: {
+    foundryServer, githubServer, sandboxServer, browserServer,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- structural mirror
+    byConnectionKind: byConnectionKind as Record<string, any>,
+    filterTools, parseToolSelection,
+    parseConn, asText, isMcpEnvelope, toolUseId,
+    workspaceEmpty, workspaceDestroy,
+  },
+  sandbox: {
+    executionCreate: (db, cfg, input) => sandboxExecutionCreate(db, cfg, input),
+    registerSessionWorkspace, unregisterSessionWorkspace,
+    stopSessionContainer,
+  },
+  crud: {
+    encryptSecret, decryptSecret, attachmentListByTicketInternal,
+  },
+}
+
+const RECONCILER_DEPS: ReconcilerDeps = {
+  config,
+  crud: { agentList },
+  engine: { runSession, engineDeps: ENGINE_DEPS },
+}
+
 app.listen(config.port, () => {
   console.log(`foundry service listening on port ${config.port}`)
-  ;(globalThis as any).__foundryConfig = config
-  reconcilerGlobalStart(db)
+  reconcilerGlobalStart(db, RECONCILER_DEPS)
 })
 
 // ── Graceful shutdown on deploy restart ──

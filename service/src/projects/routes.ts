@@ -6,7 +6,7 @@ import {
   validate,
   projectList, projectGet, projectCreate, projectUpdate, projectRun, projectTagList,
 } from '@foundry/crud'
-import { reconcilerTick } from '../reconciler/reconciler.js'
+import { reconcilerTick, reconcilerDepsActive } from '@foundry/reconciler'
 
 export function projectRoutes(db: Db) {
   const r = Router()
@@ -20,7 +20,8 @@ export function projectRoutes(db: Db) {
   // the tick directly after a successful run.
   r.post  ('/:id/run',                                         run(req => {
     const result = projectRun(db, accountId(req), req.params.id)
-    reconcilerTick(db).catch((err: unknown) => console.error('reconciler error:', err))
+    const deps = reconcilerDepsActive()
+    if (deps) reconcilerTick(db, deps).catch((err: unknown) => console.error('reconciler error:', err))
     return result
   }), send(202))
   return r

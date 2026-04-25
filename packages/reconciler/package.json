@@ -8,5 +8,11 @@
   "scripts": {
     "build": "tsc -b",
     "test": "vitest run"
+  },
+  "dependencies": {
+    "@foundry/db": "*",
+    "@foundry/model": "*",
+    "drizzle-orm": "^0.30.10",
+    "ulid": "^2.3.0"
   }
 }

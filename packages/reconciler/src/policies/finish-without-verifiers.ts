@@ -1,4 +1,4 @@
-import * as database from '../../core/db.js'
+import * as database from '@foundry/db'
 import { type Policy, transition, parseVerifierIds } from './shared.js'
 
 // Ticket is in waiting and the assigned agent declares no verifiers.

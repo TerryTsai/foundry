@@ -1,4 +1,4 @@
-import * as database from '../../core/db.js'
+import * as database from '@foundry/db'
 import { type Policy, transition } from './shared.js'
 
 // Ticket marked running but no live session → the runner exited (success
