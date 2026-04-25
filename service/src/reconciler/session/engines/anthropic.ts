@@ -12,19 +12,17 @@ import { homedir } from 'os'
 import { type Db } from '../../../core/db.js'
 import * as database from '../../../core/db.js'
 import type { Connection } from '../../../core/schema.js'
-import { asText, isMcpEnvelope, parseConn, toolUseId } from '../../../integrations/shared.js'
+import {
+  asText, isMcpEnvelope, parseConn, toolUseId,
+  filterTools, parseToolSelection, byConnectionKind,
+  foundryServer, githubServer, sandboxServer, browserServer,
+  type ToolDef,
+} from '@foundry/mcp'
 import { now, mustExist } from '../../../core/util.js'
 import { encryptSecret, decryptSecret } from '@foundry/crud'
+import { executionCreate as sandboxExecutionCreate } from '@foundry/sandbox'
 
 import type { SessionContext, LoopResult } from '../pipeline/compose.js'
-import { filterTools, parseToolSelection } from '../tools/registry.js'
-import { byConnectionKind } from '../../../integrations/registry.js'
-import type { ToolDef } from '../../../integrations/types.js'
-
-import * as foundryServer from '../tools/foundry.js'
-import * as githubServer  from '../../../integrations/github/tools.js'
-import * as sandboxServer from '../tools/sandbox.js'
-import * as browserServer from '../tools/browser.js'
 
 type Block = { type: string; id?: string; text?: string; thinking?: string; name?: string; input?: unknown; signature?: string }
 
@@ -155,6 +153,7 @@ function toSdkServer(
   return createSdkMcpServer({ name, tools: filterTools(all, allowed) })
 }
 
+// eslint-disable-next-line max-lines-per-function -- legacy; refactor in Phase 7
 function buildMcpServers(ctx: SessionContext) {
   const { db, config, workDir } = ctx
   const sessionId  = ctx.session.id
@@ -162,6 +161,12 @@ function buildMcpServers(ctx: SessionContext) {
   const ticketData = ctx.ticket
   const selection  = parseToolSelection(agentDef.tools)
   const mcpServers: Record<string, ReturnType<typeof createSdkMcpServer>> = {}
+
+  // Cross-module callbacks injected into every tool ctx. mcp can't import
+  // @foundry/sandbox or @foundry/crud directly, so the engine layer
+  // (composition root for sessions) binds them here.
+  const executionCreate = (input: Parameters<typeof sandboxExecutionCreate>[2]) =>
+    sandboxExecutionCreate(db, config, input)
 
   // Read fresh status from the DB on every tool dispatch — same check
   // as withCooperativeCancel but applied at the handler boundary.
@@ -173,9 +178,9 @@ function buildMcpServers(ctx: SessionContext) {
     return false
   }
 
-  const foundryCtx = { db, config, sessionId, workspace: workDir, projectId: ticketData.project_id, accountId: agentDef.account_id, ticketId: ticketData.id, agentName: agentDef.name, sandboxToken: ctx.sandboxToken }
-  const githubCtx  = { db, config, sessionId, workspace: workDir, ticket: ticketData, agentName: agentDef.name }
-  const sandboxCtx = { db, config, sessionId, workspace: workDir }
+  const foundryCtx = { db, config, sessionId, workspace: workDir, projectId: ticketData.project_id, accountId: agentDef.account_id, ticketId: ticketData.id, agentName: agentDef.name, sandboxToken: ctx.sandboxToken, executionCreate }
+  const githubCtx  = { db, config, sessionId, workspace: workDir, ticket: ticketData, agentName: agentDef.name, executionCreate }
+  const sandboxCtx = { db, config, sessionId, workspace: workDir, executionCreate }
 
   if (selection === null || 'foundry' in selection) mcpServers.foundry = toSdkServer('foundry', foundryServer.tools, foundryCtx, selection?.foundry, isCancelled)
   if (selection === null || 'github'  in selection) mcpServers.github  = toSdkServer('github',  githubServer.tools,  githubCtx,  selection?.github, isCancelled)
@@ -188,8 +193,8 @@ function buildMcpServers(ctx: SessionContext) {
     if (!mod) continue
     const key = `${conn.kind}:${conn.name}`
     if (selection !== null && !(key in selection)) continue
-    const { secrets, connConfig } = parseConn(conn)
-    const connCtx = { db, config, sessionId, workspace: workDir, secrets, connConfig, connectionName: conn.name }
+    const { secrets, connConfig } = parseConn(conn, decryptSecret)
+    const connCtx = { db, config, sessionId, workspace: workDir, secrets, connConfig, connectionName: conn.name, executionCreate }
     mcpServers[key] = toSdkServer(key, mod.tools, connCtx, selection === null ? null : selection[key], isCancelled)
   }
   return mcpServers

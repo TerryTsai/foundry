@@ -7,7 +7,7 @@ import type { Account } from '../core/schema.js'
 import type { Config } from '../core/config.js'
 import { badRequest, forbidden } from '../core/errors.js'
 import * as validate from './schema.js'
-import * as github from '../integrations/github/provider.js'
+import { github } from '@foundry/mcp'
 
 export const AUTH_STATE_TTL_SEC = 60 * 10  // 10 min for the OAuth state cookie
 

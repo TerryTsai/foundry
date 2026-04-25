@@ -7,9 +7,8 @@ import {
   agentList, agentGet, agentCreate, agentUpdate, agentRemove,
   sessionGet, sessionStatus, sessionKill, sessionActivities,
 } from '@foundry/crud'
-import { agentMcpList } from './service.js'
+import { agentMcpList, TOOL_NAMES } from '@foundry/mcp'
 import { agentUsage } from '@foundry/analytics'
-import { TOOL_NAMES } from '../reconciler/session/tools/registry.js'
 
 export function agentRoutes(db: Db) {
   const r = Router()

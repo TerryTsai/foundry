@@ -7,18 +7,18 @@ import { ulid } from 'ulid'
 
 import { type Db } from '../../../core/db.js'
 import * as database from '../../../core/db.js'
-import { parseConn, asText } from '../../../integrations/shared.js'
+import {
+  parseConn, asText,
+  byConnectionKind,
+  foundryServer, githubServer, sandboxServer, browserServer,
+  type ToolDef,
+} from '@foundry/mcp'
 import { now } from '../../../core/util.js'
+import { decryptSecret } from '@foundry/crud'
+import { executionCreate as sandboxExecutionCreate } from '@foundry/sandbox'
 
 import { resolveModelWithDefaults } from './model-factory.js'
 import type { SessionContext, LoopResult } from '../pipeline/compose.js'
-import type { ToolDef } from '../../../integrations/types.js'
-
-import * as foundryServer from '../tools/foundry.js'
-import * as githubServer  from '../../../integrations/github/tools.js'
-import * as sandboxServer from '../tools/sandbox.js'
-import * as browserServer from '../tools/browser.js'
-import { byConnectionKind } from '../../../integrations/registry.js'
 
 type StepResult = Awaited<ReturnType<typeof generateText<ToolSet>>>
 
@@ -44,19 +44,23 @@ function buildTools(ctx: SessionContext): ToolSet {
   const sessionId  = ctx.session.id
   const agentDef   = ctx.agent
   const ticketData = ctx.ticket
+  // Cross-module callback for the sandbox lifecycle (mcp can't depend
+  // on @foundry/sandbox; engine binds it).
+  const executionCreate = (input: Parameters<typeof sandboxExecutionCreate>[2]) =>
+    sandboxExecutionCreate(db, config, input)
   const result: ToolSet = {
-    ...toAiTools(foundryServer.tools, { db, config, sessionId, workspace: workDir, projectId: ticketData.project_id, accountId: agentDef.account_id, ticketId: ticketData.id, agentName: agentDef.name, sandboxToken: ctx.sandboxToken }),
-    ...toAiTools(githubServer.tools,  { db, config, sessionId, workspace: workDir, ticket: ticketData, agentName: agentDef.name }),
-    ...toAiTools(sandboxServer.tools, { db, config, sessionId, workspace: workDir }),
-    ...toAiTools(browserServer.tools, { db, config, sessionId, workspace: workDir }),
+    ...toAiTools(foundryServer.tools, { db, config, sessionId, workspace: workDir, projectId: ticketData.project_id, accountId: agentDef.account_id, ticketId: ticketData.id, agentName: agentDef.name, sandboxToken: ctx.sandboxToken, executionCreate }),
+    ...toAiTools(githubServer.tools,  { db, config, sessionId, workspace: workDir, ticket: ticketData, agentName: agentDef.name, executionCreate }),
+    ...toAiTools(sandboxServer.tools, { db, config, sessionId, workspace: workDir, executionCreate }),
+    ...toAiTools(browserServer.tools, { db, config, sessionId, workspace: workDir, executionCreate }),
   }
   const conns = database.connectionByAccount(db, agentDef.account_id)
   for (const conn of conns) {
     const mod = byConnectionKind[conn.kind as keyof typeof byConnectionKind]
     if (!mod) continue
-    const { secrets, connConfig } = parseConn(conn)
+    const { secrets, connConfig } = parseConn(conn, decryptSecret)
     const prefix = `${conn.kind}-${conn.name}`
-    Object.assign(result, toAiTools(mod.tools, { db, config, sessionId, workspace: workDir, secrets, connConfig, connectionName: conn.name }, prefix))
+    Object.assign(result, toAiTools(mod.tools, { db, config, sessionId, workspace: workDir, secrets, connConfig, connectionName: conn.name, executionCreate }, prefix))
   }
   return result
 }

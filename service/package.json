@@ -18,6 +18,7 @@
     "@foundry/client": "*",
     "@foundry/crud": "*",
     "@foundry/db": "*",
+    "@foundry/mcp": "*",
     "@foundry/model": "*",
     "@foundry/sandbox": "*",
     "ai": "^5.0.80",

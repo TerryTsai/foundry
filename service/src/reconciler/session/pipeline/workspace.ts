@@ -3,7 +3,7 @@
 // the execution service so the persistent session container can
 // bind-mount it at /home/foundry on first tool use.
 
-import { workspaceEmpty, workspaceDestroy } from '../../../integrations/github/tools.js'
+import { workspaceEmpty, workspaceDestroy } from '@foundry/mcp'
 import { registerSessionWorkspace, unregisterSessionWorkspace } from '@foundry/sandbox'
 import type { Middleware } from './compose.js'
 
