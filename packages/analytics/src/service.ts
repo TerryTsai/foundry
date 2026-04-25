@@ -1,12 +1,13 @@
 import { eq, sql } from 'drizzle-orm'
-import { type Db } from '../core/db.js'
-import * as database from '../core/db.js'
-import * as schema from '../core/schema.js'
+import { type Db } from '@foundry/db'
+import * as database from '@foundry/db'
+import * as schema from '@foundry/db'
 
 // Usage analytics across every project the account owns, optionally
 // narrowed to a single project or agent. Returns summary totals, a
 // daily time series, per-agent rollup, and per-tag rollup.
 
+// eslint-disable-next-line max-lines-per-function -- legacy SQL-heavy aggregate; refactored in Phase 7
 export function analytics(db: Db, accountId: string, opts: { days: number; projectId?: string; agentId?: string; tag?: string }) {
   const { days } = opts
   const cutoff = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10)

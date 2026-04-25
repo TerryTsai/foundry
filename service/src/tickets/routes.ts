@@ -5,7 +5,7 @@ import { accountId } from '../core/account-id.js'
 import * as database from '../core/db.js'
 import * as validate from './schema.js'
 import { ticketOwned } from '../projects/service.js'
-import { ticketUsage } from '../analytics/usage.js'
+import { ticketUsage } from '@foundry/analytics'
 import {
   ticketList, ticketGet, ticketCreate, ticketUpdate,
   ticketCancel, ticketDependencyChain,

@@ -14,6 +14,7 @@
     "@ai-sdk/anthropic": "^2.0.74",
     "@ai-sdk/openai": "^2.0.102",
     "@anthropic-ai/claude-agent-sdk": "^0.2.98",
+    "@foundry/analytics": "*",
     "@foundry/client": "*",
     "@foundry/db": "*",
     "@foundry/model": "*",

@@ -1,10 +1,10 @@
 import { eq } from 'drizzle-orm'
 
-import { type Db } from '../core/db.js'
-import * as database from '../core/db.js'
-import * as schema from '../core/schema.js'
-import type { Execution } from '../core/schema.js'
-import { mustExist } from '../core/util.js'
+import { type Db } from '@foundry/db'
+import * as database from '@foundry/db'
+import * as schema from '@foundry/db'
+import type { Execution } from '@foundry/db'
+import { mustExist } from '@foundry/model'
 
 export interface UsageRollup {
   session_count: number

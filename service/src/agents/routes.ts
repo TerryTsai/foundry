@@ -5,7 +5,7 @@ import { accountId } from '../core/account-id.js'
 import * as validate from './schema.js'
 import { agentMcpList, agentList, agentGet, agentCreate, agentUpdate, agentRemove } from './service.js'
 import { sessionGet, sessionStatus, sessionKill, sessionActivities } from '../sessions/service.js'
-import { agentUsage } from '../analytics/usage.js'
+import { agentUsage } from '@foundry/analytics'
 import { TOOL_NAMES } from '../reconciler/session/tools/registry.js'
 
 export function agentRoutes(db: Db) {

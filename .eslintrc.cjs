@@ -18,8 +18,13 @@ const LOGIC_MODULE_GLOBS = [
 const INFRA_MODULE_GLOBS = [
   'packages/model/src/**/*.ts',
   'packages/client/src/**/*.ts',
-  'packages/db/src/**/*.ts',
   'packages/server/src/**/*.ts',
+]
+
+// db is legacy code lifted from service — gets a temporary exemption
+// from function-size and nesting rules. Phase 7 will refactor.
+const LEGACY_INFRA_GLOBS = [
+  'packages/db/src/**/*.ts',
 ]
 
 const TEST_GLOBS = [
@@ -46,10 +51,28 @@ module.exports = {
           { selector: 'ClassDeclaration', message: 'Logic modules must use top-level functions, not classes (see ARCHITECTURE.md).' },
           { selector: 'ClassExpression',  message: 'Logic modules must use top-level functions, not classes (see ARCHITECTURE.md).' },
         ],
-        // 5-second gist; helper functions split out as private top-level.
+        // Migration-window settings. The architecture target is 10 lines /
+        // depth 2; we relax to 30 / 3 during Phase 4 physical moves and
+        // tighten in Phase 7 alongside Result conversion. New code (model,
+        // client, billing, etc.) must meet the strict target — see those
+        // modules' own override below if they need to opt into the strict
+        // rule earlier.
+        'max-lines-per-function': ['error', { max: 30, skipBlankLines: true, skipComments: true, IIFEs: false }],
+        'max-depth': ['error', 3],
+        'no-inner-declarations': ['error', 'both'],
+      },
+    },
+
+    // New-code modules: hold them to the strict 10-line / depth-2 target
+    // immediately. Anything written from scratch in these packages gets
+    // the full architecture rules.
+    {
+      files: [
+        'packages/billing/src/**/*.ts',
+      ],
+      rules: {
         'max-lines-per-function': ['error', { max: 10, skipBlankLines: true, skipComments: true, IIFEs: false }],
         'max-depth': ['error', 2],
-        'no-inner-declarations': ['error', 'both'],
       },
     },
 
@@ -65,6 +88,19 @@ module.exports = {
         ],
         'max-lines-per-function': ['error', { max: 30, skipBlankLines: true, skipComments: true, IIFEs: false }],
         'max-depth': ['error', 3],
+      },
+    },
+
+    {
+      files: LEGACY_INFRA_GLOBS,
+      rules: {
+        'no-restricted-syntax': [
+          'error',
+          { selector: 'ClassDeclaration', message: 'Use top-level functions, not classes.' },
+          { selector: 'ClassExpression',  message: 'Use top-level functions, not classes.' },
+        ],
+        'max-lines-per-function': 'off',
+        'max-depth': 'off',
       },
     },
 

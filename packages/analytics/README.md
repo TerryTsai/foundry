@@ -1,5 +1,7 @@
 # @foundry/analytics
 
-One-paragraph description: what this module owns and what it does NOT own.
+Derived queries over sessions, tickets, executions, and tool calls. Reads only — analytics doesn't write entities. Provides time-series and rollup data for dashboards and per-entity (ticket/agent/session) usage breakdowns.
 
-See /ARCHITECTURE.md for the conventions every module follows.
+This module owns: aggregate queries, time-series rollups, usage calculations. It does NOT own: entity writes (that's `crud`), the underlying schema (that's `db`), event/audit storage (that's `crud` writing to the event table).
+
+See `/ARCHITECTURE.md` for the rules and conventions.

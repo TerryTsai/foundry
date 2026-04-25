@@ -5,7 +5,7 @@ import { accountId } from '../core/account-id.js'
 import { sessionGet, sessionActivities, sessionListAll, verdictSet } from './service.js'
 import { sessionOwned } from '../projects/service.js'
 import { executionBySession } from '../executions/service.js'
-import { sessionUsage } from '../analytics/usage.js'
+import { sessionUsage } from '@foundry/analytics'
 import * as validate from './schema.js'
 
 export function sessionRoutes(db: Db) {
