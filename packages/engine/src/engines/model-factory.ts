@@ -47,11 +47,18 @@ export function resolveModel(db: Db, deps: EngineDeps, connectionId: string, mod
   return factory(secretFor(row, 'api_key', deps)).languageModel(modelId)
 }
 
+// `wrapLanguageModel` accepts whatever provider-specific LanguageModel the
+// AI SDK currently exports. The AI SDK and the per-provider adapters each
+// publish their own LanguageModel type alias; pinning to a literal one
+// breaks every minor bump. Extracting the slot type via `Parameters<>`
+// keeps us aligned to whatever shape `wrapLanguageModel` wants today.
+type WrapModelArgs = Parameters<typeof wrapLanguageModel>[0]
+type WrappedModel = WrapModelArgs['model']
+
 export function resolveModelWithDefaults(db: Db, deps: EngineDeps, agentDef: Agent) {
   const settings = buildSettings(agentDef)
   return wrapLanguageModel({
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- ai-sdk provider type drifts across adapter versions
-    model: resolveModel(db, deps, agentDef.connection_id, agentDef.model) as any,
+    model: resolveModel(db, deps, agentDef.connection_id, agentDef.model) as unknown as WrappedModel,
     middleware: defaultSettingsMiddleware({ settings }),
   })
 }

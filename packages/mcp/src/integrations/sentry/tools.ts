@@ -75,7 +75,7 @@ export const info: McpServerInfo = {
   description: 'Error tracking.',
 }
 
-export const tools: ToolDef[] = [
+export const tools: ToolDef<ConnCtx>[] = [
   { name: 'listIssues',   description: 'List issues in a project. Use `query` with Sentry search syntax (e.g. "is:unresolved", "issue.category:error age:-24h"). Pagination: pass `cursor` from the prior response\'s Link header to fetch the next page.', schema: listIssuesArgs,   handler: handleListIssues },
   { name: 'getIssue',     description: 'Fetch full details for one issue.',                                                                                                                                                                                  schema: getIssueArgs,     handler: handleGetIssue },
   { name: 'resolveIssue', description: 'Mark an issue resolved. Useful for auto-triage after a fix deploy.',                                                                                                                                                 schema: resolveIssueArgs, handler: handleResolveIssue },

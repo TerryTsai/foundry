@@ -15,26 +15,34 @@ import type { Agent, Event, Project, Session, Ticket } from '@foundry/db'
 // assignable here.
 
 export interface ReconcilerConfig {
-  sandboxTimeout:    number
-  port:              number
-  sandboxImage:      string
-  sandboxMemoryMb:   number
-  sandboxCpus:       number
-  sandboxPidsLimit:  number
-  sandboxNofileSoft: number
-  sandboxNofileHard: number
-  sandboxTmpfsMb:    number
-  internalApiToken:  string
+  sandboxTimeout:        number
+  port:                  number
+  sandboxImage:          string
+  sandboxMemoryMb:       number
+  sandboxCpus:           number
+  sandboxPidsLimit:      number
+  sandboxNofileSoft:     number
+  sandboxNofileHard:     number
+  sandboxTmpfsMb:        number
+  internalApiToken:      string
+  // Threaded through to engine → mcp's github tools. Reconciler never
+  // reads them; they're on the type so the same service Config object
+  // is assignable to both ReconcilerConfig and engine's EngineConfig.
+  gitHubAppId?:          number
+  gitHubAppPrivateKey?:  string
+  gitHubClientId:        string
+  gitHubClientSecret:    string
 }
 
-// ── EngineDeps (structural mirror) ───────────────────────────────────
-// Local structural mirror of @foundry/engine's EngineDeps. Reconciler
-// cannot import @foundry/engine; the composition root constructs the
-// real EngineDeps and passes it through. TS structural typing makes the
-// concrete object assignable to this shape.
+// ── EngineDeps (opaque pass-through) ─────────────────────────────────
+// Reconciler cannot import @foundry/engine, but it also doesn't read or
+// inspect EngineDeps — it just threads the bag the composition root
+// built into runSession. Modeling it as an opaque brand keeps reconciler
+// from accidentally peeking into engine internals, while the composition
+// root performs an explicit cast where the brand is applied.
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- structural mirror of engine's open shapes
-export type EngineDeps = any
+declare const engineDepsBrand: unique symbol
+export interface EngineDeps { readonly [engineDepsBrand]: never }
 
 // ── runSession (structural callback) ─────────────────────────────────
 // Mirrors @foundry/engine's runSession signature. The composition root

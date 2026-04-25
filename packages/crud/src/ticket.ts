@@ -1,5 +1,5 @@
 import type { z } from 'zod'
-import { eq, inArray } from 'drizzle-orm'
+import { eq, inArray, type SQL } from 'drizzle-orm'
 
 import { type Db } from '@foundry/db'
 import * as schema from '@foundry/db'
@@ -37,7 +37,7 @@ function ticketListByFilters(db: Db, owned: string[], filters: z.infer<typeof va
     projectScope,
     filters.agentId ? eq(schema.ticket.agent_id, filters.agentId) : null,
     filters.status  ? eq(schema.ticket.status,   filters.status)  : null,
-  ].filter(Boolean) as any[]
+  ].filter((c): c is SQL => c !== null)
   if (filters.tag) return database.ticketsByTag(db, filters.tag, conditions)
   return database.ticketAll(db, conditions)
 }

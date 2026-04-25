@@ -3,7 +3,7 @@ import type { Request, Response } from 'express'
 import type { Db } from '@foundry/db'
 import type { Result, SandboxError } from '@foundry/model'
 import type { Config } from '../config.js'
-import { parse, runResult, send } from '../http.js'
+import { parse, runResult, send, data } from '../http.js'
 import { accountId } from '../account-id.js'
 import {
   validate,
@@ -23,7 +23,7 @@ export function executionRoutes(db: Db, config: Config, sandboxCrud: SandboxCrud
 }
 
 function createExecution(db: Db, config: Config, sandboxCrud: SandboxCrudOps, req: Request): Result<{ id: string }, SandboxError> {
-  const r = executionCreate(db, config, sandboxCrud, req.data)
+  const r = executionCreate(db, config, sandboxCrud, data(validate.executionCreate, req))
   if (!r.ok) return r
   return { ok: true, value: { id: r.value.id } }
 }

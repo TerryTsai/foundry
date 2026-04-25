@@ -208,7 +208,7 @@ export const info: McpServerInfo = {
   description: 'Isolated Linux environment with a persistent session workspace: files, commands, search.',
 }
 
-export const tools: ToolDef[] = [
+export const tools: ToolDef<SandboxCtx>[] = [
   { name: 'run',       description: 'Run a single shell command in the session sandbox. The workspace is bind-mounted at /home/foundry and persists across calls within this session. The sandbox starts with an EMPTY /home/foundry — populate it yourself (e.g. via gitClone). Pre-installed: git, node/npm/npx, tsc, prettier, eslint, tsx, python3, curl, wget, jq, lynx, make, gcc, and standard unix tools. $HOME is /tmp so package managers work without flags. Network is always available. Prefer one command per call for clean audit trails — avoid chaining with && or ;. Large stdout is written to a file; use the read tool to paginate.', schema: validate.toolExec, handler: handleRun },
   { name: 'runScript',  description: 'Run a multi-line script in the sandbox. Provide the script body and choose an interpreter (sh, python, or node). The script is written to a temp file and executed — no shell quoting or && chaining needed. Same sandbox environment as `run`.', schema: runScriptSchema, handler: handleRunScript },
   { name: 'read',       description: 'Read the contents of a file from the workspace. Use offset and limit to paginate. Large output is written to a file you can read with offset/limit. Reads against an empty workspace return "not found" — populate /home/foundry first.',                                                                                  schema: validate.toolRead,   handler: handleRead },

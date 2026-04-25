@@ -67,11 +67,14 @@ export function agentUpdate(db: Db, accountId: string, id: string, input: z.infe
 
 function agentSupersedeAndInsert(db: Db, prior: Agent, input: z.infer<typeof validate.update>): Agent {
   return db.transaction(tx => {
-    const d = tx as any
+    // Drizzle's tx handle has the same surface as Db (select/insert/update),
+    // but its declared type is a transaction-scoped subtype. The repo
+    // helpers all accept Db; the cast names that intent without `any`.
+    const d = tx as unknown as Db
     const t = now()
     database.agentUpdate(d, prior.id, { superseded_at: t })
     return database.agentInsert(d, agentUpdatePayload(prior, input, t))
-  }) as Agent
+  })
 }
 
 function agentUpdatePayload(prior: Agent, input: z.infer<typeof validate.update>, t: string): Record<string, unknown> {

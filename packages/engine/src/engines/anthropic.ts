@@ -4,15 +4,33 @@
 // per turn and upsert one activity row per block keyed by (session_id,
 // turn_id, order_index).
 
-import { createSdkMcpServer, tool as sdkTool, query } from '@anthropic-ai/claude-agent-sdk'
+import { createSdkMcpServer, tool as sdkTool, query, type SDKAssistantMessage, type SDKMessage, type SDKResultMessage } from '@anthropic-ai/claude-agent-sdk'
+import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import { readFileSync } from 'fs'
+import { createRequire } from 'module'
 import { join } from 'path'
 import { homedir } from 'os'
+import type { ZodObject, ZodRawShape } from 'zod'
+
+// SDK's binary resolver tries `@anthropic-ai/claude-agent-sdk-linux-x64-musl`
+// before the glibc variant. The musl package's lockfile entry is missing
+// the libc constraint, so npm installs both on any Linux x64 host — and
+// the SDK happily picks the musl one, which can't be spawned on glibc
+// (no /lib/ld-musl-x86_64.so.1). Pin the gnu binary explicitly here.
+// Drop this once the upstream lockfile carries libc.
+const claudeBinary: string | undefined = (() => {
+  if (process.platform !== 'linux' || process.arch !== 'x64') return undefined
+  try { return createRequire(import.meta.url).resolve('@anthropic-ai/claude-agent-sdk-linux-x64/claude') }
+  catch { return undefined }
+})()
 import { type Db } from '@foundry/db'
 import type { Connection } from '@foundry/db'
 import { now } from '@foundry/model'
 
-import type { EngineDeps, SessionContext, LoopResult, ToolDef, ExecutionHandle } from '../types.js'
+import type {
+  EngineDeps, SessionContext, LoopResult, ToolDef, ExecutionCreate,
+  McpFoundryCtx, McpGithubCtx, McpSandboxCtx, McpConnCtx,
+} from '../types.js'
 
 type Block = { type: string; id?: string; text?: string; thinking?: string; name?: string; input?: unknown; signature?: string }
 
@@ -133,43 +151,43 @@ function activityCreatePayload(params: UpsertParams, baseData: Record<string, un
   }
 }
 
-function toSdkServer(
-  deps: EngineDeps, name: string, defs: ToolDef[],
-  serverCtx: unknown, allowed: string[] | '*' | null | undefined, isCancelled: () => boolean,
-) {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- mcp tool ctx is structurally open
-  const tu = (extra: unknown) => ({ ...(serverCtx as any), toolUseId: deps.mcp.toolUseId(extra) })
+type SdkMcpServer = ReturnType<typeof createSdkMcpServer>
+
+function toSdkServer<TCtx>(
+  deps: EngineDeps, name: string, defs: ToolDef<TCtx>[],
+  serverCtx: TCtx, allowed: string[] | '*' | null | undefined, isCancelled: () => boolean,
+): SdkMcpServer {
+  const tu = (extra: unknown): TCtx => ({ ...serverCtx, toolUseId: deps.mcp.toolUseId(extra) })
   const all = defs.map(t => wrapTool(deps, t, tu, isCancelled))
   return createSdkMcpServer({ name, tools: deps.mcp.filterTools(all, allowed) })
 }
 
-function wrapTool(
-  deps: EngineDeps, t: ToolDef,
-  tu: (extra: unknown) => unknown, isCancelled: () => boolean,
+function wrapTool<TCtx>(
+  deps: EngineDeps, t: ToolDef<TCtx>,
+  tu: (extra: unknown) => TCtx, isCancelled: () => boolean,
 ) {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- sdk shape
-  return sdkTool(t.name, t.description, (t.schema as any).shape, async (a: any, x: unknown) => {
-    if (isCancelled()) return deps.mcp.asText({ error: 'session cancelled' })
-    const result = await t.handler(tu(x), a)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- mcp envelope
-    return deps.mcp.isMcpEnvelope(result) ? (result as any) : deps.mcp.asText(result)
+  const shape = (t.schema as ZodObject<ZodRawShape>).shape
+  return sdkTool(t.name, t.description, shape, async (args: unknown, extra: unknown): Promise<CallToolResult> => {
+    if (isCancelled()) return deps.mcp.asText({ error: 'session cancelled' }) as CallToolResult
+    const result = await t.handler(tu(extra), args)
+    const envelope = deps.mcp.isMcpEnvelope(result) ? result : deps.mcp.asText(result)
+    return envelope as CallToolResult
   })
 }
 
-function unwrapExec(input: Parameters<typeof EngineDeps_sandbox_executionCreate>[2], db: Db, config: SessionContext['config'], deps: EngineDeps): ExecutionHandle {
-  const r = deps.sandbox.executionCreate(db, config, input)
-  if (!r.ok) throw new Error(`sandbox execution failed: ${r.error.kind}`)
-  return r.value
+function unwrapExec(deps: EngineDeps, db: Db, config: SessionContext['config']): ExecutionCreate {
+  return (input) => {
+    const r = deps.sandbox.executionCreate(db, config, input)
+    if (!r.ok) throw new Error(`sandbox execution failed: ${r.error.kind}`)
+    return r.value
+  }
 }
 
-// Type-level marker so `Parameters` resolves; not actually called.
-declare const EngineDeps_sandbox_executionCreate: EngineDeps['sandbox']['executionCreate']
-
-function buildMcpServers(ctx: SessionContext) {
+function buildMcpServers(ctx: SessionContext): Record<string, SdkMcpServer> {
   const { db, config, workDir, deps } = ctx
   const sessionId = ctx.session.id, agentDef = ctx.agent, ticketData = ctx.ticket
   const selection = deps.mcp.parseToolSelection(agentDef.tools)
-  const executionCreate = (input: Parameters<typeof deps.sandbox.executionCreate>[2]) => unwrapExec(input, db, config, deps)
+  const executionCreate = unwrapExec(deps, db, config)
   const isCancelled = buildCancelCheck(deps, db, sessionId, ticketData.id)
   const ctxs = buildToolCtxs(ctx, executionCreate)
   return assembleMcpServers(deps, ctxs, selection, isCancelled, db, agentDef.account_id, sessionId, workDir, config, executionCreate)
@@ -184,26 +202,32 @@ function buildCancelCheck(deps: EngineDeps, db: Db, sessionId: string, ticketId:
   }
 }
 
-function buildToolCtxs(ctx: SessionContext, executionCreate: (i: any) => ExecutionHandle) {
+interface ToolCtxs {
+  foundry: McpFoundryCtx
+  github:  McpGithubCtx
+  sandbox: McpSandboxCtx
+}
+
+function buildToolCtxs(ctx: SessionContext, executionCreate: ExecutionCreate): ToolCtxs {
   const { db, config, workDir } = ctx
   const sessionId = ctx.session.id, agentDef = ctx.agent, ticketData = ctx.ticket
   return {
     foundry: { db, config, sessionId, workspace: workDir, projectId: ticketData.project_id, accountId: agentDef.account_id, ticketId: ticketData.id, agentName: agentDef.name, sandboxToken: ctx.sandboxToken, executionCreate },
-    github:  { db, config, sessionId, workspace: workDir, ticket: ticketData, agentName: agentDef.name, executionCreate },
+    github:  { db, config, sessionId, workspace: workDir, ticket: ticketData, agentName: agentDef.name, executionCreate, projectGet: ctx.deps.crud.projectGetById },
     sandbox: { db, config, sessionId, workspace: workDir, executionCreate },
   }
 }
 
 function assembleMcpServers(
   deps: EngineDeps,
-  ctxs: { foundry: unknown; github: unknown; sandbox: unknown },
+  ctxs: ToolCtxs,
   selection: ReturnType<EngineDeps['mcp']['parseToolSelection']>,
   isCancelled: () => boolean,
   db: Db, accountId: string, sessionId: string, workDir: string,
   config: SessionContext['config'],
-  executionCreate: (i: any) => ExecutionHandle,
-): Record<string, ReturnType<typeof createSdkMcpServer>> {
-  const out: Record<string, ReturnType<typeof createSdkMcpServer>> = {}
+  executionCreate: ExecutionCreate,
+): Record<string, SdkMcpServer> {
+  const out: Record<string, SdkMcpServer> = {}
   if (selection === null || 'foundry' in selection) out.foundry = toSdkServer(deps, 'foundry', deps.mcp.foundryServer.tools, ctxs.foundry, selection?.foundry, isCancelled)
   if (selection === null || 'github'  in selection) out.github  = toSdkServer(deps, 'github',  deps.mcp.githubServer.tools,  ctxs.github,  selection?.github,  isCancelled)
   if (selection === null || 'sandbox' in selection) out.sandbox = toSdkServer(deps, 'sandbox', deps.mcp.sandboxServer.tools, ctxs.sandbox, selection?.sandbox, isCancelled)
@@ -213,12 +237,12 @@ function assembleMcpServers(
 }
 
 function attachConnectionServers(
-  out: Record<string, ReturnType<typeof createSdkMcpServer>>,
+  out: Record<string, SdkMcpServer>,
   deps: EngineDeps, db: Db, accountId: string, sessionId: string, workDir: string,
   config: SessionContext['config'],
   selection: ReturnType<EngineDeps['mcp']['parseToolSelection']>,
   isCancelled: () => boolean,
-  executionCreate: (i: any) => ExecutionHandle,
+  executionCreate: ExecutionCreate,
 ): void {
   const conns = deps.crud.connectionByAccount(db, accountId)
   for (const conn of conns) {
@@ -227,7 +251,7 @@ function attachConnectionServers(
     const key = `${conn.kind}:${conn.name}`
     if (selection !== null && !(key in selection)) continue
     const { secrets, connConfig } = deps.mcp.parseConn(conn, deps.crud.decryptSecret)
-    const connCtx = { db, config, sessionId, workspace: workDir, secrets, connConfig, connectionName: conn.name, executionCreate }
+    const connCtx: McpConnCtx = { db, config, sessionId, workspace: workDir, secrets, connConfig, connectionName: conn.name, executionCreate }
     out[key] = toSdkServer(deps, key, mod.tools, connCtx, selection === null ? null : selection[key], isCancelled)
   }
 }
@@ -283,19 +307,19 @@ async function drainQuery(
   const { systemPrompt, userPrompt, workDir, shouldStop, agent } = ctx
   for await (const message of query({
     prompt: userPrompt,
-    options: { systemPrompt, cwd: workDir, tools: [], mcpServers, permissionMode: 'bypassPermissions', maxTurns: agent.max_steps, model: agent.model },
+    options: { systemPrompt, cwd: workDir, tools: [], mcpServers, permissionMode: 'bypassPermissions', maxTurns: agent.max_steps, model: agent.model, pathToClaudeCodeExecutable: claudeBinary },
   })) {
     if (shouldStop()) { acc.cancelled = true; break }
     handleQueryMessage(ctx, message, acc)
   }
 }
 
-function handleQueryMessage(ctx: SessionContext, message: any, acc: TurnAccumulator): void {
+function handleQueryMessage(ctx: SessionContext, message: SDKMessage, acc: TurnAccumulator): void {
   if (message.type === 'assistant') handleAssistant(ctx, message, acc)
   else if (message.type === 'result') handleResult(ctx, message, acc)
 }
 
-function handleAssistant(ctx: SessionContext, message: any, acc: TurnAccumulator): void {
+function handleAssistant(ctx: SessionContext, message: SDKAssistantMessage, acc: TurnAccumulator): void {
   const turnId = message.message.id
   if (!turnId) return
   const incoming = (Array.isArray(message.message.content) ? message.message.content : []) as Block[]
@@ -307,7 +331,25 @@ function handleAssistant(ctx: SessionContext, message: any, acc: TurnAccumulator
   acc.toolCallTotal += merged.filter(b => b.type === 'tool_use').length - prior.filter(b => b.type === 'tool_use').length
 }
 
-function applyTurnUsageDelta(turnId: string, u: any, acc: TurnAccumulator): void {
+// Subset of the SDK BetaMessage usage / iterations shape we read. Typed as
+// optional everywhere because the SDK has historically reshaped these
+// fields; we treat anything unrecognized as zero rather than a hard error.
+interface UsageIteration {
+  type?:                          string
+  input_tokens?:                  number       | null
+  output_tokens?:                 number       | null
+  cache_read_input_tokens?:       number       | null
+  cache_creation_input_tokens?:   number       | null
+}
+interface UsageShape {
+  iterations?:                    UsageIteration[] | null
+  input_tokens?:                  number       | null
+  output_tokens?:                 number       | null
+  cache_read_input_tokens?:       number       | null
+  cache_creation_input_tokens?:   number       | null
+}
+
+function applyTurnUsageDelta(turnId: string, u: UsageShape | undefined, acc: TurnAccumulator): void {
   const { turnIn, turnOut } = computeTurnUsage(u)
   const priorIn = acc.turnMaxIn.get(turnId) ?? 0
   const priorOut = acc.turnMaxOut.get(turnId) ?? 0
@@ -317,8 +359,9 @@ function applyTurnUsageDelta(turnId: string, u: any, acc: TurnAccumulator): void
   acc.turnMaxOut.set(turnId, Math.max(priorOut, turnOut))
 }
 
-function computeTurnUsage(u: any): { turnIn: number; turnOut: number } {
-  const iters = u.iterations as Array<{ type?: string; input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number }> | undefined
+function computeTurnUsage(u: UsageShape | undefined): { turnIn: number; turnOut: number } {
+  if (!u) return { turnIn: 0, turnOut: 0 }
+  const iters = u.iterations
   const msgIters = Array.isArray(iters) ? iters.filter(i => i.type === 'message' || i.type === undefined) : null
   if (msgIters && msgIters.length > 0) {
     const turnIn  = msgIters.reduce((s, i) => s + (i.input_tokens ?? 0) + (i.cache_read_input_tokens ?? 0) + (i.cache_creation_input_tokens ?? 0), 0)
@@ -340,10 +383,10 @@ function writeMergedActivities(ctx: SessionContext, turnId: string, merged: Bloc
   })
 }
 
-function handleResult(ctx: SessionContext, message: any, acc: TurnAccumulator): void {
+function handleResult(ctx: SessionContext, message: SDKResultMessage, acc: TurnAccumulator): void {
   acc.numTurns = message.num_turns
   acc.stopReason = message.stop_reason ?? message.subtype
-  const models = Object.values(message.modelUsage) as Array<{ inputTokens: number; cacheReadInputTokens: number; cacheCreationInputTokens: number; outputTokens: number; costUSD?: number }>
+  const models = Object.values(message.modelUsage)
   const modelIn  = models.reduce((s, m) => s + m.inputTokens + m.cacheReadInputTokens + m.cacheCreationInputTokens, 0)
   const modelOut = models.reduce((s, m) => s + m.outputTokens, 0)
   acc.costUsd = models.reduce((s, m) => s + (m.costUSD ?? 0), 0)

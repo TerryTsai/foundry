@@ -186,7 +186,16 @@ async function handleTicketGet(ctx: FoundryCtx, args: z.infer<typeof ticketGetAr
   const ticket = await apiGet(ctx, 'ticketGet', args, `/ticket/${args.id}`)
   if (ticket.error) return ticket
   const tags = await apiGet(ctx, 'ticketGet', args, `/ticket/${args.id}/tag`)
-  return { ...ticket, tags: Array.isArray(tags) ? tags.map((t: any) => t.tag) : [] }
+  const tagNames = Array.isArray(tags) ? tags.map(extractTagName).filter((s): s is string => s !== null) : []
+  return { ...ticket, tags: tagNames }
+}
+
+function extractTagName(row: unknown): string | null {
+  if (row && typeof row === 'object' && 'tag' in row) {
+    const v = (row as { tag: unknown }).tag
+    return typeof v === 'string' ? v : null
+  }
+  return null
 }
 
 async function handleTicketCreate(ctx: FoundryCtx, args: z.infer<typeof ticketCreateArgs>) {
@@ -317,7 +326,7 @@ export const info: McpServerInfo = {
   description: 'Foundry harness introspection: tickets, agents, sessions, connections.',
 }
 
-export const tools: ToolDef[] = [
+export const tools: ToolDef<FoundryCtx>[] = [
   { name: 'ticketList',      description: 'List tickets in the current project. Filter by status (created/waiting/running/finished/failed/cancelled), agent, or tag.',                                                                  schema: ticketListArgs,      handler: handleTicketList },
   { name: 'ticketGet',       description: 'Fetch a ticket by id including its title, body, status, dependency, and tags.',                                                                                                              schema: ticketGetArgs,       handler: handleTicketGet },
   { name: 'ticketCreate',    description: 'Create a new ticket in the current project. Use `depends_on` to sequence work — the new ticket won\'t dispatch until the dependency is finished. Use tags for grouping.',                     schema: ticketCreateArgs,    handler: handleTicketCreate },

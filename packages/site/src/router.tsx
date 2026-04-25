@@ -43,10 +43,21 @@ const pid = (p: Params) => p.projectId!
 // render with whatever data is already there (stale-while-revalidate).
 // First visits to an uncached page see a brief null render, which the
 // receiving component handles with a loading/undefined guard.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const prefetch = (...opts: any[]) => {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  for (const o of opts) queryClient.prefetchQuery(o as any)
+//
+// queryClient.prefetchQuery's signature uses unknown placeholders for
+// every type parameter; tanstack's queryOptions() returns narrower types
+// where the `select` / `staleTime` callbacks expect the specific data
+// type. Typescript's contravariance on those callbacks blocks direct
+// assignment. PrefetchOpts captures the structural shape we actually
+// care about (keyed query with a fetcher); the localized cast bridges
+// the variance gap in one named place.
+interface PrefetchOpts {
+  queryKey: readonly unknown[]
+  queryFn?: unknown
+}
+type PrefetchInput = Parameters<typeof queryClient.prefetchQuery>[0]
+const prefetch = (...opts: PrefetchOpts[]): null => {
+  for (const o of opts) queryClient.prefetchQuery(o as unknown as PrefetchInput)
   return null
 }
 

@@ -28,30 +28,26 @@ fi
 
 echo "$LOG_PREFIX $(date '+%Y-%m-%d %H:%M:%S') deploying ${DEPLOYED_SHA:-<none>} → $HEAD_SHA"
 
-# Rebuild service
-echo "$LOG_PREFIX building service..."
-cd "$REPO_DIR/service"
+# Install workspace deps from the repo root so every package under
+# packages/* and service/ is wired up in one pass.
+echo "$LOG_PREFIX installing deps..."
 npm install --prefer-offline --no-audit --no-fund --silent
-npm run build
 
-# Rebuild web
-echo "$LOG_PREFIX building web..."
-cd "$REPO_DIR/web"
-npm install --prefer-offline --no-audit --no-fund --silent
-npm run build
+# Build the SPA. The server (run via tsx) statically serves
+# packages/site/dist when it exists.
+echo "$LOG_PREFIX building site..."
+npm run build --workspace=@foundry/site --silent
 
-# Rebuild sandbox image if anything it depends on changed since last
-# deploy: the Dockerfile itself OR any file under service/scripts/
-# (which the Dockerfile COPYs into the image).
-cd "$REPO_DIR"
+# Rebuild sandbox image if its Dockerfile changed since last deploy.
 if [ -n "$DEPLOYED_SHA" ] && git diff --name-only "$DEPLOYED_SHA" "$HEAD_SHA" \
-     | grep -qE '^(service/Dockerfile\.sandbox|service/scripts/)'; then
+     | grep -qE '^service/Dockerfile\.sandbox$'; then
   echo "$LOG_PREFIX rebuilding sandbox image..."
   cd "$REPO_DIR/service"
   podman build -f Dockerfile.sandbox -t foundry-sandbox . --quiet
+  cd "$REPO_DIR"
 fi
 
-# Restart the service (systemd picks up the new dist/)
+# Restart the service (tsx re-reads source on start).
 echo "$LOG_PREFIX restarting service..."
 systemctl --user restart foundry.service
 

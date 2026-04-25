@@ -254,9 +254,14 @@ function interpretDeployResult(stdout: string) {
   }
 }
 
+type WranglerResult =
+  | { ok: false; error: string }
+  | { ok: true;  result: unknown }
+  | { ok: true;  stdout: string }
+
 // Typed wrangler operations — each constructs a fixed command from typed
 // args. /home/foundry is mounted rw so file paths resolve normally.
-async function runWrangler(ctx: CloudflareCtx, toolName: string, args: unknown, command: string) {
+async function runWrangler(ctx: CloudflareCtx, toolName: string, args: unknown, command: string): Promise<WranglerResult> {
   const acct = resolveAccountId(ctx, (args as { account_id?: string }).account_id)
   const r = await runCommand(ctx,
     `wrangler ${command}`, toolName, args, {
@@ -267,7 +272,8 @@ async function runWrangler(ctx: CloudflareCtx, toolName: string, args: unknown, 
       toolUseId: ctx.toolUseId,
     })
   if (r.exitCode !== 0) return { ok: false, error: r.stderr || r.stdout }
-  try { return { ok: true, result: JSON.parse(r.stdout) } } catch { return { ok: true, stdout: r.stdout } }
+  try { return { ok: true, result: JSON.parse(r.stdout) as unknown } }
+  catch { return { ok: true, stdout: r.stdout } }
 }
 
 async function handleR2CreateBucket(ctx: CloudflareCtx, args: z.infer<typeof r2CreateBucketArgs>) {
@@ -308,9 +314,10 @@ async function handleKvDeleteNamespace(ctx: CloudflareCtx, args: z.infer<typeof 
   return runWrangler(ctx, 'kvDeleteNamespace', args, `kv namespace delete --namespace-id=${JSON.stringify(args.namespace_id)}`)
 }
 async function handleKvCreate(ctx: CloudflareCtx, args: z.infer<typeof kvCreateArgs>) {
-  const r: any = await runWrangler(ctx, 'kvCreate', args, `kv namespace create ${JSON.stringify(args.title)}`)
+  const r = await runWrangler(ctx, 'kvCreate', args, `kv namespace create ${JSON.stringify(args.title)}`)
   if (!r.ok) return r
-  const idMatch = (r.stdout ?? '').match(/id\s*=\s*"([^"]+)"/)
+  const text = 'stdout' in r ? r.stdout : ''
+  const idMatch = text.match(/id\s*=\s*"([^"]+)"/)
   return { ...r, namespace_id: idMatch?.[1] ?? null }
 }
 async function handleKvList(ctx: CloudflareCtx, args: z.infer<typeof kvListArgs>) {
@@ -335,7 +342,7 @@ export const info: McpServerInfo = {
   description: 'Cloudflare REST API tools: tokens, zones, Pages, cache purge, and Pages deploy.',
 }
 
-export const tools: ToolDef[] = [
+export const tools: ToolDef<ConnCtx>[] = [
   { name: 'whoami',           description: 'Verify the token and show the authorized user / account context.',                                                                                                                       schema: whoamiArgs,           handler: handleWhoami },
   { name: 'zonesList',        description: 'List DNS zones on the account. Returns zone id, name, and status. Use the zone id for purgeCache.',                                                                                      schema: zonesListArgs,        handler: handleZonesList },
   { name: 'purgeCache',       description: 'Purge cache for a zone. Pass a `files` URL list (preferred) or `purge_everything: true`. Get the zone_id from zonesList first.',                                                         schema: purgeCacheArgs,       handler: handlePurgeCache },

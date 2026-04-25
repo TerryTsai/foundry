@@ -2,7 +2,7 @@ import { Router } from 'express'
 import type { Request } from 'express'
 import type { Db } from '@foundry/db'
 import type { Result, CrudError, SandboxError, AnalyticsError } from '@foundry/model'
-import { parse, runResult, send } from '../http.js'
+import { parse, runResult, send, data } from '../http.js'
 import { accountId } from '../account-id.js'
 import {
   validate,
@@ -19,7 +19,7 @@ export function sessionRoutes(db: Db, sandboxCrud: SandboxCrudOps) {
   r.get ('/:id/activity',   runResult(req => sessionActivities(db, accountId(req), req.params.id)),     send())
   r.get ('/:id/execution',  runResult(req => execsForSession(db, sandboxCrud, req)),                    send())
   r.get ('/:id/usage',      runResult(req => sessionUsageScoped(db, req)),                              send())
-  r.post('/:id/verdict',    parse(validate.session.verdictSet), runResult(req => verdictSet(db, accountId(req), req.params.id, req.data)), send())
+  r.post('/:id/verdict',    parse(validate.session.verdictSet), runResult(req => verdictSet(db, accountId(req), req.params.id, data(validate.session.verdictSet, req))), send())
   return r
 }
 

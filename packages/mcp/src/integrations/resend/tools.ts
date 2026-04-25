@@ -67,7 +67,7 @@ export const info: McpServerInfo = {
   description: 'Transactional email.',
 }
 
-export const tools: ToolDef[] = [
+export const tools: ToolDef<ConnCtx>[] = [
   { name: 'sendEmail', description: 'Send a transactional email. At least one of `html` or `text` is required. `from` may be omitted if the connection has default_from set. Returns { id } on success.', schema: sendEmailArgs, handler: handleSendEmail },
   { name: 'getEmail',  description: 'Fetch a previously-sent email\'s delivery status and metadata.',                                                                                                     schema: getEmailArgs,  handler: handleGetEmail },
   { name: 'ping',      description: 'Verify the API key by listing the account\'s keys.',                                                                                                                schema: pingArgs,      handler: handlePing },

@@ -77,7 +77,7 @@ export const info: McpServerInfo = {
   description: 'Scheduling, event types, and bookings.',
 }
 
-export const tools: ToolDef[] = [
+export const tools: ToolDef<ConnCtx>[] = [
   { name: 'bookingList',   description: 'List bookings. `status` is one of upcoming/recurring/past/cancelled/unconfirmed.',             schema: bookingListArgs,   handler: handleBookingList },
   { name: 'bookingGet',    description: 'Fetch full details for one booking.',                                                          schema: bookingIdArgs,     handler: handleBookingGet },
   { name: 'bookingCancel', description: 'Cancel a booking. `reason` is surfaced in the email to attendees.',                            schema: bookingCancelArgs, handler: handleBookingCancel },

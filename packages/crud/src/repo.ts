@@ -37,12 +37,12 @@ export function projectsActive(d: Db): Project[] {
 
 export function projectInsert(d: Db, data: Record<string, unknown>): Project {
   const id = ulid()
-  d.insert(schema.project).values({ ...data, id } as any).run()
+  d.insert(schema.project).values({ ...data, id } as typeof schema.project.$inferInsert).run()
   return d.select().from(schema.project).where(eq(schema.project.id, id)).get() as Project
 }
 
 export function projectUpdate(d: Db, id: string, data: Record<string, unknown>): Project {
-  if (Object.keys(data).length > 0) d.update(schema.project).set(data as any).where(eq(schema.project.id, id)).run()
+  if (Object.keys(data).length > 0) d.update(schema.project).set(data as Partial<typeof schema.project.$inferInsert>).where(eq(schema.project.id, id)).run()
   return d.select().from(schema.project).where(eq(schema.project.id, id)).get() as Project
 }
 
@@ -129,12 +129,12 @@ export function connectionByAccount(d: Db, accountId: string): Connection[] {
 
 export function connectionInsert(d: Db, data: Record<string, unknown>): Connection {
   const id = ulid()
-  d.insert(schema.connection).values({ ...data, id } as any).run()
+  d.insert(schema.connection).values({ ...data, id } as typeof schema.connection.$inferInsert).run()
   return d.select().from(schema.connection).where(eq(schema.connection.id, id)).get() as Connection
 }
 
 export function connectionUpdate(d: Db, id: string, data: Record<string, unknown>): Connection {
-  if (Object.keys(data).length > 0) d.update(schema.connection).set(data as any).where(eq(schema.connection.id, id)).run()
+  if (Object.keys(data).length > 0) d.update(schema.connection).set(data as Partial<typeof schema.connection.$inferInsert>).where(eq(schema.connection.id, id)).run()
   return d.select().from(schema.connection).where(eq(schema.connection.id, id)).get() as Connection
 }
 
@@ -170,12 +170,12 @@ export function ticketAllByProjectStatus(d: Db, projectId: string, status: strin
 
 export function ticketInsert(d: Db, data: Record<string, unknown>): Ticket {
   const id = ulid()
-  d.insert(schema.ticket).values({ ...data, id } as any).run()
+  d.insert(schema.ticket).values({ ...data, id } as typeof schema.ticket.$inferInsert).run()
   return d.select().from(schema.ticket).where(eq(schema.ticket.id, id)).get() as Ticket
 }
 
 export function ticketUpdate(d: Db, id: string, data: Record<string, unknown>): Ticket {
-  if (Object.keys(data).length > 0) d.update(schema.ticket).set(data as any).where(eq(schema.ticket.id, id)).run()
+  if (Object.keys(data).length > 0) d.update(schema.ticket).set(data as Partial<typeof schema.ticket.$inferInsert>).where(eq(schema.ticket.id, id)).run()
   return d.select().from(schema.ticket).where(eq(schema.ticket.id, id)).get() as Ticket
 }
 
@@ -249,7 +249,7 @@ export function commentAll(d: Db, conditions?: SQL[]): Comment[] {
 
 export function commentInsert(d: Db, data: Record<string, unknown>): Comment {
   const id = ulid()
-  d.insert(schema.comment).values({ ...data, id } as any).run()
+  d.insert(schema.comment).values({ ...data, id } as typeof schema.comment.$inferInsert).run()
   return d.select().from(schema.comment).where(eq(schema.comment.id, id)).get() as Comment
 }
 
@@ -272,12 +272,12 @@ export function agentAll(d: Db, conditions?: SQL[]): Agent[] {
 
 export function agentInsert(d: Db, data: Record<string, unknown>): Agent {
   const id = ulid()
-  d.insert(schema.agent).values({ ...data, id } as any).run()
+  d.insert(schema.agent).values({ ...data, id } as typeof schema.agent.$inferInsert).run()
   return d.select().from(schema.agent).where(eq(schema.agent.id, id)).get() as Agent
 }
 
 export function agentUpdate(d: Db, id: string, data: Record<string, unknown>): Agent {
-  if (Object.keys(data).length > 0) d.update(schema.agent).set(data as any).where(eq(schema.agent.id, id)).run()
+  if (Object.keys(data).length > 0) d.update(schema.agent).set(data as Partial<typeof schema.agent.$inferInsert>).where(eq(schema.agent.id, id)).run()
   return d.select().from(schema.agent).where(eq(schema.agent.id, id)).get() as Agent
 }
 
@@ -335,12 +335,12 @@ export function sessionAll(d: Db, conditions?: SQL[]): Session[] {
 
 export function sessionInsert(d: Db, data: Record<string, unknown>): Session {
   const id = ulid()
-  d.insert(schema.session).values({ ...data, id } as any).run()
+  d.insert(schema.session).values({ ...data, id } as typeof schema.session.$inferInsert).run()
   return d.select().from(schema.session).where(eq(schema.session.id, id)).get() as Session
 }
 
 export function sessionUpdate(d: Db, id: string, data: Record<string, unknown>): Session {
-  if (Object.keys(data).length > 0) d.update(schema.session).set(data as any).where(eq(schema.session.id, id)).run()
+  if (Object.keys(data).length > 0) d.update(schema.session).set(data as Partial<typeof schema.session.$inferInsert>).where(eq(schema.session.id, id)).run()
   return d.select().from(schema.session).where(eq(schema.session.id, id)).get() as Session
 }
 
@@ -390,12 +390,12 @@ export function activityAll(d: Db, conditions?: SQL[]): Activity[] {
 
 export function activityInsert(d: Db, data: Record<string, unknown>): Activity {
   const id = ulid()
-  d.insert(schema.activity).values({ ...data, id } as any).run()
+  d.insert(schema.activity).values({ ...data, id } as typeof schema.activity.$inferInsert).run()
   return d.select().from(schema.activity).where(eq(schema.activity.id, id)).get() as Activity
 }
 
 export function activityUpdate(d: Db, id: string, data: Record<string, unknown>): Activity {
-  if (Object.keys(data).length > 0) d.update(schema.activity).set(data as any).where(eq(schema.activity.id, id)).run()
+  if (Object.keys(data).length > 0) d.update(schema.activity).set(data as Partial<typeof schema.activity.$inferInsert>).where(eq(schema.activity.id, id)).run()
   return d.select().from(schema.activity).where(eq(schema.activity.id, id)).get() as Activity
 }
 
@@ -431,12 +431,12 @@ export function executionAll(d: Db, conditions?: SQL[]): Execution[] {
 
 export function executionInsert(d: Db, data: Record<string, unknown>): Execution {
   const id = ulid()
-  d.insert(schema.execution).values({ ...data, id } as any).run()
+  d.insert(schema.execution).values({ ...data, id } as typeof schema.execution.$inferInsert).run()
   return d.select().from(schema.execution).where(eq(schema.execution.id, id)).get() as Execution
 }
 
 export function executionUpdate(d: Db, id: string, data: Record<string, unknown>): Execution {
-  if (Object.keys(data).length > 0) d.update(schema.execution).set(data as any).where(eq(schema.execution.id, id)).run()
+  if (Object.keys(data).length > 0) d.update(schema.execution).set(data as Partial<typeof schema.execution.$inferInsert>).where(eq(schema.execution.id, id)).run()
   return d.select().from(schema.execution).where(eq(schema.execution.id, id)).get() as Execution
 }
 

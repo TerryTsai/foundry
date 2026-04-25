@@ -27,11 +27,15 @@ export interface ConnectionProvider {
 
 // ── MCP tools (what an agent can invoke) ───────────────────────────
 
-export interface ToolDef {
+// Method-syntax `handler` triggers TS's bivariant parameter checking,
+// which lets each tool's specific zod-inferred args type fit through the
+// shared `unknown` slot without per-handler casts. Validation still happens
+// at the SDK boundary against the zod schema before the handler runs.
+export interface ToolDef<TCtx = unknown> {
   name:        string
   description: string
   schema:      ZodType
-  handler:     (ctx: any, args: any) => any
+  handler(ctx: TCtx, args: unknown): Promise<unknown> | unknown
 }
 
 export type McpCategory = 'core' | 'code' | 'infra' | 'data' | 'product' | 'growth'

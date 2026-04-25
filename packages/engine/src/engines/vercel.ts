@@ -8,7 +8,16 @@ import { type Db } from '@foundry/db'
 import { now } from '@foundry/model'
 
 import { resolveModelWithDefaults } from './model-factory.js'
-import type { EngineDeps, SessionContext, LoopResult, ToolDef, ExecutionHandle } from '../types.js'
+import type {
+  EngineDeps, SessionContext, LoopResult, ToolDef, ExecutionCreate,
+  McpFoundryCtx, McpGithubCtx, McpSandboxCtx, McpConnCtx,
+} from '../types.js'
+
+// `ai`'s tool schema slot. The ai SDK pulls in its own zod typing that
+// drifts vs the workspace zod version; the option type is the safe
+// shared shape between them.
+type AiToolOptions = Parameters<typeof tool>[0]
+type AiToolInputSchema = AiToolOptions['inputSchema']
 
 type StepResult = Awaited<ReturnType<typeof generateText<ToolSet>>>
 
@@ -20,34 +29,42 @@ type ContentPart =
   | { type: string; [k: string]: unknown }
 
 
-function toAiTools(defs: ToolDef[], ctx: unknown, prefix?: string): ToolSet {
+function toAiTools<TCtx>(defs: ToolDef<TCtx>[], ctx: TCtx, prefix?: string): ToolSet {
   const out: ToolSet = {}
   for (const t of defs) {
     const key = prefix ? `${prefix}-${t.name}` : t.name
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- mcp tool ctx is structurally open
-    out[key] = tool({ description: t.description, inputSchema: t.schema as any, execute: (a: any) => t.handler(ctx, a) })
+    out[key] = tool({
+      description: t.description,
+      inputSchema: t.schema as unknown as AiToolInputSchema,
+      execute: (args: unknown) => t.handler(ctx, args),
+    })
   }
   return out
 }
 
-function unwrapExec(deps: EngineDeps, db: Db, config: SessionContext['config'], input: any): ExecutionHandle {
-  const r = deps.sandbox.executionCreate(db, config, input)
-  if (!r.ok) throw new Error(`sandbox execution failed: ${r.error.kind}`)
-  return r.value
+function unwrapExec(deps: EngineDeps, db: Db, config: SessionContext['config']): ExecutionCreate {
+  return (input) => {
+    const r = deps.sandbox.executionCreate(db, config, input)
+    if (!r.ok) throw new Error(`sandbox execution failed: ${r.error.kind}`)
+    return r.value
+  }
 }
 
-function buildBuiltInTools(ctx: SessionContext, executionCreate: (i: any) => ExecutionHandle): ToolSet {
+function buildBuiltInTools(ctx: SessionContext, executionCreate: ExecutionCreate): ToolSet {
   const { db, config, workDir, deps, agent: agentDef, ticket: ticketData, session } = ctx
+  const foundryCtx: McpFoundryCtx = { db, config, sessionId: session.id, workspace: workDir, projectId: ticketData.project_id, accountId: agentDef.account_id, ticketId: ticketData.id, agentName: agentDef.name, sandboxToken: ctx.sandboxToken, executionCreate }
+  const githubCtx:  McpGithubCtx  = { db, config, sessionId: session.id, workspace: workDir, ticket: ticketData, agentName: agentDef.name, executionCreate, projectGet: deps.crud.projectGetById }
+  const sandboxCtx: McpSandboxCtx = { db, config, sessionId: session.id, workspace: workDir, executionCreate }
   return {
-    ...toAiTools(deps.mcp.foundryServer.tools, { db, config, sessionId: session.id, workspace: workDir, projectId: ticketData.project_id, accountId: agentDef.account_id, ticketId: ticketData.id, agentName: agentDef.name, sandboxToken: ctx.sandboxToken, executionCreate }),
-    ...toAiTools(deps.mcp.githubServer.tools,  { db, config, sessionId: session.id, workspace: workDir, ticket: ticketData, agentName: agentDef.name, executionCreate }),
-    ...toAiTools(deps.mcp.sandboxServer.tools, { db, config, sessionId: session.id, workspace: workDir, executionCreate }),
-    ...toAiTools(deps.mcp.browserServer.tools, { db, config, sessionId: session.id, workspace: workDir, executionCreate }),
+    ...toAiTools(deps.mcp.foundryServer.tools, foundryCtx),
+    ...toAiTools(deps.mcp.githubServer.tools,  githubCtx),
+    ...toAiTools(deps.mcp.sandboxServer.tools, sandboxCtx),
+    ...toAiTools(deps.mcp.browserServer.tools, sandboxCtx),
   }
 }
 
 function attachConnectionTools(
-  result: ToolSet, ctx: SessionContext, executionCreate: (i: any) => ExecutionHandle,
+  result: ToolSet, ctx: SessionContext, executionCreate: ExecutionCreate,
 ): void {
   const { db, config, workDir, deps, agent: agentDef, session } = ctx
   const conns = deps.crud.connectionByAccount(db, agentDef.account_id)
@@ -56,13 +73,14 @@ function attachConnectionTools(
     if (!mod) continue
     const { secrets, connConfig } = deps.mcp.parseConn(conn, deps.crud.decryptSecret)
     const prefix = `${conn.kind}-${conn.name}`
-    Object.assign(result, toAiTools(mod.tools, { db, config, sessionId: session.id, workspace: workDir, secrets, connConfig, connectionName: conn.name, executionCreate }, prefix))
+    const connCtx: McpConnCtx = { db, config, sessionId: session.id, workspace: workDir, secrets, connConfig, connectionName: conn.name, executionCreate }
+    Object.assign(result, toAiTools(mod.tools, connCtx, prefix))
   }
 }
 
 function buildTools(ctx: SessionContext): ToolSet {
   const { db, config, deps } = ctx
-  const executionCreate = (input: any) => unwrapExec(deps, db, config, input)
+  const executionCreate = unwrapExec(deps, db, config)
   const result = buildBuiltInTools(ctx, executionCreate)
   attachConnectionTools(result, ctx, executionCreate)
   return result

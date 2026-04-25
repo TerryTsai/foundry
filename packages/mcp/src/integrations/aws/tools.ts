@@ -7,7 +7,12 @@ import type { McpServerInfo, ToolDef } from '../types.js'
 
 type AwsCtx = ConnCtx
 
-async function runAws(ctx: AwsCtx, toolName: string, args: unknown, command: string) {
+type AwsResult =
+  | { ok: false; error: string }
+  | { ok: true;  result: unknown }
+  | { ok: true;  stdout: string }
+
+async function runAws(ctx: AwsCtx, toolName: string, args: unknown, command: string): Promise<AwsResult> {
   const region = (args as { region?: string }).region?.trim()
     ?? (typeof ctx.connConfig.region === 'string' ? ctx.connConfig.region.trim() : '')
   const regionFlag = region ? ` --region ${JSON.stringify(region)}` : ''
@@ -20,7 +25,19 @@ async function runAws(ctx: AwsCtx, toolName: string, args: unknown, command: str
   const r = await runCommand(ctx,
     wrapped, toolName, args, { env, toolUseId: ctx.toolUseId })
   if (r.exitCode !== 0) return { ok: false, error: r.stderr || r.stdout }
-  try { return { ok: true, result: JSON.parse(r.stdout) } } catch { return { ok: true, stdout: r.stdout } }
+  try { return { ok: true, result: JSON.parse(r.stdout) as unknown } }
+  catch { return { ok: true, stdout: r.stdout } }
+}
+
+function awsErrorIncludes(r: AwsResult, needle: string): boolean {
+  return !r.ok && typeof r.error === 'string' && r.error.includes(needle)
+}
+
+function awsResultField<T = unknown>(r: AwsResult, field: string): T | undefined {
+  if (!r.ok || !('result' in r)) return undefined
+  const v = r.result
+  if (v && typeof v === 'object' && field in v) return (v as Record<string, T>)[field]
+  return undefined
 }
 
 // ── Schemas ──
@@ -250,8 +267,8 @@ async function handleLambdaCreate(ctx: AwsCtx, args: z.infer<typeof lambdaCreate
     : `ZipFile=fileb:///home/foundry/${args.zip}`
   // IAM role propagation takes ~10s. Retry once on InvalidParameterValueException.
   const cmd = `lambda create-function --function-name ${JSON.stringify(args.name)} --runtime ${args.runtime} --handler ${args.handler} --role ${JSON.stringify(args.role)} --code ${code}`
-  const r: any = await runAws(ctx, 'lambdaCreate', args, cmd)
-  if (!r.ok && r.error?.includes('InvalidParameterValueException') && r.error?.includes('role')) {
+  const r = await runAws(ctx, 'lambdaCreate', args, cmd)
+  if (awsErrorIncludes(r, 'InvalidParameterValueException') && awsErrorIncludes(r, 'role')) {
     await new Promise(resolve => setTimeout(resolve, 12000))
     return runAws(ctx, 'lambdaCreate', args, cmd)
   }
@@ -276,8 +293,8 @@ async function handleLambdaAddPermission(ctx: AwsCtx, args: z.infer<typeof lambd
     const region = args.region?.trim()
       ?? (typeof ctx.connConfig.region === 'string' ? ctx.connConfig.region.trim() : null)
       ?? 'us-east-1'
-    const identity: any = await runAws(ctx, 'lambdaAddPermission', args, 'sts get-caller-identity')
-    const account = identity?.result?.Account
+    const identity = await runAws(ctx, 'lambdaAddPermission', args, 'sts get-caller-identity')
+    const account = awsResultField<string>(identity, 'Account')
     if (account) srcArn = ` --source-arn arn:aws:execute-api:${region}:${account}:${args.api_id}/*`
   }
   return runAws(ctx, 'lambdaAddPermission', args,
@@ -301,9 +318,9 @@ async function handleApiGatewayDelete(ctx: AwsCtx, args: z.infer<typeof apiGatew
 async function handleApiGatewayAddRoute(ctx: AwsCtx, args: z.infer<typeof apiGatewayAddRouteArgs>) {
   const integCmd = `apigatewayv2 create-integration --api-id ${args.api_id} --integration-type AWS_PROXY --integration-uri ${JSON.stringify(args.lambda_arn)} --payload-format-version 2.0`
   const routeCmd = (integId: string) => `apigatewayv2 create-route --api-id ${args.api_id} --route-key ${JSON.stringify(args.route)} --target integrations/${integId}`
-  const r: any = await runAws(ctx, 'apiGatewayAddRoute', args, integCmd)
+  const r = await runAws(ctx, 'apiGatewayAddRoute', args, integCmd)
   if (!r.ok) return r
-  const integId = r.result?.IntegrationId
+  const integId = awsResultField<string>(r, 'IntegrationId')
   if (!integId) return { ok: false, error: 'integration created but no IntegrationId returned' }
   return runAws(ctx, 'apiGatewayAddRoute', args, routeCmd(integId))
 }
@@ -360,10 +377,10 @@ async function handleCloudfrontList(ctx: AwsCtx, args: z.infer<typeof cloudfront
 async function handleCloudfrontDisable(ctx: AwsCtx, args: z.infer<typeof cloudfrontDisableArgs>) {
   // Get current config, set Enabled=false, update. CloudFront requires the full config + ETag.
   const getCmd = `cloudfront get-distribution-config --id ${args.distribution_id}`
-  const r: any = await runAws(ctx, 'cloudfrontDisable', args, getCmd)
+  const r = await runAws(ctx, 'cloudfrontDisable', args, getCmd)
   if (!r.ok) return r
-  const etag = r.result?.ETag
-  const config = r.result?.DistributionConfig
+  const etag = awsResultField<string>(r, 'ETag')
+  const config = awsResultField<Record<string, unknown>>(r, 'DistributionConfig')
   if (!etag || !config) return { ok: false, error: 'could not read distribution config' }
   config.Enabled = false
   const updConfig = JSON.stringify(JSON.stringify(config))
@@ -372,10 +389,10 @@ async function handleCloudfrontDisable(ctx: AwsCtx, args: z.infer<typeof cloudfr
 }
 async function handleCloudfrontDelete(ctx: AwsCtx, args: z.infer<typeof cloudfrontDeleteArgs>) {
   // Need the ETag of the current (disabled) distribution.
-  const r: any = await runAws(ctx, 'cloudfrontDelete', args,
+  const r = await runAws(ctx, 'cloudfrontDelete', args,
     `cloudfront get-distribution --id ${args.distribution_id}`)
   if (!r.ok) return r
-  const etag = r.result?.ETag
+  const etag = awsResultField<string>(r, 'ETag')
   if (!etag) return { ok: false, error: 'could not read distribution ETag' }
   return runAws(ctx, 'cloudfrontDelete', args,
     `cloudfront delete-distribution --id ${args.distribution_id} --if-match ${etag}`)
@@ -395,7 +412,7 @@ export const info: McpServerInfo = {
   description: 'AWS tools for deploying sites: S3, Lambda, API Gateway, IAM, CloudFront.',
 }
 
-export const tools: ToolDef[] = [
+export const tools: ToolDef<ConnCtx>[] = [
   { name: 's3CreateBucket',       description: 'Create a new S3 bucket.',                                                                                                                                         schema: s3CreateBucketArgs,       handler: handleS3CreateBucket },
   { name: 's3DeleteBucket',       description: 'Delete an empty S3 bucket.',                                                                                                                                      schema: s3DeleteBucketArgs,       handler: handleS3DeleteBucket },
   { name: 's3List',               description: 'List S3 buckets, or objects in a bucket with optional prefix filter.',                                                                                             schema: s3ListArgs,               handler: handleS3List },

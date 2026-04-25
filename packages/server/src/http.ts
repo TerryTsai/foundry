@@ -6,7 +6,10 @@ import type { Result } from '@foundry/model'
 declare global {
   namespace Express {
     interface Request {
-      data?: any
+      // Validated payload stashed by parse(schema). Each handler casts to
+      // the schema's inferred type; this stays unknown so silent reads
+      // surface as type errors instead of `any` propagation.
+      data?: unknown
       account?: Account
     }
   }
@@ -23,6 +26,11 @@ export const parse = <T>(schema: ZodType<T>, from: 'body' | 'query' = 'body'): R
     req.data = parsed.data
     next()
   }
+
+// Read req.data with the same schema you parsed against. The cast is
+// sound because parse() rejected the request with 400 if validation
+// failed; reaching this point means req.data matches z.infer<schema>.
+export const data = <T>(_schema: ZodType<T>, req: Request): T => req.data as T
 
 // ── Handler wrapper ──
 // Lifts a (req) => unknown handler into Express middleware that stores

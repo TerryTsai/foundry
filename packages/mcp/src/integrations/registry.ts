@@ -16,6 +16,17 @@
 // user-stored connection.
 
 import type { ConnectionProvider } from './types.js'
+import type { McpServerInfo, ToolDef } from '../types.js'
+import type { ConnCtx } from './shared.js'
+
+// Shape every connection-backed tool module exports. Keeping it explicit
+// here means byConnectionKind is typed (no `Record<string, any>` at the
+// engine seam) and engines get `tools` correctly inferred as
+// ToolDef<ConnCtx>[] instead of any.
+interface ConnIntegrationModule {
+  tools: ToolDef<ConnCtx>[]
+  info:  McpServerInfo
+}
 
 // Provider definitions
 import { anthropic }             from './anthropic/provider.js'
@@ -57,7 +68,7 @@ const providers: ConnectionProvider[] = [
 // Connection-bound tool modules — keyed by ConnectionProvider.kind.
 // Engines look this map up at session start to mount the agent's
 // vendor-tool servers.
-export const byConnectionKind = {
+export const byConnectionKind: Record<string, ConnIntegrationModule> = {
   aws: awsTools, cloudflare: cloudflareTools,
   clerk: clerkTools, stripe: stripeTools, supabase: supabaseTools,
   sentry: sentryTools, posthog: posthogTools, resend: resendTools,

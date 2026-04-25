@@ -4,6 +4,7 @@ export { runSession } from './session.js'
 
 export type {
   EngineConfig,
+  EngineMcpConfig,
   EngineDeps,
   EngineCrudOps,
   SessionContext,
@@ -19,4 +20,9 @@ export type {
   ExecHandleEmitter,
   AttachmentSummary,
   VerdictRow,
+  McpFoundryCtx,
+  McpGithubCtx,
+  McpSandboxCtx,
+  McpConnCtx,
+  McpResult,
 } from './types.js'

@@ -90,7 +90,7 @@ export const info: McpServerInfo = {
   description: 'HTTP / ping uptime monitors.',
 }
 
-export const tools: ToolDef[] = [
+export const tools: ToolDef<ConnCtx>[] = [
   { name: 'monitorList',   description: 'List monitors. `monitors` optionally narrows to specific ids (comma-separated).',                                                                                   schema: monitorListArgs,   handler: handleMonitorList },
   { name: 'monitorCreate', description: 'Create a monitor. `type` is one of http/keyword/ping/port/heartbeat. For keyword monitors pass `keyword_type` ("exists"/"not_exists") and `keyword_value`.',        schema: monitorCreateArgs, handler: handleMonitorCreate },
   { name: 'monitorPause',  description: 'Pause a monitor without deleting it.',                                                                                                                              schema: monitorIdArgs,     handler: handleMonitorPause },

@@ -28,6 +28,36 @@ export interface EngineConfig {
   sandboxNofileHard: number
   sandboxTmpfsMb:    number
   internalApiToken:  string
+  // GitHub App credentials threaded through to mcp's github tools. The
+  // engine never reads them, but they must be on the type so the same
+  // config object satisfies both EngineConfig (engine reads) and the
+  // EngineMcpConfig field on every Mcp*Ctx (mcp reads).
+  gitHubAppId?:          number
+  gitHubAppPrivateKey?:  string
+  gitHubClientId:        string
+  gitHubClientSecret:    string
+}
+
+// ── McpConfig mirror ────────────────────────────────────────────────
+// MCP tool handlers receive `config` typed as the mcp module's McpConfig.
+// Engine cannot import @foundry/mcp; the composition root passes the full
+// service Config which structurally satisfies both EngineConfig and this.
+
+export interface EngineMcpConfig {
+  port:                  number
+  sandboxImage:          string
+  sandboxTimeout:        number
+  sandboxMemoryMb:       number
+  sandboxCpus:           number
+  sandboxPidsLimit:      number
+  sandboxNofileSoft:     number
+  sandboxNofileHard:     number
+  sandboxTmpfsMb:        number
+  internalApiToken:      string
+  gitHubAppId?:          number
+  gitHubAppPrivateKey?:  string
+  gitHubClientId:        string
+  gitHubClientSecret:    string
 }
 
 // ── ToolDef (structural) ────────────────────────────────────────────
@@ -35,35 +65,93 @@ export interface EngineConfig {
 // import @foundry/mcp; the composition root passes mcp's actual ToolDef
 // objects, and TS structural typing makes them assignable here.
 
-export interface ToolDef {
+// Method-syntax `handler` triggers TS's bivariant parameter checking,
+// matching @foundry/mcp's ToolDef so tools whose handlers are typed by
+// their zod-inferred args fit through this shared slot without a cast.
+export interface ToolDef<TCtx = unknown> {
   name:        string
   description: string
   schema:      ZodType
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- structural mirror
-  handler:     (ctx: any, args: any) => any
+  handler(ctx: TCtx, args: unknown): Promise<unknown> | unknown
 }
 
-export interface ToolServer {
-  tools: ToolDef[]
+export interface ToolServer<TCtx = unknown> {
+  tools: ToolDef<TCtx>[]
 }
 
 // Connection-bound tool module shape from mcp's byConnectionKind.
-export interface IntegrationModule {
-  tools: ToolDef[]
+export interface IntegrationModule<TCtx = McpConnCtx> {
+  tools: ToolDef<TCtx>[]
 }
 
 // Result of mcp's parseConn — typed structurally.
 export interface ParsedConn {
-  secrets:    Record<string, unknown>
+  secrets:    Record<string, string>
   connConfig: Record<string, unknown>
 }
 
 // MCP tool selection (mirrors @foundry/mcp's McpToolSelection).
 export type ToolSelection = Record<string, string[] | '*'> | null
 
-// MCP envelope-aware response (text or rich content).
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- mcp envelope is open-shaped
-export type McpResult = any
+// MCP envelope: every tool eventually returns content blocks for the model.
+export interface McpResult {
+  content: Array<Record<string, unknown>>
+}
+
+// ── MCP server-context mirrors ──────────────────────────────────────
+// The engine builds these ctx objects per session and passes them to the
+// matching mcp tool handlers. These mirrors live in engine/types.ts so the
+// engine compiles without importing @foundry/mcp; @foundry/server (the
+// composition root) statically asserts that each mirror is assignable to
+// the corresponding mcp interface, catching drift at build time.
+
+export interface McpFoundryCtx {
+  db:               Db
+  config:           EngineMcpConfig
+  sessionId:        string
+  workspace:        string
+  projectId:        string
+  accountId:        string
+  ticketId:         string
+  agentName:        string
+  sandboxToken:     string
+  toolUseId?:       string
+  executionCreate:  ExecutionCreate
+}
+
+export interface McpGithubCtx {
+  db:               Db
+  config:           EngineMcpConfig
+  sessionId:        string
+  workspace:        string
+  ticket:           Ticket
+  agentName:        string
+  toolUseId?:       string
+  executionCreate:  ExecutionCreate
+  projectGet:       (db: Db, projectId: string) => Project | undefined
+}
+
+// Both the sandbox and browser servers share this shape.
+export interface McpSandboxCtx {
+  db:               Db
+  config:           EngineMcpConfig
+  sessionId:        string
+  workspace:        string
+  toolUseId?:       string
+  executionCreate:  ExecutionCreate
+}
+
+export interface McpConnCtx {
+  db:               Db
+  config:           EngineMcpConfig
+  sessionId:        string
+  workspace:        string
+  secrets:          Record<string, string>
+  connConfig:       Record<string, unknown>
+  connectionName:   string
+  toolUseId?:       string
+  executionCreate:  ExecutionCreate
+}
 
 // ── Sandbox execution shape ──────────────────────────────────────────
 // Local structural mirror of @foundry/sandbox's ExecutionCreateInput +
@@ -149,16 +237,16 @@ export interface EngineDeps {
     sessionJwtMint: (db: Db, sessionId: string, ttlMs?: number) => Result<string, AuthError>
   }
   mcp: {
-    foundryServer: ToolServer
-    githubServer:  ToolServer
-    sandboxServer: ToolServer
-    browserServer: ToolServer
-    byConnectionKind: Record<string, IntegrationModule | undefined>
+    foundryServer: ToolServer<McpFoundryCtx>
+    githubServer:  ToolServer<McpGithubCtx>
+    sandboxServer: ToolServer<McpSandboxCtx>
+    browserServer: ToolServer<McpSandboxCtx>
+    byConnectionKind: Record<string, IntegrationModule<McpConnCtx> | undefined>
     filterTools:        <T extends { name: string }>(tools: T[], allowed: string[] | '*' | null | undefined) => T[]
     parseToolSelection: (raw: string | null) => ToolSelection
     parseConn:          (conn: Connection, decrypt: (s: string) => string) => ParsedConn
     asText:             (value: unknown) => McpResult
-    isMcpEnvelope:      (value: unknown) => boolean
+    isMcpEnvelope:      (value: unknown) => value is McpResult
     toolUseId:          (extra: unknown) => string | undefined
     workspaceEmpty:     () => Promise<string>
     workspaceDestroy:   (path: string) => Promise<void>

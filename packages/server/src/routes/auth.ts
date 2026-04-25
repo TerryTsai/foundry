@@ -1,7 +1,7 @@
 import { Router, type Request, type Response, type NextFunction } from 'express'
 import type { Db } from '@foundry/db'
 import type { Config } from '../config.js'
-import { parse } from '../http.js'
+import { parse, data } from '../http.js'
 import {
   authStart, authCallback, authMe, authLogout, AUTH_STATE_TTL_SEC,
   parseCookie, serializeCookie, requireAuth,
@@ -50,7 +50,7 @@ async function handleAuthCallback(
 ): Promise<void> {
   try {
     const stateCookie = parseCookie(req.headers.cookie, 'oauth_state')
-    const r = await authCallback(db, config, req.data, stateCookie, githubDeps, authCrud)
+    const r = await authCallback(db, config, data(validate.authCallback, req), stateCookie, githubDeps, authCrud)
     if (!r.ok) { res.status(r.error.kind === 'forbidden' ? 403 : 400).json({ error: r.error }); return }
     setSessionCookies(res, config, r.value.sessionId, r.value.expiresAt)
     res.redirect(302, '/')

@@ -418,7 +418,7 @@ export const info: McpServerInfo = {
   description: 'Development flow against a configured GitHub repo: clone, inspect, stage, commit, open draft PRs.',
 }
 
-export const tools: ToolDef[] = [
+export const tools: ToolDef<GithubCtx>[] = [
   { name: 'gitClone',       description: 'Clone the configured GitHub repo into the empty session workspace at /home/foundry. Creates the per-session branch `foundry/<session-id>` and switches to it. Typical first step of a code session — the workspace starts empty, nothing is pre-cloned. Optional owner/repo args override the project default if you need a different repo.', schema: gitCloneArgs, handler: handleGitClone },
   { name: 'gitStatus',      description: 'Show the working tree status in porcelain format. Requires a workspace populated by gitClone (or manually) — fails if /home/foundry is not a git repo.',                                                                                                                                                                                    schema: gitStatusArgs, handler: handleGitStatus },
   { name: 'gitDiff',        description: 'Show the diff. By default shows unstaged changes; set staged=true to see the staged diff. Optionally scope to specific paths. Requires a git workspace (see gitClone).',                                                                                                                                                             schema: gitDiffArgs, handler: handleGitDiff },

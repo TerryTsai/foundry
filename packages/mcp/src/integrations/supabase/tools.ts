@@ -108,7 +108,7 @@ export const info: McpServerInfo = {
   description: 'Postgres tables via PostgREST.',
 }
 
-export const tools: ToolDef[] = [
+export const tools: ToolDef<ConnCtx>[] = [
   { name: 'tableSelect', description: 'SELECT rows from a table. Filter syntax is PostgREST: { column: "op.value" } where op is one of eq, neq, gt, gte, lt, lte, like, ilike, in, is. `select` picks columns ("a,b,c"); `order` takes "column.asc" or "column.desc".', schema: tableSelectArgs, handler: handleTableSelect },
   { name: 'tableInsert', description: 'INSERT one row (object) or many (array). Returns the inserted rows with server-generated columns unless `returning:false`.',                                                                                                     schema: tableInsertArgs, handler: handleTableInsert },
   { name: 'tableUpdate', description: 'UPDATE rows matching `filter`. `filter` is required to prevent accidentally patching the whole table.',                                                                                                                          schema: tableUpdateArgs, handler: handleTableUpdate },

@@ -75,7 +75,7 @@ export const info: McpServerInfo = {
   description: 'Product analytics and feature flags.',
 }
 
-export const tools: ToolDef[] = [
+export const tools: ToolDef<ConnCtx>[] = [
   { name: 'queryHogQL',      description: 'Run a HogQL query. HogQL is SQL against the events/persons/sessions tables. Returns { results, types, columns }.',   schema: queryHogQLArgs,      handler: handleQueryHogQL },
   { name: 'featureFlagList', description: 'List feature flags on the project. Pass `limit` to cap the page size.',                                               schema: featureFlagListArgs, handler: handleFeatureFlagList },
   { name: 'featureFlagGet',  description: 'Fetch a feature flag\'s current config by key.',                                                                      schema: featureFlagGetArgs,  handler: handleFeatureFlagGet },

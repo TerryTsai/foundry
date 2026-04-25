@@ -305,7 +305,7 @@ export const info: McpServerInfo = {
   description: 'Web access: one-shot fetch/scrape plus interactive browser primitives (navigation, screenshot, click, fill) backed by a persistent headless chromium.',
 }
 
-export const tools: ToolDef[] = [
+export const tools: ToolDef<BrowserCtx>[] = [
   { name: 'fetch',             description: 'Make an HTTP request and return the response. Large responses are written to a file; use the read tool to paginate.',                                                                                schema: validate.toolFetch,  handler: handleFetch },
   { name: 'scrape',            description: 'Extract clean readable text from a web page. Large output is written to a file you can read with offset/limit.',                                                                                      schema: validate.toolScrape, handler: handleScrape },
   { name: 'browserGoto',       description: 'Navigate the session\'s browser to a URL. Returns {url, title, status} where status is the HTTP status of the main document response — check it before assuming the page loaded.',               schema: gotoArgs,            handler: handleGoto },

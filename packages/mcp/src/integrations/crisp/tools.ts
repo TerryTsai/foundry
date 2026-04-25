@@ -85,7 +85,7 @@ export const info: McpServerInfo = {
   description: 'Customer chat conversations.',
 }
 
-export const tools: ToolDef[] = [
+export const tools: ToolDef<ConnCtx>[] = [
   { name: 'conversationList',  description: 'List conversations on the website (paginated, 1-indexed). `search_query` + `search_type` filter by text/email/phone/session_id.', schema: conversationListArgs,  handler: handleConversationList },
   { name: 'conversationGet',   description: 'Fetch one conversation\'s metadata (participant, last message, state, assigned operator).',                                        schema: conversationGetArgs,   handler: handleConversationGet },
   { name: 'conversationSend',  description: 'Post a plain-text operator message into a conversation.',                                                                          schema: conversationSendArgs,  handler: handleConversationSend },

@@ -103,7 +103,7 @@ export const info: McpServerInfo = {
   description: 'Payments, subscriptions, and checkout.',
 }
 
-export const tools: ToolDef[] = [
+export const tools: ToolDef<ConnCtx>[] = [
   { name: 'customerList',     description: 'List customers, optionally filtered by exact email. Paginate with `starting_after` (the last customer id on the prior page).',                                          schema: customerListArgs,     handler: handleCustomerList },
   { name: 'customerGet',      description: 'Fetch full customer record including default_source, invoice_settings, metadata.',                                                                                     schema: customerGetArgs,      handler: handleCustomerGet },
   { name: 'subscriptionList', description: 'List subscriptions. Filter by customer or status ("active", "canceled", etc.).',                                                                                        schema: subscriptionListArgs, handler: handleSubscriptionList },

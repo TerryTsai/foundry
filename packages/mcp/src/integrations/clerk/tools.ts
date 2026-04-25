@@ -81,7 +81,7 @@ export const info: McpServerInfo = {
   description: 'User auth (sessions, profiles, orgs).',
 }
 
-export const tools: ToolDef[] = [
+export const tools: ToolDef<ConnCtx>[] = [
   { name: 'userList',   description: 'List users. `query` searches name/email/username. Paginate with `offset` + `limit`.',                                                      schema: userListArgs,   handler: handleUserList },
   { name: 'userGet',    description: 'Fetch one user\'s full record (email addresses, external accounts, metadata).',                                                             schema: userGetArgs,    handler: handleUserGet },
   { name: 'userUpdate', description: 'Patch user fields. Only include fields you want to change. Use metadata maps for arbitrary app-specific state.',                            schema: userUpdateArgs, handler: handleUserUpdate },

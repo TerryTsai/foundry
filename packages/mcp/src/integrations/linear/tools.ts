@@ -155,7 +155,7 @@ export const info: McpServerInfo = {
   description: 'Issue tracking and product planning.',
 }
 
-export const tools: ToolDef[] = [
+export const tools: ToolDef<ConnCtx>[] = [
   { name: 'teamList',    description: 'List every team in the Linear workspace. Needed to discover team ids before creating issues.',                                                                                 schema: teamListArgs,    handler: handleTeamList },
   { name: 'stateList',   description: 'List workflow states for a team. Use this to discover state ids for issueCreate/issueUpdate transitions.',                                                                     schema: stateListArgs,   handler: handleStateList },
   { name: 'issueList',   description: 'List issues, optionally filtered by team, assignee, or workflow state bucket. Paginate with `after` using `pageInfo.endCursor` from the previous response.',                   schema: issueListArgs,   handler: handleIssueList },

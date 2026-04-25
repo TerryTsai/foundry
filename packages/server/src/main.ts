@@ -22,7 +22,7 @@ import {
   attachmentRoutes, ticketAttachmentRoutes, commentAttachmentRoutes,
 } from './routes/attachments.js'
 
-import { reconcilerGlobalStart, reconcilerStopAll, shutdownDrain, type ReconcilerCrudOps, type ReconcilerDeps } from '@foundry/reconciler'
+import { reconcilerGlobalStart, reconcilerStopAll, shutdownDrain, type ReconcilerCrudOps, type ReconcilerDeps, type EngineDeps as ReconcilerEngineDeps, type RunSessionFn as ReconcilerRunSessionFn } from '@foundry/reconciler'
 import { runSession, type EngineCrudOps, type EngineDeps } from '@foundry/engine'
 import { sessionJwt } from '@foundry/auth'
 import {
@@ -32,7 +32,27 @@ import {
   workspaceEmpty, workspaceDestroy,
   providerGet, supportedKinds,
   github as githubProvider,
+  type FoundryCtx, type GithubCtx, type SandboxCtx, type BrowserCtx, type ConnCtx,
 } from '@foundry/mcp'
+import type {
+  McpFoundryCtx, McpGithubCtx, McpSandboxCtx, McpConnCtx,
+} from '@foundry/engine'
+
+// ── Cross-module ctx drift assertions ────────────────────────────────
+// Engine declares its own structural mirrors of every mcp server ctx
+// (because the cardinal rule forbids @foundry/engine importing
+// @foundry/mcp). These compile-time assertions fail the server build if
+// the two sides ever drift — catching the next "missing field" bug at
+// build time instead of at the first agent session.
+type _AssertAssignable<T, U> = T extends U ? (U extends T ? true : false) : false
+const _ctxDriftCheck: [
+  _AssertAssignable<McpFoundryCtx, FoundryCtx>,
+  _AssertAssignable<McpGithubCtx, GithubCtx>,
+  _AssertAssignable<McpSandboxCtx, SandboxCtx>,
+  _AssertAssignable<McpSandboxCtx, BrowserCtx>,
+  _AssertAssignable<McpConnCtx, ConnCtx>,
+] = [true, true, true, true, true]
+void _ctxDriftCheck
 import {
   executionCreate as sandboxExecutionCreate,
   registerSessionWorkspace, unregisterSessionWorkspace,
@@ -275,8 +295,7 @@ function buildEngineDeps(
     },
     mcp: {
       foundryServer, githubServer, sandboxServer, browserServer,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- structural mirror
-      byConnectionKind: byConnectionKind as Record<string, any>,
+      byConnectionKind,
       filterTools, parseToolSelection,
       parseConn, asText, isMcpEnvelope, toolUseId,
       workspaceEmpty, workspaceDestroy,
@@ -293,10 +312,17 @@ function buildEngineDeps(
 function buildReconcilerDeps(
   reconcilerCrud: ReconcilerCrudOps, engineDeps: EngineDeps,
 ): ReconcilerDeps {
+  // Reconciler's EngineDeps is an opaque brand and its RunSessionFn talks
+  // to that brand. Composition root is the only place the casts live —
+  // reconciler hands the same engineDeps bag back to engine.runSession
+  // unchanged, so the round-trip is sound.
   return {
     config,
     crud: reconcilerCrud,
-    engine: { runSession, engineDeps },
+    engine: {
+      runSession: runSession as unknown as ReconcilerRunSessionFn,
+      engineDeps: engineDeps as unknown as ReconcilerEngineDeps,
+    },
   }
 }
 
