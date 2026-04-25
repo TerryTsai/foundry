@@ -1,7 +1,7 @@
 import type { Request, Response, NextFunction, RequestHandler, ErrorRequestHandler } from 'express'
 import type { ZodType } from 'zod'
-import { badRequest, isAppError } from './errors.js'
-import type { Account } from './schema.js'
+import { badRequest, isAppError } from '@foundry/model'
+import type { Account } from '@foundry/db'
 
 declare global {
   namespace Express {

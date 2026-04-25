@@ -7,5 +7,17 @@
   "include": [
     "src"
   ],
-  "references": []
+  "references": [
+    { "path": "../model" },
+    { "path": "../client" },
+    { "path": "../db" },
+    { "path": "../auth" },
+    { "path": "../billing" },
+    { "path": "../crud" },
+    { "path": "../analytics" },
+    { "path": "../sandbox" },
+    { "path": "../mcp" },
+    { "path": "../engine" },
+    { "path": "../reconciler" }
+  ]
 }

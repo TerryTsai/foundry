@@ -1,5 +1,5 @@
 import type { Request } from 'express'
-import { unauthorized } from './errors.js'
+import { unauthorized } from '@foundry/model'
 
 // Every authenticated request carries req.account (set by requireAuth from
 // either the foundry_session cookie or the sb_ JWT). Helpers below pull

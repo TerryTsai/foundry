@@ -1,7 +1,7 @@
 import { Router, type Request } from 'express'
-import type { Db } from '../core/db.js'
-import type { Config } from '../core/config.js'
-import { parse } from '../core/http.js'
+import type { Db } from '@foundry/db'
+import type { Config } from '../config.js'
+import { parse } from '../http.js'
 import {
   authStart, authCallback, authMe, authLogout, AUTH_STATE_TTL_SEC,
   parseCookie, serializeCookie, requireAuth,

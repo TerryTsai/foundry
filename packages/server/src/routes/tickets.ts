@@ -1,8 +1,8 @@
 import { Router } from 'express'
-import type { Db } from '../core/db.js'
-import { parse, run, send } from '../core/http.js'
-import { accountId } from '../core/account-id.js'
-import * as database from '../core/db.js'
+import type { Db } from '@foundry/db'
+import { parse, run, send } from '../http.js'
+import { accountId } from '../account-id.js'
+import { eventByEntity } from '@foundry/db'
 import {
   validate,
   ticketList, ticketGet, ticketCreate, ticketUpdate,
@@ -33,7 +33,7 @@ export function ticketRoutes(db: Db) {
   r.get   ('/:id/comment',                                       run(req => commentList(db, accountId(req), req.params.id)),                      send())
   r.post  ('/:id/comment', parse(validate.ticket.commentCreate), run(req => commentCreate(db, accountId(req), req.params.id, req.data)),          send(201))
   r.get   ('/:id/session',                                       run(req => sessionByTicket(db, accountId(req), req.params.id)),                  send())
-  r.get   ('/:id/event',                                         run(req => { ticketOwned(db, req.params.id, accountId(req)); return database.eventByEntity(db, 'ticket', req.params.id) }), send())
+  r.get   ('/:id/event',                                         run(req => { ticketOwned(db, req.params.id, accountId(req)); return eventByEntity(db, 'ticket', req.params.id) }), send())
   r.get   ('/:id/usage',                                         run(req => { ticketOwned(db, req.params.id, accountId(req)); return ticketUsage(db, req.params.id) }),                      send())
   r.get   ('/:id/tag',                                           run(req => tagList(db, accountId(req), req.params.id)),                          send())
   r.post  ('/:id/tag',              parse(validate.ticket.tagCreate), run(req => tagAdd(db, accountId(req), req.params.id, req.data.tag)),         send(201))

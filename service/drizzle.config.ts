@@ -1,7 +1,9 @@
 import type { Config } from 'drizzle-kit'
 
 export default {
-  schema: './src/schema.ts',
+  // Schema lives in @foundry/db now (Phase 4 migration). drizzle-kit
+  // accepts a path; resolve it relative to this config file.
+  schema: '../packages/db/src/schema.ts',
   dialect: 'sqlite',
   dbCredentials: {
     url: process.env.DB_PATH ?? './foundry.db',

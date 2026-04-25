@@ -1,8 +1,8 @@
 import { Router } from 'express'
 import type { Db } from '@foundry/db'
 import { analytics, tagsList, validate } from '@foundry/analytics'
-import { parse, run, send } from '../core/http.js'
-import { accountId } from '../core/account-id.js'
+import { parse, run, send } from '../http.js'
+import { accountId } from '../account-id.js'
 
 export function analyticsRoutes(db: Db) {
   const r = Router()

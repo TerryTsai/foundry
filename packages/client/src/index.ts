@@ -16,3 +16,6 @@ export type { ReconcilerSlice } from './slices/reconciler.js'
 
 export { createInProcessClient, emptyAdapter } from './adapters/in-process.js'
 export type { InProcessAdapters } from './adapters/in-process.js'
+
+export { createHttpAdapter } from './adapters/http.js'
+export type { HttpAdapterConfig } from './adapters/http.js'

@@ -1,7 +1,7 @@
 import { Router } from 'express'
-import type { Db } from '../core/db.js'
-import { parse, run, send } from '../core/http.js'
-import { accountId } from '../core/account-id.js'
+import type { Db } from '@foundry/db'
+import { parse, run, send } from '../http.js'
+import { accountId } from '../account-id.js'
 import {
   validate,
   agentList, agentGet, agentCreate, agentUpdate, agentRemove,

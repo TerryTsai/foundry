@@ -1,8 +1,8 @@
 import { Router } from 'express'
-import type { Db } from '../core/db.js'
-import type { Config } from '../core/config.js'
-import { parse, run, send } from '../core/http.js'
-import { accountId } from '../core/account-id.js'
+import type { Db } from '@foundry/db'
+import type { Config } from '../config.js'
+import { parse, run, send } from '../http.js'
+import { accountId } from '../account-id.js'
 import {
   validate,
   executionList, executionGet, executionCreate, executionKill, executionStream,
