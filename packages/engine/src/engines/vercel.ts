@@ -1,6 +1,5 @@
 // Vercel AI SDK loop — the non-subscription backend. One generateText
-// call per step; each step's ContentPart[] is projected into activity
-// rows. Tokens ride on the first activity of the step.
+// call per step; each step's ContentPart[] is projected into activity rows.
 
 import { generateText, stepCountIs, tool, type ModelMessage, type ToolSet } from 'ai'
 import { ulid } from 'ulid'
@@ -9,7 +8,7 @@ import { type Db } from '@foundry/db'
 import { now } from '@foundry/model'
 
 import { resolveModelWithDefaults } from './model-factory.js'
-import type { EngineDeps, SessionContext, LoopResult, ToolDef } from '../types.js'
+import type { EngineDeps, SessionContext, LoopResult, ToolDef, ExecutionHandle } from '../types.js'
 
 type StepResult = Awaited<ReturnType<typeof generateText<ToolSet>>>
 
@@ -31,29 +30,41 @@ function toAiTools(defs: ToolDef[], ctx: unknown, prefix?: string): ToolSet {
   return out
 }
 
-function buildTools(ctx: SessionContext): ToolSet {
-  const { db, config, workDir, deps } = ctx
-  const sessionId  = ctx.session.id
-  const agentDef   = ctx.agent
-  const ticketData = ctx.ticket
-  // Cross-module callback for the sandbox lifecycle (mcp can't depend
-  // on @foundry/sandbox; engine binds it).
-  const executionCreate = (input: Parameters<typeof deps.sandbox.executionCreate>[2]) =>
-    deps.sandbox.executionCreate(db, config, input)
-  const result: ToolSet = {
-    ...toAiTools(deps.mcp.foundryServer.tools, { db, config, sessionId, workspace: workDir, projectId: ticketData.project_id, accountId: agentDef.account_id, ticketId: ticketData.id, agentName: agentDef.name, sandboxToken: ctx.sandboxToken, executionCreate }),
-    ...toAiTools(deps.mcp.githubServer.tools,  { db, config, sessionId, workspace: workDir, ticket: ticketData, agentName: agentDef.name, executionCreate }),
-    ...toAiTools(deps.mcp.sandboxServer.tools, { db, config, sessionId, workspace: workDir, executionCreate }),
-    ...toAiTools(deps.mcp.browserServer.tools, { db, config, sessionId, workspace: workDir, executionCreate }),
+function unwrapExec(deps: EngineDeps, db: Db, config: SessionContext['config'], input: any): ExecutionHandle {
+  const r = deps.sandbox.executionCreate(db, config, input)
+  if (!r.ok) throw new Error(`sandbox execution failed: ${r.error.kind}`)
+  return r.value
+}
+
+function buildBuiltInTools(ctx: SessionContext, executionCreate: (i: any) => ExecutionHandle): ToolSet {
+  const { db, config, workDir, deps, agent: agentDef, ticket: ticketData, session } = ctx
+  return {
+    ...toAiTools(deps.mcp.foundryServer.tools, { db, config, sessionId: session.id, workspace: workDir, projectId: ticketData.project_id, accountId: agentDef.account_id, ticketId: ticketData.id, agentName: agentDef.name, sandboxToken: ctx.sandboxToken, executionCreate }),
+    ...toAiTools(deps.mcp.githubServer.tools,  { db, config, sessionId: session.id, workspace: workDir, ticket: ticketData, agentName: agentDef.name, executionCreate }),
+    ...toAiTools(deps.mcp.sandboxServer.tools, { db, config, sessionId: session.id, workspace: workDir, executionCreate }),
+    ...toAiTools(deps.mcp.browserServer.tools, { db, config, sessionId: session.id, workspace: workDir, executionCreate }),
   }
+}
+
+function attachConnectionTools(
+  result: ToolSet, ctx: SessionContext, executionCreate: (i: any) => ExecutionHandle,
+): void {
+  const { db, config, workDir, deps, agent: agentDef, session } = ctx
   const conns = deps.crud.connectionByAccount(db, agentDef.account_id)
   for (const conn of conns) {
     const mod = deps.mcp.byConnectionKind[conn.kind]
     if (!mod) continue
     const { secrets, connConfig } = deps.mcp.parseConn(conn, deps.crud.decryptSecret)
     const prefix = `${conn.kind}-${conn.name}`
-    Object.assign(result, toAiTools(mod.tools, { db, config, sessionId, workspace: workDir, secrets, connConfig, connectionName: conn.name, executionCreate }, prefix))
+    Object.assign(result, toAiTools(mod.tools, { db, config, sessionId: session.id, workspace: workDir, secrets, connConfig, connectionName: conn.name, executionCreate }, prefix))
   }
+}
+
+function buildTools(ctx: SessionContext): ToolSet {
+  const { db, config, deps } = ctx
+  const executionCreate = (input: any) => unwrapExec(deps, db, config, input)
+  const result = buildBuiltInTools(ctx, executionCreate)
+  attachConnectionTools(result, ctx, executionCreate)
   return result
 }
 
@@ -62,74 +73,71 @@ function contentPartsOf(result: StepResult): ContentPart[] {
   return Array.isArray(c) ? c : []
 }
 
-// Project a StepResult's content parts into activity rows. Returns the
-// number of tool calls emitted in this step.
-// eslint-disable-next-line max-lines-per-function -- legacy; refactor in Phase 7
+interface PartActivity { kind: 'said' | 'thought' | 'tool_call'; payload: unknown; tool_use_id: string | null; isToolCall: boolean }
+
+function partToActivity(b: ContentPart): PartActivity | null {
+  if (b.type === 'text' && typeof b.text === 'string') return { kind: 'said', payload: { text: b.text }, tool_use_id: null, isToolCall: false }
+  if (b.type === 'reasoning' && typeof b.text === 'string') return { kind: 'thought', payload: { text: b.text, char_count: b.text.length, signature: b.signature ?? null }, tool_use_id: null, isToolCall: false }
+  if (b.type === 'tool-call' && typeof b.toolCallId === 'string') return { kind: 'tool_call', payload: { name: b.toolName, input: b.args ?? b.input ?? {} }, tool_use_id: b.toolCallId, isToolCall: true }
+  if (b.type === 'tool-result') return null
+  return { kind: 'said', payload: b, tool_use_id: null, isToolCall: false }
+}
+
 function writeStepActivities(db: Db, deps: EngineDeps, sessionId: string, turnId: string, result: StepResult): number {
   const parts = contentPartsOf(result)
   const { inputTokens, outputTokens } = result.usage ?? {}
   let toolCalls = 0
-  // eslint-disable-next-line max-lines-per-function -- legacy; refactor in Phase 7
   parts.forEach((b, idx) => {
-    let kind: 'said' | 'thought' | 'tool_call' = 'said'
-    let payload: unknown = b
-    let tool_use_id: string | null = null
-    if (b.type === 'text' && typeof b.text === 'string') {
-      kind = 'said'
-      payload = { text: b.text }
-    } else if (b.type === 'reasoning' && typeof b.text === 'string') {
-      kind = 'thought'
-      payload = { text: b.text, char_count: b.text.length, signature: b.signature ?? null }
-    } else if (b.type === 'tool-call' && typeof b.toolCallId === 'string') {
-      kind = 'tool_call'
-      payload = { name: b.toolName, input: b.args ?? b.input ?? {} }
-      tool_use_id = b.toolCallId
-      toolCalls++
-    } else if (b.type === 'tool-result') {
-      // tool-result mirrors the execution row; skip so we don't double-log.
-      return
-    }
-    deps.crud.activityCreate(db, {
-      session_id:   sessionId,
-      turn_id:      turnId,
-      kind,
-      order_index:  idx,
-      payload:      JSON.stringify(payload),
-      tool_use_id,
-      execution_id: null,
-      tokens_in:    idx === 0 ? (inputTokens  ?? null) : null,
-      tokens:       idx === 0 ? (outputTokens ?? null) : null,
-      created_at:   now(),
-    })
+    const act = partToActivity(b)
+    if (!act) return
+    if (act.isToolCall) toolCalls++
+    deps.crud.activityCreate(db, activityFromPart(sessionId, turnId, idx, act, inputTokens, outputTokens))
   })
   return toolCalls
 }
 
-export async function runEngine(ctx: SessionContext): Promise<LoopResult> {
-  const { db, deps, systemPrompt, userPrompt, shouldStop } = ctx
-  const sessionId = ctx.session.id
-  const agentDef  = ctx.agent
-  const model     = resolveModelWithDefaults(db, deps, agentDef)
-  const tools     = buildTools(ctx)
-  const messages: ModelMessage[] = [{ role: 'user', content: userPrompt }]
-
-  let finishReason: string | null = null
-  let tokensIn   = 0
-  let tokensOut  = 0
-  let toolCalls  = 0
-  let cancelled  = false
-
-  for (let step = 0; step < agentDef.max_steps; step++) {
-    if (shouldStop()) { cancelled = true; break }
-    const result = await generateText({ model, system: systemPrompt, messages, tools, stopWhen: stepCountIs(1) })
-    const turnId = ulid()
-    toolCalls += writeStepActivities(db, deps, sessionId, turnId, result)
-    tokensIn  += result.usage?.inputTokens  ?? 0
-    tokensOut += result.usage?.outputTokens ?? 0
-    messages.push(...result.response.messages)
-    finishReason = result.finishReason ?? null
-    if (finishReason === 'stop') break
+function activityFromPart(sessionId: string, turnId: string, idx: number, act: PartActivity, inputTokens: number | undefined, outputTokens: number | undefined): Record<string, unknown> {
+  return {
+    session_id: sessionId, turn_id: turnId, kind: act.kind, order_index: idx,
+    payload: JSON.stringify(act.payload), tool_use_id: act.tool_use_id, execution_id: null,
+    tokens_in: idx === 0 ? (inputTokens  ?? null) : null,
+    tokens:    idx === 0 ? (outputTokens ?? null) : null,
+    created_at: now(),
   }
+}
 
-  return { finishReason, tokensIn, tokensOut, toolCalls, costUsd: 0, cancelled }
+interface EngineState {
+  finishReason: string | null
+  tokensIn: number; tokensOut: number; toolCalls: number; cancelled: boolean
+}
+
+function newState(): EngineState {
+  return { finishReason: null, tokensIn: 0, tokensOut: 0, toolCalls: 0, cancelled: false }
+}
+
+export async function runEngine(ctx: SessionContext): Promise<LoopResult> {
+  const { db, deps, systemPrompt, userPrompt, shouldStop, agent: agentDef, session } = ctx
+  const model = resolveModelWithDefaults(db, deps, agentDef)
+  const tools = buildTools(ctx)
+  const messages: ModelMessage[] = [{ role: 'user', content: userPrompt }]
+  const state = newState()
+  for (let step = 0; step < agentDef.max_steps; step++) {
+    if (shouldStop()) { state.cancelled = true; break }
+    const result = await generateText({ model, system: systemPrompt, messages, tools, stopWhen: stepCountIs(1) })
+    if (await applyStep(ctx, session.id, messages, result, state)) break
+  }
+  return { ...state, costUsd: 0 }
+}
+
+async function applyStep(
+  ctx: SessionContext, sessionId: string, messages: ModelMessage[], result: StepResult, state: EngineState,
+): Promise<boolean> {
+  const { db, deps } = ctx
+  const turnId = ulid()
+  state.toolCalls += writeStepActivities(db, deps, sessionId, turnId, result)
+  state.tokensIn  += result.usage?.inputTokens  ?? 0
+  state.tokensOut += result.usage?.outputTokens ?? 0
+  messages.push(...result.response.messages)
+  state.finishReason = result.finishReason ?? null
+  return state.finishReason === 'stop'
 }

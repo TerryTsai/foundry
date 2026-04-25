@@ -102,7 +102,7 @@ describe('analytics adapter', () => {
 
     const r = await bound.analytics.ticketUsage('missing')
     expect(r.ok).toBe(false)
-    if (!r.ok) expect(r.error.kind).toBe('internal')
+    if (!r.ok) expect(r.error.kind).toBe('not_found')
   })
 })
 
@@ -112,12 +112,10 @@ describe('sandbox adapter', () => {
     sandboxPidsLimit: 64, sandboxNofileSoft: 1024, sandboxNofileHard: 2048,
     sandboxTmpfsMb: 64, sandboxTimeout: 1000,
   }
-  const stubExecOwn = (_d: Db, _id: string, _a: string) => {
-    throw Object.assign(new Error('not found'), { status: 404, _tag: 'AppError' as const })
-  }
-  const stubSessOwn = (_d: Db, _id: string, _a: string) => {
-    throw Object.assign(new Error('not found'), { status: 404, _tag: 'AppError' as const })
-  }
+  const stubExecOwn = (_d: Db, _id: string, _a: string) =>
+    ({ ok: false as const, error: { kind: 'not_found' as const, entity: 'execution', id: _id } })
+  const stubSessOwn = (_d: Db, _id: string, _a: string) =>
+    ({ ok: false as const, error: { kind: 'not_found' as const, entity: 'session', id: _id } })
 
   const sandboxCrud = {
     sessionGetById,
@@ -227,7 +225,7 @@ describe('engine adapter', () => {
       sessionId: 's', agentId: 'missing', ticketId: 't', role: 'producer',
     })
     expect(r.ok).toBe(false)
-    if (!r.ok) expect(r.error.kind).toBe('crashed')
+    if (!r.ok) expect(r.error.kind).toBe('not_found')
   })
 
   // Happy path on engine.runSession is integration-heavy (LLM, podman). The

@@ -40,6 +40,9 @@ export type EngineDeps = any
 // Mirrors @foundry/engine's runSession signature. The composition root
 // passes engine.runSession in directly.
 
+// Engine.runSession returns Result<void, EngineError>; reconciler treats
+// it as fire-and-forget but still needs to handle errors. Structural type
+// to keep reconciler module-agnostic.
 export type RunSessionFn = (
   db:        Db,
   config:    ReconcilerConfig,
@@ -48,7 +51,7 @@ export type RunSessionFn = (
   agent:     Agent,
   ticket:    Ticket,
   role:      'producer' | 'verifier',
-) => Promise<void>
+) => Promise<{ ok: true; value: void } | { ok: false; error: { kind: string; message?: string } }>
 
 // ── crud callbacks ──────────────────────────────────────────────────
 // Reconciler depends on crud for read/write of tickets, sessions,

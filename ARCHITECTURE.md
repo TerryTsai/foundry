@@ -462,13 +462,13 @@ The pattern: each module declares a callback-interface type for what it needs (`
 
 Example: `engine.runSession(db, config, deps, ...)` where `deps: EngineDeps` carries `auth.sessionJwtMint`, `mcp.foundryServer`, `sandbox.executionCreate`, `crud.encryptSecret`, etc. Engine doesn't know which logic module those came from; it sees only the function shapes it declares.
 
-## Grandfathered legacy code
+## Code-style enforcement
 
-Code migrated during Phase 4 retains the throw-AppError pattern internally, with `Result<T, E>` exposed at the client surface via adapter wrapping in `@foundry/client/src/adapters/`. Internal Result conversion is a future cleanup pass.
+Module code (every package's `src/`) is held to a single rule set: top-level pure functions, depth ≤ 2, function length ≤ 20 lines after the strict-10-line target plus a small overhead for signatures and the closing brace. The 5-second-gist bar is what reviewers actually enforce; the lint cap catches drift past it.
 
-Logic modules currently run at 30-line / depth-3 ESLint settings (relaxed from the architecture target of 10/2) to accommodate inherited large functions. New-code packages — `model`, `client`, `billing` — already enforce the strict 10/2 target.
+`Result<T, E>` is the only domain-error mechanism. Modules return `Result` natively; adapters in `@foundry/client/src/adapters/` are pass-throughs. Throws are reserved for transport, cancellation, and programmer error per the rules above.
 
-Functions that exceed the target carry `// eslint-disable-next-line max-lines-per-function -- legacy; refactor in Phase 7+` comments. Adding such a disable to NEW code is a code-review red flag.
+Adding an `eslint-disable` to module code is a code-review red flag. The few that exist today are non-legacy (SDK boundary types, single-aggregate SQL, composition-root callback bags, db migrations) and carry rationales that explain why the rule legitimately doesn't fit.
 
 ## Ground rules summary
 

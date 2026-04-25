@@ -20,5 +20,6 @@ export {
   registerSessionWorkspace, unregisterSessionWorkspace,
 } from './execution.js'
 export type {
-  ExecutionCreateInput, IsExecutionOwned, IsSessionOwned,
+  ExecutionCreateInput, ExecutionCreateResult,
+  IsExecutionOwned, IsSessionOwned,
 } from './execution.js'

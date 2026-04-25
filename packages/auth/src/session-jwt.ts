@@ -1,36 +1,26 @@
 import { createHmac, timingSafeEqual } from 'crypto'
 
 import { type Db } from '@foundry/db'
-import { mustExist } from '@foundry/model'
+import type { Result, AuthError } from '@foundry/model'
+import { ok, err } from '@foundry/model'
 
 import type { AuthCrudOps } from './types.js'
 
 // Per-session sandbox auth — stateless HMAC-SHA256 JWT.
 //
 // On the wire:  sb_<base64url(json(claims))>.<base64url(hmac-sha256)>
-//
-// The signing key is FOUNDRY_ENCRYPTION_KEY (already required at boot for
-// connection-secret encryption). HMAC-SHA256 and AES-256-GCM with the
-// same key are cryptographically independent.
-//
-// No mid-flight revocation. Once minted, the token is valid until exp.
-// For this single-user setup that's fine — sessions are short, and the
-// cancel-doesn't-actually-stop-the-agent issue makes table-based
-// revocation worth less than it sounds.
 
 const PREFIX        = 'sb_'
 const DEFAULT_TTL_MS = 30 * 60 * 1000
 
 export interface SessionClaims {
-  v:   1                // claim shape version
-  sid: string           // session_id
-  tid: string           // ticket_id
-  pid: string           // project_id
-  aid: string           // account_id (resolved from project owner at mint)
-  exp: number           // unix seconds
+  v:   1
+  sid: string
+  tid: string
+  pid: string
+  aid: string
+  exp: number
 }
-
-// ── public API ────────────────────────────────────────────────────────
 
 export function isSandboxToken(token: string): boolean {
   return token.startsWith(PREFIX)
@@ -38,32 +28,52 @@ export function isSandboxToken(token: string): boolean {
 
 export function mint(
   db: Db, crud: AuthCrudOps, sessionId: string, ttlMs: number = DEFAULT_TTL_MS,
-): string {
-  const session = mustExist(crud.sessionGet(db, sessionId), `session '${sessionId}' not found`)
-  const ticket  = mustExist(crud.ticketGet(db, session.ticket_id), `ticket '${session.ticket_id}' not found`)
-  const project = mustExist(crud.projectGet(db, ticket.project_id), `project '${ticket.project_id}' not found`)
-  if (!project.owner_id) throw new Error(`project '${project.id}' has no owner — cannot mint sandbox token`)
-  return sign({
-    v: 1, sid: session.id, tid: ticket.id, pid: project.id, aid: project.owner_id,
-    exp: Math.floor((Date.now() + ttlMs) / 1000),
-  })
+): Result<string, AuthError> {
+  const session = crud.sessionGet(db, sessionId)
+  if (!session) return err({ kind: 'not_found', entity: 'session', id: sessionId })
+  const ticket = crud.ticketGet(db, session.ticket_id)
+  if (!ticket) return err({ kind: 'not_found', entity: 'ticket', id: session.ticket_id })
+  return mintForTicket(db, crud, session, ticket, ttlMs)
+}
+
+function mintForTicket(
+  db: Db, crud: AuthCrudOps,
+  session: { id: string }, ticket: { id: string; project_id: string }, ttlMs: number,
+): Result<string, AuthError> {
+  const project = crud.projectGet(db, ticket.project_id)
+  if (!project) return err({ kind: 'not_found', entity: 'project', id: ticket.project_id })
+  if (!project.owner_id) return err({ kind: 'internal', message: `project '${project.id}' has no owner — cannot mint sandbox token` })
+  const exp = Math.floor((Date.now() + ttlMs) / 1000)
+  return ok(sign({ v: 1, sid: session.id, tid: ticket.id, pid: project.id, aid: project.owner_id, exp }))
 }
 
 export function verify(token: string): SessionClaims | null {
   if (!isSandboxToken(token)) return null
+  const parsed = parseToken(token)
+  if (!parsed) return null
+  if (!verifySignature(parsed.payload, parsed.sigB64)) return null
+  return parseClaims(parsed.payload)
+}
+
+function parseToken(token: string): { payload: string; sigB64: string } | null {
   const body = token.slice(PREFIX.length)
   const dot  = body.indexOf('.')
   if (dot < 0) return null
   const payload = body.slice(0, dot)
   const sigB64  = body.slice(dot + 1)
   if (!payload || !sigB64) return null
+  return { payload, sigB64 }
+}
 
+function verifySignature(payload: string, sigB64: string): boolean {
   const expected = createHmac('sha256', loadKey()).update(payload).digest()
   let provided: Buffer
-  try { provided = Buffer.from(sigB64, 'base64url') } catch { return null }
-  if (provided.length !== expected.length) return null
-  if (!timingSafeEqual(provided, expected)) return null
+  try { provided = Buffer.from(sigB64, 'base64url') } catch { return false }
+  if (provided.length !== expected.length) return false
+  return timingSafeEqual(provided, expected)
+}
 
+function parseClaims(payload: string): SessionClaims | null {
   let claims: SessionClaims
   try {
     claims = JSON.parse(Buffer.from(payload, 'base64url').toString('utf-8')) as SessionClaims
@@ -73,21 +83,22 @@ export function verify(token: string): SessionClaims | null {
   return claims
 }
 
-// ── internals ─────────────────────────────────────────────────────────
-
 let cachedKey: Buffer | null = null
 
 function loadKey(): Buffer {
   if (cachedKey) return cachedKey
   const raw = process.env.FOUNDRY_ENCRYPTION_KEY
   if (!raw) throw new Error('FOUNDRY_ENCRYPTION_KEY is not set')
-  let buf: Buffer
-  if (/^[0-9a-fA-F]{64}$/.test(raw)) buf = Buffer.from(raw, 'hex')
-  else if (/^[A-Za-z0-9+/]{42,44}={0,2}$/.test(raw)) buf = Buffer.from(raw, 'base64')
-  else throw new Error('FOUNDRY_ENCRYPTION_KEY must be 32 bytes (hex 64 chars or base64)')
+  const buf = decodeKey(raw)
   if (buf.length !== 32) throw new Error(`FOUNDRY_ENCRYPTION_KEY must decode to 32 bytes (got ${buf.length})`)
   cachedKey = buf
   return buf
+}
+
+function decodeKey(raw: string): Buffer {
+  if (/^[0-9a-fA-F]{64}$/.test(raw)) return Buffer.from(raw, 'hex')
+  if (/^[A-Za-z0-9+/]{42,44}={0,2}$/.test(raw)) return Buffer.from(raw, 'base64')
+  throw new Error('FOUNDRY_ENCRYPTION_KEY must be 32 bytes (hex 64 chars or base64)')
 }
 
 function sign(claims: SessionClaims): string {

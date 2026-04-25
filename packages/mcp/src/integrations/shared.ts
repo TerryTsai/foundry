@@ -57,18 +57,12 @@ export const boundedOutput = z.object({
   error:      z.string().optional(),
 })
 
-// eslint-disable-next-line max-lines-per-function -- tight pure helper, splitting hurts readability
 export function bounded(
   workspace: string, raw: string,
 ): { content: string; outputFile?: string; totalLines?: number; totalBytes?: number } {
   const bytes = Buffer.byteLength(raw, 'utf-8')
   if (bytes <= BOUNDED_THRESHOLD) return { content: raw }
-
-  const outputDir = join(workspace, '.foundry', 'output')
-  mkdirSync(outputDir, { recursive: true })
-  const filename = `${ulid()}.txt`
-  writeFileSync(join(outputDir, filename), raw, 'utf-8')
-
+  const filename = spillToFile(workspace, raw)
   const lines = raw.split('\n')
   return {
     content:    lines.slice(0, 20).join('\n'),
@@ -76,6 +70,14 @@ export function bounded(
     totalLines: lines.length,
     totalBytes: bytes,
   }
+}
+
+function spillToFile(workspace: string, raw: string): string {
+  const outputDir = join(workspace, '.foundry', 'output')
+  mkdirSync(outputDir, { recursive: true })
+  const filename = `${ulid()}.txt`
+  writeFileSync(join(outputDir, filename), raw, 'utf-8')
+  return filename
 }
 
 // ── Shell quoting ──

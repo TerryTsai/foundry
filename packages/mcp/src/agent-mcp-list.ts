@@ -28,26 +28,36 @@ const builtInTools: Record<string, { name: string; description: string }[]> = {
 // mcp can't import @foundry/crud — composition root injects this lookup.
 export type ConnectionByAccountFn = (db: Db, accountId: string) => Connection[]
 
-// eslint-disable-next-line max-lines-per-function -- legacy; refactor in Phase 7
 export function agentMcpList(
   db: Db, accountId: string, connectionByAccount: ConnectionByAccountFn,
 ): McpListEntry[] {
-  const out: McpListEntry[] = mcpRegistry.map(info => ({
-    ...info,
-    tools: builtInTools[info.id] ?? [],
-  }))
+  const builtIns = builtInEntries()
   const conns = connectionByAccount(db, accountId)
+  return [...builtIns, ...connectionEntries(conns)]
+}
+
+function builtInEntries(): McpListEntry[] {
+  return mcpRegistry.map(info => ({ ...info, tools: builtInTools[info.id] ?? [] }))
+}
+
+function connectionEntries(conns: Connection[]): McpListEntry[] {
+  const out: McpListEntry[] = []
   for (const conn of conns) {
-    const mod = byConnectionKind[conn.kind as keyof typeof byConnectionKind]
-    const provider = providers.providerGet(conn.kind)
-    if (!mod || !provider) continue
-    out.push({
-      id:          `${provider.kind}:${conn.name}`,
-      name:        `${provider.name} · ${conn.name}`,
-      category:    mod.info.category,
-      description: `Connection-backed tools from ${provider.name} (${conn.name}).`,
-      tools:       mod.tools.map(t => ({ name: t.name, description: t.description })),
-    })
+    const entry = entryForConnection(conn)
+    if (entry) out.push(entry)
   }
   return out
+}
+
+function entryForConnection(conn: Connection): McpListEntry | null {
+  const mod = byConnectionKind[conn.kind as keyof typeof byConnectionKind]
+  const provider = providers.providerGet(conn.kind)
+  if (!mod || !provider) return null
+  return {
+    id:          `${provider.kind}:${conn.name}`,
+    name:        `${provider.name} · ${conn.name}`,
+    category:    mod.info.category,
+    description: `Connection-backed tools from ${provider.name} (${conn.name}).`,
+    tools:       mod.tools.map(t => ({ name: t.name, description: t.description })),
+  }
 }

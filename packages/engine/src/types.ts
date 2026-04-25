@@ -7,6 +7,7 @@
 import type { ZodType } from 'zod'
 import type { Db } from '@foundry/db'
 import type { Account, Activity, Agent, Connection, Comment, Event, Project, Session, Ticket } from '@foundry/db'
+import type { Result, AuthError, SandboxError } from '@foundry/model'
 
 // ── EngineConfig ─────────────────────────────────────────────────────
 // Engine reads `sandboxTimeout` directly (mintTtl). The remaining fields
@@ -145,7 +146,7 @@ export interface EngineCrudOps {
 
 export interface EngineDeps {
   auth: {
-    sessionJwtMint: (db: Db, sessionId: string, ttlMs?: number) => string
+    sessionJwtMint: (db: Db, sessionId: string, ttlMs?: number) => Result<string, AuthError>
   }
   mcp: {
     foundryServer: ToolServer
@@ -163,7 +164,7 @@ export interface EngineDeps {
     workspaceDestroy:   (path: string) => Promise<void>
   }
   sandbox: {
-    executionCreate:            (db: Db, config: EngineConfig, input: ExecutionCreateInput) => ExecutionHandle
+    executionCreate:            (db: Db, config: EngineConfig, input: ExecutionCreateInput) => Result<ExecutionHandle, SandboxError>
     registerSessionWorkspace:   (sessionId: string, workspace: string) => void
     unregisterSessionWorkspace: (sessionId: string) => void
     stopSessionContainer:       (sessionId: string) => Promise<void>

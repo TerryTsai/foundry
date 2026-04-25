@@ -3,19 +3,15 @@ import { eq } from 'drizzle-orm'
 import { type Db } from '@foundry/db'
 import * as schema from '@foundry/db'
 import type { Attachment } from '@foundry/db'
-import { now } from '@foundry/model'
-import { notFound, conflict } from '@foundry/model'
+import type { Result, CrudError } from '@foundry/model'
+import { ok, err, now } from '@foundry/model'
 import { ticketOwned, assertProjectOwner } from './project.js'
 import * as database from './repo.js'
 
-// Attachment policy. Keep the list tight — only what Claude supports
-// natively so the model can actually read the content instead of
-// staring at an opaque blob.
 const ALLOWED_MIMES = new Set([
-  'image/png', 'image/jpeg', 'image/webp', 'image/gif',
-  'application/pdf',
+  'image/png', 'image/jpeg', 'image/webp', 'image/gif', 'application/pdf',
 ])
-const MAX_BYTES = 10 * 1024 * 1024 // 10 MB per attachment
+const MAX_BYTES = 10 * 1024 * 1024
 
 export interface AttachmentMeta {
   id:         string
@@ -36,55 +32,58 @@ function toMeta(a: Attachment): AttachmentMeta {
   }
 }
 
-// ── Create ──────────────────────────────────────────────────────────
+export interface AttachmentCreateInput {
+  ticket_id?: string
+  comment_id?: string
+  name: string
+  mime: string
+  bytes: Buffer
+  created_by: string
+}
 
-// eslint-disable-next-line max-lines-per-function -- legacy; refactor in Phase 7
 export function attachmentCreate(
-  db: Db, accountId: string,
-  input: { ticket_id?: string; comment_id?: string; name: string; mime: string; bytes: Buffer; created_by: string },
-): AttachmentMeta {
-  if (!ALLOWED_MIMES.has(input.mime)) {
-    throw conflict(`unsupported mime type: ${input.mime}`)
-  }
-  if (input.bytes.length === 0) throw conflict('empty attachment')
-  if (input.bytes.length > MAX_BYTES) {
-    throw conflict(`attachment too large (${input.bytes.length} bytes; max ${MAX_BYTES})`)
-  }
-  if (!input.ticket_id && !input.comment_id) {
-    throw conflict('attachment must reference a ticket or comment')
-  }
-  if (input.ticket_id && input.comment_id) {
-    throw conflict('attachment cannot reference both a ticket and a comment')
-  }
+  db: Db, accountId: string, input: AttachmentCreateInput,
+): Result<AttachmentMeta, CrudError> {
+  const validated = validateAttachmentInput(input)
+  if (!validated.ok) return validated
+  const auth = authorizeAttachment(db, accountId, input)
+  if (!auth.ok) return auth
+  return ok(toMeta(insertAttachment(db, input)))
+}
 
-  // Authorize by verifying the target ticket belongs to this account.
+function validateAttachmentInput(input: AttachmentCreateInput): Result<void, CrudError> {
+  if (!ALLOWED_MIMES.has(input.mime)) return err({ kind: 'conflict', reason: `unsupported mime type: ${input.mime}` })
+  if (input.bytes.length === 0) return err({ kind: 'conflict', reason: 'empty attachment' })
+  if (input.bytes.length > MAX_BYTES) return err({ kind: 'conflict', reason: `attachment too large (${input.bytes.length} bytes; max ${MAX_BYTES})` })
+  if (!input.ticket_id && !input.comment_id) return err({ kind: 'conflict', reason: 'attachment must reference a ticket or comment' })
+  if (input.ticket_id && input.comment_id) return err({ kind: 'conflict', reason: 'attachment cannot reference both a ticket and a comment' })
+  return ok(undefined)
+}
+
+function authorizeAttachment(
+  db: Db, accountId: string, input: AttachmentCreateInput,
+): Result<void, CrudError> {
   if (input.ticket_id) {
-    ticketOwned(db, input.ticket_id, accountId)
-  } else if (input.comment_id) {
-    const c = database.commentGet(db, input.comment_id)
-    if (!c) throw notFound()
-    ticketOwned(db, c.ticket_id, accountId)
+    const owned = ticketOwned(db, input.ticket_id, accountId)
+    return owned.ok ? ok(undefined) : owned
   }
+  const c = database.commentGet(db, input.comment_id!)
+  if (!c) return err({ kind: 'not_found', entity: 'comment', id: input.comment_id! })
+  const owned = ticketOwned(db, c.ticket_id, accountId)
+  return owned.ok ? ok(undefined) : owned
+}
 
+function insertAttachment(db: Db, input: AttachmentCreateInput): Attachment {
   const id = ulid()
   db.insert(schema.attachment).values({
     id,
     ticket_id:  input.ticket_id ?? null,
     comment_id: input.comment_id ?? null,
-    name:       input.name,
-    mime:       input.mime,
-    size:       input.bytes.length,
-    bytes:      input.bytes,
-    created_by: input.created_by,
-    created_at: now(),
+    name: input.name, mime: input.mime, size: input.bytes.length,
+    bytes: input.bytes, created_by: input.created_by, created_at: now(),
   }).run()
-
-  const row = db.select().from(schema.attachment)
-    .where(eq(schema.attachment.id, id)).get() as Attachment
-  return toMeta(row)
+  return db.select().from(schema.attachment).where(eq(schema.attachment.id, id)).get() as Attachment
 }
-
-// ── Read (metadata only) ────────────────────────────────────────────
 
 const metaCols = {
   id:         schema.attachment.id,
@@ -97,60 +96,64 @@ const metaCols = {
   created_at: schema.attachment.created_at,
 }
 
-export function attachmentListByTicket(db: Db, accountId: string, ticketId: string): AttachmentMeta[] {
-  ticketOwned(db, ticketId, accountId)
+export function attachmentListByTicket(db: Db, accountId: string, ticketId: string): Result<AttachmentMeta[], CrudError> {
+  const owned = ticketOwned(db, ticketId, accountId)
+  if (!owned.ok) return owned
+  return ok(attachmentRowsForTicket(db, ticketId))
+}
+
+function attachmentRowsForTicket(db: Db, ticketId: string): AttachmentMeta[] {
   const direct = db.select(metaCols).from(schema.attachment)
-    .where(eq(schema.attachment.ticket_id, ticketId))
-    .all() as AttachmentMeta[]
+    .where(eq(schema.attachment.ticket_id, ticketId)).all() as AttachmentMeta[]
   const viaComments = db.select(metaCols).from(schema.attachment)
     .innerJoin(schema.comment, eq(schema.comment.id, schema.attachment.comment_id))
-    .where(eq(schema.comment.ticket_id, ticketId))
-    .all() as AttachmentMeta[]
+    .where(eq(schema.comment.ticket_id, ticketId)).all() as AttachmentMeta[]
   return [...direct, ...viaComments]
 }
 
-export function attachmentListByComment(db: Db, accountId: string, commentId: string): AttachmentMeta[] {
+export function attachmentListByComment(db: Db, accountId: string, commentId: string): Result<AttachmentMeta[], CrudError> {
   const c = database.commentGet(db, commentId)
-  if (!c) throw notFound()
-  ticketOwned(db, c.ticket_id, accountId)
-  return db.select(metaCols).from(schema.attachment)
-    .where(eq(schema.attachment.comment_id, commentId))
-    .all() as AttachmentMeta[]
+  if (!c) return err({ kind: 'not_found', entity: 'comment', id: commentId })
+  const owned = ticketOwned(db, c.ticket_id, accountId)
+  if (!owned.ok) return owned
+  const rows = db.select(metaCols).from(schema.attachment)
+    .where(eq(schema.attachment.comment_id, commentId)).all() as AttachmentMeta[]
+  return ok(rows)
 }
 
-// ── Read (bytes) ────────────────────────────────────────────────────
+export interface AttachmentBytes { mime: string; name: string; bytes: Buffer }
 
-// eslint-disable-next-line max-lines-per-function -- legacy; refactor in Phase 7
 export function attachmentGetBytes(
   db: Db, accountId: string, id: string,
-): { mime: string; name: string; bytes: Buffer } {
-  const row = db.select().from(schema.attachment)
-    .where(eq(schema.attachment.id, id)).get() as Attachment | undefined
-  if (!row) throw notFound()
-  // Authorize via the parent ticket's project ownership.
-  const parentTicketId = row.ticket_id ?? (() => {
-    if (!row.comment_id) throw notFound()
-    const c = database.commentGet(db, row.comment_id)
-    if (!c) throw notFound()
-    return c.ticket_id
-  })()
-  const t = database.ticketGet(db, parentTicketId)
-  if (!t) throw notFound()
-  assertProjectOwner(db, t.project_id, accountId)
-  return { mime: row.mime, name: row.name, bytes: row.bytes as Buffer }
+): Result<AttachmentBytes, CrudError> {
+  const row = db.select().from(schema.attachment).where(eq(schema.attachment.id, id)).get() as Attachment | undefined
+  if (!row) return err({ kind: 'not_found', entity: 'attachment', id })
+  const parentTicketId = parentTicketIdFor(db, row)
+  if (!parentTicketId) return err({ kind: 'not_found', entity: 'attachment', id })
+  return authorizeAttachmentBytes(db, accountId, row, parentTicketId)
 }
 
-// ── Internal (session runner; no ownership check needed) ────────────
+function parentTicketIdFor(db: Db, row: Attachment): string | null {
+  if (row.ticket_id) return row.ticket_id
+  if (!row.comment_id) return null
+  const c = database.commentGet(db, row.comment_id)
+  return c?.ticket_id ?? null
+}
+
+function authorizeAttachmentBytes(
+  db: Db, accountId: string, row: Attachment, parentTicketId: string,
+): Result<AttachmentBytes, CrudError> {
+  const t = database.ticketGet(db, parentTicketId)
+  if (!t) return err({ kind: 'not_found', entity: 'attachment', id: row.id })
+  const owner = assertProjectOwner(db, t.project_id, accountId)
+  if (!owner.ok) return err({ kind: 'not_found', entity: 'attachment', id: row.id })
+  return ok({ mime: row.mime, name: row.name, bytes: row.bytes as Buffer })
+}
+
+// ── Internal (session runner; no ownership check) ────────────────────
 
 export function attachmentListByTicketInternal(db: Db, ticketId: string): AttachmentMeta[] {
-  const direct = db.select(metaCols).from(schema.attachment)
-    .where(eq(schema.attachment.ticket_id, ticketId))
-    .all() as AttachmentMeta[]
-  const viaComments = db.select(metaCols).from(schema.attachment)
-    .innerJoin(schema.comment, eq(schema.comment.id, schema.attachment.comment_id))
-    .where(eq(schema.comment.ticket_id, ticketId))
-    .all() as AttachmentMeta[]
-  return [...direct, ...viaComments]
+  return attachmentRowsForTicket(db, ticketId)
 }
 
 export function attachmentGetInternal(db: Db, id: string): { mime: string; name: string; bytes: Buffer } | null {

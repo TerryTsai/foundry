@@ -1,6 +1,8 @@
 import { Router } from 'express'
+import type { Request } from 'express'
 import type { Db } from '@foundry/db'
-import { parse, run, send } from '../http.js'
+import type { Result, CrudError, SandboxError, AnalyticsError } from '@foundry/model'
+import { parse, runResult, send } from '../http.js'
 import { accountId } from '../account-id.js'
 import {
   validate,
@@ -12,11 +14,21 @@ import { sessionUsage } from '@foundry/analytics'
 
 export function sessionRoutes(db: Db, sandboxCrud: SandboxCrudOps) {
   const r = Router()
-  r.get ('/',               run(req => sessionListAll(db, accountId(req))),                       send())
-  r.get ('/:id',            run(req => sessionGet(db, accountId(req), req.params.id)),            send())
-  r.get ('/:id/activity',   run(req => sessionActivities(db, accountId(req), req.params.id)),     send())
-  r.get ('/:id/execution',  run(req => executionBySession(db, accountId(req), req.params.id, sessionOwned, sandboxCrud)),    send())
-  r.get ('/:id/usage',      run(req => { sessionOwned(db, req.params.id, accountId(req)); return sessionUsage(db, req.params.id) }), send())
-  r.post('/:id/verdict',    parse(validate.session.verdictSet), run(req => verdictSet(db, accountId(req), req.params.id, req.data)), send())
+  r.get ('/',               runResult(req => sessionListAll(db, accountId(req))),                       send())
+  r.get ('/:id',            runResult(req => sessionGet(db, accountId(req), req.params.id)),            send())
+  r.get ('/:id/activity',   runResult(req => sessionActivities(db, accountId(req), req.params.id)),     send())
+  r.get ('/:id/execution',  runResult(req => execsForSession(db, sandboxCrud, req)),                    send())
+  r.get ('/:id/usage',      runResult(req => sessionUsageScoped(db, req)),                              send())
+  r.post('/:id/verdict',    parse(validate.session.verdictSet), runResult(req => verdictSet(db, accountId(req), req.params.id, req.data)), send())
   return r
+}
+
+function execsForSession(db: Db, sandboxCrud: SandboxCrudOps, req: Request): Result<unknown, SandboxError> {
+  return executionBySession(db, accountId(req), req.params.id, sessionOwned, sandboxCrud)
+}
+
+function sessionUsageScoped(db: Db, req: Request): Result<unknown, CrudError | AnalyticsError> {
+  const owned = sessionOwned(db, req.params.id, accountId(req))
+  if (!owned.ok) return owned
+  return sessionUsage(db, req.params.id)
 }

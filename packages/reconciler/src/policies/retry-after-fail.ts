@@ -1,44 +1,42 @@
-import { type Policy, transition, dispatchSession, parseVerifierIds } from './shared.js'
+import { type Policy, type PolicyCtx, transition, dispatchSession, parseVerifierIds } from './shared.js'
+import type { Agent, Session } from '@foundry/db'
 
-// Ticket is in waiting, all verifiers in the current round have run,
-// and at least one came back fail (or no verdict at all → treated as
-// fail). Reset the round and dispatch a new producer so the next
-// iteration can address the feedback. Comment ingestion of the verdicts
-// happens in the producer's system prompt at the next dispatch.
+// Ticket in waiting, all verifiers in the current round have run, and
+// at least one came back fail (or no verdict at all). Reset the round
+// and dispatch a new producer.
 export const retryAfterFail: Policy = (ctx) => {
-  const { db, deps, ticket, agents, slots } = ctx
-  if (ticket.status !== 'waiting') return 'pass'
-
-  const agent = agents.find(a => a.id === ticket.agent_id)
+  if (ctx.ticket.status !== 'waiting') return 'pass'
+  const agent = ctx.agents.find(a => a.id === ctx.ticket.agent_id)
   if (!agent) return 'pass'
-
   const verifierIds = parseVerifierIds(agent.verifiers)
   if (verifierIds.length === 0) return 'pass'
+  const verifierSessions = currentRoundVerifierSessions(ctx)
+  if (!verifierSessions || verifierSessions.length < verifierIds.length) return 'pass'
+  return processVerdicts(ctx, verifierSessions, agent)
+}
 
-  const sessions = deps.crud.sessionsByTicketRaw(db, ticket.id)
-  const producers = sessions.filter(s => s.agent_id === ticket.agent_id)
+function currentRoundVerifierSessions(ctx: PolicyCtx): Session[] | null {
+  const sessions = ctx.deps.crud.sessionsByTicketRaw(ctx.db, ctx.ticket.id)
+  const producers = sessions.filter(s => s.agent_id === ctx.ticket.agent_id)
   const latestProducer = producers[producers.length - 1]
-  if (!latestProducer) return 'pass'
+  if (!latestProducer) return null
+  return sessions.filter(s => s.agent_id !== ctx.ticket.agent_id && s.started_at >= latestProducer.started_at)
+}
 
-  const verifierSessions = sessions.filter(s =>
-    s.agent_id !== ticket.agent_id && s.started_at >= latestProducer.started_at,
-  )
-  if (verifierSessions.length < verifierIds.length) return 'pass'
+function processVerdicts(ctx: PolicyCtx, verifierSessions: Session[], agent: Agent): 'acted' | 'pass' {
   if (verifierSessions.some(s => s.status === 'running')) return 'pass'
-
   const verdicts = verifierSessions
-    .map(s => deps.crud.verdictBySession(db, s.id))
+    .map(s => ctx.deps.crud.verdictBySession(ctx.db, s.id))
     .filter((v): v is NonNullable<typeof v> => v != null)
-
-  // All-pass (or empty pass set) is finishOnAllPass's job — nothing for us here.
   if (verdicts.length > 0 && verdicts.every(v => v.pass)) return 'pass'
+  return retryRound(ctx, agent)
+}
 
-  // Mark the round failed and try a new producer if a slot is free.
-  transition(db, deps, ticket.id, 'waiting', 'waiting', 'reconciler', { reason: 'verdict_fail' })
-  if (slots.remaining > 0
-   && transition(db, deps, ticket.id, 'waiting', 'running', 'reconciler', { reason: 'retry' })) {
-    slots.remaining--
-    dispatchSession(db, deps, { ...ticket, status: 'running' }, agent, 'producer')
+function retryRound(ctx: PolicyCtx, agent: Agent): 'acted' {
+  transition(ctx.db, ctx.deps, ctx.ticket.id, 'waiting', 'waiting', 'reconciler', { reason: 'verdict_fail' })
+  if (ctx.slots.remaining > 0 && transition(ctx.db, ctx.deps, ctx.ticket.id, 'waiting', 'running', 'reconciler', { reason: 'retry' })) {
+    ctx.slots.remaining--
+    dispatchSession(ctx.db, ctx.deps, { ...ctx.ticket, status: 'running' }, agent, 'producer')
   }
   return 'acted'
 }

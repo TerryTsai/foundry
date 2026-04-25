@@ -26,7 +26,7 @@ export type HttpAdapterConfig = {
 
 const NOT_IMPLEMENTED = 'http adapter not implemented (Phase 5+); use createInProcessClient'
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars -- placeholder; signature locked for Phase 5
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- placeholder; signature locked so future fork-out wiring needs no caller changes
 export function createHttpAdapter<S extends keyof Client>(_module: S, _cfg: HttpAdapterConfig): Client[S] {
   return new Proxy({} as Client[S], {
     get() {

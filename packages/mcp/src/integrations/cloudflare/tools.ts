@@ -209,22 +209,26 @@ async function handlePagesRemove(ctx: CloudflareCtx, args: z.infer<typeof pagesR
 // starts debugging something that isn't broken. Cap the poll at 60 s; if the
 // URL still isn't live we return anyway with `ready: false` so the caller
 // can surface the anomaly instead of silently claiming success.
-// eslint-disable-next-line max-lines-per-function -- legacy; refactor in Phase 7
 async function handlePagesDeploy(ctx: CloudflareCtx, args: z.infer<typeof pagesDeployArgs>) {
   const acct = resolveAccountId(ctx, args.account_id)
   const branch = args.branch ?? 'main'
+  const command = buildPagesDeployScript(args, branch)
+  const r = await runCommand(ctx, command, 'pagesDeploy', args, {
+    env: { CLOUDFLARE_API_TOKEN: ctx.secrets.api_token ?? '', CLOUDFLARE_ACCOUNT_ID: acct },
+    toolUseId: ctx.toolUseId, timeoutMs: 180_000,
+  })
+  if (r.exitCode !== 0) return { ok: false, error: r.stderr || r.stdout }
+  return interpretDeployResult(r.stdout)
+}
+
+function buildPagesDeployScript(args: z.infer<typeof pagesDeployArgs>, branch: string): string {
   const dir = `/home/foundry/${args.dir}`
-  const command = [
+  return [
     `if [ ! -d ${JSON.stringify(dir)} ]; then echo "ERR: directory ${args.dir} does not exist in /home/foundry" >&2; exit 1; fi`,
     `if [ -z "$(ls -A ${JSON.stringify(dir)} 2>/dev/null)" ]; then echo "ERR: directory ${args.dir} is empty — add at least an index.html" >&2; exit 1; fi`,
     `if [ -f /home/foundry/wrangler.toml ] && ! grep -q pages_build_output_dir /home/foundry/wrangler.toml; then echo 'pages_build_output_dir = "${args.dir}"' >> /home/foundry/wrangler.toml; fi`,
     `wrangler pages project create ${JSON.stringify(args.project_name)} --production-branch ${JSON.stringify(branch)} || true`,
     `wrangler pages deploy ${JSON.stringify(dir)} --project-name ${JSON.stringify(args.project_name)} --branch ${JSON.stringify(branch)} --commit-dirty=true | tee /tmp/foundry-wrangler.out`,
-    // Poll the canonical project URL (<project>.pages.dev), not the
-    // commit-specific alias (<commit>.<project>.pages.dev). On fresh
-    // deploys the commit subdomain hits DNS propagation delay and
-    // returns chrome-error (status 0), while the project URL is
-    // already registered from project-create and resolves immediately.
     `DEPLOY_URL=$(grep -oE 'https://[a-z0-9]+\\.[a-z0-9-]+\\.pages\\.dev' /tmp/foundry-wrangler.out | head -1)`,
     `PROJECT_URL="https://$(echo "$DEPLOY_URL" | sed -E 's|^https://[a-z0-9]+\\.||')"`,
     `if [ -n "$PROJECT_URL" ]; then`,
@@ -235,31 +239,18 @@ async function handlePagesDeploy(ctx: CloudflareCtx, args: z.infer<typeof pagesD
     `  done`,
     `fi`,
   ].join('\n')
-  const r = await runCommand(ctx,
-    command, 'pagesDeploy', args, {
-      env: {
-        CLOUDFLARE_API_TOKEN:  ctx.secrets.api_token ?? '',
-        CLOUDFLARE_ACCOUNT_ID: acct,
-      },
-      toolUseId: ctx.toolUseId,
-      timeoutMs: 180_000,
-    })
-  if (r.exitCode !== 0) return { ok: false, error: r.stderr || r.stdout }
-  const deployMatch = r.stdout.match(/https:\/\/[a-z0-9]+\.[a-z0-9-]+\.pages\.dev/i)
+}
+
+function interpretDeployResult(stdout: string) {
+  const deployMatch = stdout.match(/https:\/\/[a-z0-9]+\.[a-z0-9-]+\.pages\.dev/i)
   const commitUrl   = deployMatch?.[0] ?? null
   const url         = commitUrl ? commitUrl.replace(/^https:\/\/[a-z0-9]+\./i, 'https://') : null
-  const readyMatch  = r.stdout.match(/FOUNDRY_READY=\S+ status=(\d+) waited=(\d+)s/)
+  const readyMatch  = stdout.match(/FOUNDRY_READY=\S+ status=(\d+) waited=(\d+)s/)
   const ready       = !!readyMatch
-  // `url` is the canonical project URL the agent should navigate to.
-  // `commitUrl` is the per-deploy alias; useful for verifying a specific
-  // deployment but flaky on fresh DNS — prefer `url` for verification.
   return {
-    ok: true,
-    url,
-    ready,
+    ok: true, url, ready,
     ...(readyMatch ? { status: Number(readyMatch[1]), waited_s: Number(readyMatch[2]) } : {}),
-    commitUrl,
-    stdout: r.stdout,
+    commitUrl, stdout,
   }
 }
 

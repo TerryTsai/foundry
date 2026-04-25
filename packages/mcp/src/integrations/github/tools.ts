@@ -1,28 +1,7 @@
-// GitHub development-flow server. Git is a peer integration like any other
-// MCP server — the agent is responsible for populating the workspace via
-// gitClone, making changes, and publishing via gitPullRequest. The
-// framework provides an empty workspace at /home/foundry and nothing else.
-//
-// Execution model:
-//
-//   gitClone runs in a TIER-2 sandbox: fresh container, /home/foundry mounted
-//   read-write, INSTALL_TOKEN read from a mounted secret file, network
-//   enabled. After clone completes, the embedded token is stripped from
-//   .git/config so subsequent tier-1 calls can't read it.
-//
-//   gitStatus/gitDiff/gitAdd/gitRemove/gitCommit run in the SESSION
-//   sandbox (tier-1) via runCommand — same model as exec/read/write.
-//   They need only filesystem access to /home/foundry; no credentials, no
-//   network. Get execution rows like every other tool.
-//
-//   gitPullRequest runs in a TIER-2 sandbox: /home/foundry mounted read-only,
-//   fresh install token in env, network enabled. Pushes the session
-//   branch and calls the GitHub PR create API. Token dies with the
-//   container.
-//
-// Workspace lifecycle is minimal: workspaceEmpty() creates a tmpdir,
-// workspaceDestroy() removes it. Both host-side. Everything in between
-// is agent-driven via tools.
+// GitHub development-flow server. Git is a peer integration. The agent
+// drives the workspace via gitClone/gitAdd/gitCommit/gitPullRequest.
+// Workspace lifecycle: workspaceEmpty (host) creates a tmpdir; everything
+// in between is agent-driven via tools.
 
 import { mkdtemp, rm } from 'fs/promises'
 import { tmpdir } from 'os'
@@ -31,26 +10,18 @@ import { join } from 'path'
 import { z } from 'zod'
 
 import type { Db, Project, Ticket } from '@foundry/db'
-import { mustExist, toInt } from '@foundry/model'
+import { toInt } from '@foundry/model'
 import type { McpConfig, ExecutionCreate, McpServerInfo, ToolDef } from '../../types.js'
 import { installationForRepo, installationToken } from './provider.js'
 import { runCommand } from '../shared.js'
 
-// mcp can't import @foundry/crud; project lookup is injected per-call
-// via GithubCtx.projectGet, bound by the composition root.
 export type GithubProjectGet = (db: Db, projectId: string) => Project | undefined
 
 // ════════════════════════════════════════════════════════════════════════════
 // WORKSPACE LIFECYCLE (host-side)
 // ════════════════════════════════════════════════════════════════════════════
-// The only framework-level workspace operations. workspaceEmpty is called by
-// the runner at session start; workspaceDestroy is called in the finally
-// block after the session ends. Everything else is agent-driven via tools.
 
-export interface PublishResult {
-  branch: string
-  prUrl:  string
-}
+export interface PublishResult { branch: string; prUrl: string }
 
 function parseRepo(repo: string): { owner: string; name: string } {
   const m = /^([\w.-]+)\/([\w.-]+)$/.exec(repo.trim())
@@ -58,15 +29,14 @@ function parseRepo(repo: string): { owner: string; name: string } {
   return { owner: m[1], name: m[2] }
 }
 
-// Resolve the project's configured repo. Throws if unset — callers catch
-// and return `{ ok: false, error }`.
 function ticketRepo(ctx: GithubCtx): { owner: string; name: string } {
-  const proj = mustExist(ctx.projectGet(ctx.db, ctx.ticket.project_id), `project ${ctx.ticket.project_id} not found`)
+  const proj = ctx.projectGet(ctx.db, ctx.ticket.project_id)
+  if (!proj) throw new Error(`project ${ctx.ticket.project_id} not found`)
   if (!proj.repo) throw new Error('project has no repo configured')
   return parseRepo(proj.repo)
 }
 
-const errMsg = (err: unknown) => err instanceof Error ? err.message : String(err)
+const errMsg = (errVal: unknown) => errVal instanceof Error ? errVal.message : String(errVal)
 
 export async function workspaceEmpty(): Promise<string> {
   return mkdtemp(join(tmpdir(), 'foundry-session-'))
@@ -80,32 +50,26 @@ export async function workspaceDestroy(workDir: string): Promise<void> {
 // TOOLS
 // ════════════════════════════════════════════════════════════════════════════
 
-// Paths the agent may never stage — known garbage directories that have
-// caused incidents (RCA-001) or that are structurally host-only. First
-// segment of the path is checked against this list. Guidance, not security:
-// an agent could still bypass via `exec git add -A`. The hard guarantee is
-// that such commits can't reach origin/main because push goes through
-// gitPullRequest's tier-2 path which targets foundry/<sessionId> only.
 const DENIED_PATH_PREFIXES = new Set([
   '.git', '.foundry', 'node_modules', '.npm-cache',
   'dist', 'build', 'coverage', 'target', 'vendor',
   '.cache', '.next', '.nuxt',
 ])
 
-// eslint-disable-next-line max-lines-per-function -- guard pipeline; splitting harms readability
 function assertSafeAddPath(p: string): void {
-  if (!p || p.trim() === '')       throw new Error('path is required')
-  if (p === '.' || p === '-A' || p === '--all') throw new Error(`invalid path: ${p}`)
-  if (p.startsWith('/'))            throw new Error(`absolute paths not allowed: ${p}`)
-  if (p.split('/').includes('..'))  throw new Error(`path traversal not allowed: ${p}`)
-  if (/[*?[\]{}]/.test(p))          throw new Error(`wildcards not allowed (pass literal paths): ${p}`)
+  assertSafeAddPathBasic(p)
+  if (/[*?[\]{}]/.test(p)) throw new Error(`wildcards not allowed (pass literal paths): ${p}`)
   const first = p.split('/')[0]
-  if (DENIED_PATH_PREFIXES.has(first)) {
-    throw new Error(`${first}/ paths are protected: ${p}`)
-  }
+  if (DENIED_PATH_PREFIXES.has(first)) throw new Error(`${first}/ paths are protected: ${p}`)
 }
 
-// POSIX-safe single-quote escape for paths passed through the shell.
+function assertSafeAddPathBasic(p: string): void {
+  if (!p || p.trim() === '') throw new Error('path is required')
+  if (p === '.' || p === '-A' || p === '--all') throw new Error(`invalid path: ${p}`)
+  if (p.startsWith('/')) throw new Error(`absolute paths not allowed: ${p}`)
+  if (p.split('/').includes('..')) throw new Error(`path traversal not allowed: ${p}`)
+}
+
 function esc(s: string): string {
   return "'" + s.replace(/'/g, "'\\''") + "'"
 }
@@ -114,7 +78,7 @@ export interface GithubCtx {
   db:        Db
   config:    McpConfig
   sessionId: string
-  workspace: string   // same tmpdir the sandbox server bind-mounts at /home/foundry
+  workspace: string
   ticket:    Ticket
   agentName: string
   toolUseId?: string
@@ -161,104 +125,107 @@ const gitMergeArgs = z.object({
   body:  z.string().optional().describe('Optional PR body. Defaults to a summary pointing at the ticket.'),
 })
 
-// ── gitClone: tier-2 sandbox (install token isolated from the agent) ──
+// ── gitClone: tier-2 sandbox ──
 
-// eslint-disable-next-line max-lines-per-function -- legacy; refactor in Phase 7
+const GIT_CLONE_SCRIPT = [
+  'set -e',
+  'export GIT_TERMINAL_PROMPT=0',
+  'git clone -q "https://x-access-token:${INSTALL_TOKEN}@github.com/${OWNER}/${REPO}" /home/foundry',
+  'git -C /home/foundry remote set-url origin "https://github.com/${OWNER}/${REPO}.git"',
+  'git -C /home/foundry config user.email foundry@localhost',
+  'git -C /home/foundry config user.name Foundry',
+  'git -C /home/foundry checkout -q -b "foundry/${SESSION_ID}"',
+].join('\n')
+
 async function handleGitClone(ctx: GithubCtx, args: z.infer<typeof gitCloneArgs>) {
   try {
-    const fallback = args.owner && args.repo ? null : ticketRepo(ctx)
-    const owner = args.owner ?? fallback!.owner
-    const name  = args.repo  ?? fallback!.name
-    const installationId = await installationForRepo(ctx.config, owner, name)
-    const { token: installToken } = await installationToken(ctx.config, installationId)
-    const branch = `foundry/${ctx.sessionId}`
-
-    const command = [
-      'set -e',
-      'export GIT_TERMINAL_PROMPT=0',
-      'git clone -q "https://x-access-token:${INSTALL_TOKEN}@github.com/${OWNER}/${REPO}" /home/foundry',
-      'git -C /home/foundry remote set-url origin "https://github.com/${OWNER}/${REPO}.git"',
-      'git -C /home/foundry config user.email foundry@localhost',
-      'git -C /home/foundry config user.name Foundry',
-      'git -C /home/foundry checkout -q -b "foundry/${SESSION_ID}"',
-    ].join('\n')
-
-    const r = await runCommand(ctx,
-      command, 'gitClone', { owner, repo: name }, {
-        env: {
-          OWNER:         owner,
-          REPO:          name,
-          SESSION_ID:    ctx.sessionId,
-          INSTALL_TOKEN: installToken,
-        },
-        toolUseId: ctx.toolUseId,
-      })
-
-    if (r.exitCode !== 0) return { ok: false, error: r.stderr || r.stdout || 'clone failed' }
-    return { ok: true, owner, repo: name, branch }
-  } catch (err) {
-    return { ok: false, error: errMsg(err) }
+    const { owner, name } = resolveCloneTarget(ctx, args)
+    const installToken = await fetchInstallToken(ctx.config, owner, name)
+    return await execGitClone(ctx, owner, name, installToken)
+  } catch (errVal) {
+    return { ok: false, error: errMsg(errVal) }
   }
 }
 
-// ── Handlers (tier-1 git ops run in the session sandbox) ──
+function resolveCloneTarget(ctx: GithubCtx, args: z.infer<typeof gitCloneArgs>): { owner: string; name: string } {
+  if (args.owner && args.repo) return { owner: args.owner, name: args.repo }
+  return ticketRepo(ctx)
+}
+
+async function fetchInstallToken(config: McpConfig, owner: string, name: string): Promise<string> {
+  const installationId = await installationForRepo(config, owner, name)
+  const { token } = await installationToken(config, installationId)
+  return token
+}
+
+async function execGitClone(ctx: GithubCtx, owner: string, name: string, installToken: string) {
+  const branch = `foundry/${ctx.sessionId}`
+  const r = await runCommand(ctx, GIT_CLONE_SCRIPT, 'gitClone', { owner, repo: name }, {
+    env: { OWNER: owner, REPO: name, SESSION_ID: ctx.sessionId, INSTALL_TOKEN: installToken },
+    toolUseId: ctx.toolUseId,
+  })
+  if (r.exitCode !== 0) return { ok: false, error: r.stderr || r.stdout || 'clone failed' }
+  return { ok: true, owner, repo: name, branch }
+}
+
+// ── tier-1 git ops ──
 
 async function handleGitStatus(ctx: GithubCtx, _args: z.infer<typeof gitStatusArgs>) {
-  const r = await runCommand(ctx,
-    'git status --porcelain=v1', 'gitStatus', {}, { toolUseId: ctx.toolUseId })
+  const r = await runCommand(ctx, 'git status --porcelain=v1', 'gitStatus', {}, { toolUseId: ctx.toolUseId })
   if (r.exitCode !== 0) return { error: r.stderr || r.stdout }
   return { status: r.stdout }
 }
 
 async function handleGitDiff(ctx: GithubCtx, args: z.infer<typeof gitDiffArgs>) {
+  const command = buildGitDiffCmd(args)
+  const r = await runCommand(ctx, command, 'gitDiff', args, { toolUseId: ctx.toolUseId })
+  if (r.exitCode !== 0) return { error: r.stderr || r.stdout }
+  return { diff: r.stdout }
+}
+
+function buildGitDiffCmd(args: z.infer<typeof gitDiffArgs>): string {
   const parts = ['git', 'diff']
   if (args.staged) parts.push('--cached')
   if (args.paths && args.paths.length > 0) {
     parts.push('--')
     for (const p of args.paths) parts.push(esc(p))
   }
-  const r = await runCommand(ctx,
-    parts.join(' '), 'gitDiff', args, { toolUseId: ctx.toolUseId })
-  if (r.exitCode !== 0) return { error: r.stderr || r.stdout }
-  return { diff: r.stdout }
+  return parts.join(' ')
 }
 
 async function handleGitAdd(ctx: GithubCtx, args: z.infer<typeof gitAddArgs>) {
-  try { for (const p of args.paths) assertSafeAddPath(p) } catch (err) {
-    return { ok: false, error: errMsg(err) }
-  }
+  try { for (const p of args.paths) assertSafeAddPath(p) }
+  catch (errVal) { return { ok: false, error: errMsg(errVal) } }
   const command = `git add -- ${args.paths.map(esc).join(' ')}`
-  const r = await runCommand(ctx,
-    command, 'gitAdd', args, { toolUseId: ctx.toolUseId })
+  const r = await runCommand(ctx, command, 'gitAdd', args, { toolUseId: ctx.toolUseId })
   if (r.exitCode !== 0) return { ok: false, error: r.stderr || r.stdout }
   return { ok: true, staged: args.paths }
 }
 
 async function handleGitRemove(ctx: GithubCtx, args: z.infer<typeof gitRemoveArgs>) {
-  try { for (const p of args.paths) assertSafeAddPath(p) } catch (err) {
-    return { ok: false, error: errMsg(err) }
-  }
+  try { for (const p of args.paths) assertSafeAddPath(p) }
+  catch (errVal) { return { ok: false, error: errMsg(errVal) } }
   const command = `git rm -r -- ${args.paths.map(esc).join(' ')}`
-  const r = await runCommand(ctx,
-    command, 'gitRemove', args, { toolUseId: ctx.toolUseId })
+  const r = await runCommand(ctx, command, 'gitRemove', args, { toolUseId: ctx.toolUseId })
   if (r.exitCode !== 0) return { ok: false, error: r.stderr || r.stdout }
   return { ok: true, removed: args.paths }
 }
 
-// eslint-disable-next-line max-lines-per-function -- legacy; refactor in Phase 7
+const GIT_COMMIT_SCRIPT = [
+  'set -e',
+  'if git diff --cached --quiet; then',
+  '  echo NOTHING_STAGED',
+  '  exit 64',
+  'fi',
+  'git commit -q -m "$FULL_MSG"',
+  'git rev-parse HEAD',
+].join('\n')
+
 async function handleGitCommit(ctx: GithubCtx, args: z.infer<typeof gitCommitArgs>) {
   const fullMessage = `${args.message}\n\nSession: ${ctx.sessionId}\nTicket:  ${ctx.ticket.id}\n`
-  const command = [
-    'set -e',
-    'if git diff --cached --quiet; then',
-    '  echo NOTHING_STAGED',
-    '  exit 64',
-    'fi',
-    'git commit -q -m "$FULL_MSG"',
-    'git rev-parse HEAD',
-  ].join('\n')
-  const r = await runCommand(ctx,
-    command, 'gitCommit', args, { env: { FULL_MSG: fullMessage }, toolUseId: ctx.toolUseId })
+  const r = await runCommand(ctx, GIT_COMMIT_SCRIPT, 'gitCommit', args, {
+    env: { FULL_MSG: fullMessage }, toolUseId: ctx.toolUseId,
+  })
   if (r.exitCode === 64 || r.stdout.trim() === 'NOTHING_STAGED') {
     return { ok: false, error: 'nothing staged — call gitAdd first' }
   }
@@ -267,226 +234,167 @@ async function handleGitCommit(ctx: GithubCtx, args: z.infer<typeof gitCommitArg
   return { ok: true, commit: sha }
 }
 
-// eslint-disable-next-line max-lines-per-function -- legacy; refactor in Phase 7
+const GIT_PR_PUSH_SCRIPT = [
+  'set -e',
+  'cd /home/foundry',
+  'export GIT_TERMINAL_PROMPT=0',
+  'BASE=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed "s|refs/remotes/origin/||" || echo main)',
+  'AHEAD=$(git rev-list --count "${BASE}..HEAD")',
+  'if [ "$AHEAD" -eq 0 ]; then',
+  '  echo NOTHING_TO_PUBLISH',
+  '  exit 64',
+  'fi',
+  'PR_BODY=$(printf \'%s\' "${PR_BODY_JSON}" | jq --arg b "$BASE" \'.base = $b\')',
+  'git push -q "https://x-access-token:${INSTALL_TOKEN}@github.com/${OWNER}/${REPO}" "HEAD:refs/heads/${BRANCH}"',
+  'printf \'%s\' "$PR_BODY" | curl -sS -w "\\n%{http_code}" -X POST \\',
+  '  -H "Authorization: Bearer ${INSTALL_TOKEN}" \\',
+  '  -H "Accept: application/vnd.github+json" \\',
+  '  -H "Content-Type: application/json" \\',
+  '  --data-binary @- \\',
+  '  "https://api.github.com/repos/${OWNER}/${REPO}/pulls"',
+].join('\n')
+
+interface PrInputs { title: string; body: string; draft: boolean; owner: string; name: string; branch: string }
+
+function buildPrInputs(ctx: GithubCtx, args: { title?: string; body?: string; draft?: boolean }): PrInputs {
+  const { owner, name } = ticketRepo(ctx)
+  const branch = `foundry/${ctx.sessionId}`
+  const title = (args.title ?? `[${ctx.ticket.id}] ${ctx.ticket.title.trim() || '(no title)'}`).slice(0, 200)
+  const body  = args.body ?? defaultPrBody(ctx.sessionId, ctx.ticket)
+  return { title, body, draft: args.draft ?? false, owner, name, branch }
+}
+
+async function pushAndOpenPr(ctx: GithubCtx, prInputs: PrInputs, toolName: string): Promise<{ exitCode: number; stdout: string; stderr: string; installToken: string }> {
+  const installToken = await fetchInstallToken(ctx.config, prInputs.owner, prInputs.name)
+  const prBodyTemplate = JSON.stringify({ title: prInputs.title, head: prInputs.branch, base: 'main', body: prInputs.body, draft: prInputs.draft })
+  const r = await runCommand(ctx, GIT_PR_PUSH_SCRIPT, toolName, {}, {
+    env: { OWNER: prInputs.owner, REPO: prInputs.name, BRANCH: prInputs.branch, PR_BODY_JSON: prBodyTemplate, INSTALL_TOKEN: installToken },
+    toolUseId: ctx.toolUseId,
+  })
+  return { ...r, installToken }
+}
+
 async function handleGitPullRequest(ctx: GithubCtx, args: z.infer<typeof gitPullRequestArgs>) {
   try {
-    const { owner, name } = ticketRepo(ctx)
-    const branch = `foundry/${ctx.sessionId}`
-
-    const installationId = await installationForRepo(ctx.config, owner, name)
-    const { token: installToken } = await installationToken(ctx.config, installationId)
-
-    const title = (args.title ?? `[${ctx.ticket.id}] ${ctx.ticket.title.trim() || '(no title)'}`).slice(0, 200)
-    const body  = args.body ?? defaultPrBody(ctx.sessionId, ctx.ticket)
-
-    const command = [
-      'set -e',
-      'cd /home/foundry',
-      'export GIT_TERMINAL_PROMPT=0',
-      'BASE=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed "s|refs/remotes/origin/||" || echo main)',
-      'AHEAD=$(git rev-list --count "${BASE}..HEAD")',
-      'if [ "$AHEAD" -eq 0 ]; then',
-      '  echo NOTHING_TO_PUBLISH',
-      '  exit 64',
-      'fi',
-      'PR_BODY=$(printf \'%s\' "${PR_BODY_JSON}" | jq --arg b "$BASE" \'.base = $b\')',
-      'git push -q "https://x-access-token:${INSTALL_TOKEN}@github.com/${OWNER}/${REPO}" "HEAD:refs/heads/${BRANCH}"',
-      'printf \'%s\' "$PR_BODY" | curl -sS -w "\\n%{http_code}" -X POST \\',
-      '  -H "Authorization: Bearer ${INSTALL_TOKEN}" \\',
-      '  -H "Accept: application/vnd.github+json" \\',
-      '  -H "Content-Type: application/json" \\',
-      '  --data-binary @- \\',
-      '  "https://api.github.com/repos/${OWNER}/${REPO}/pulls"',
-    ].join('\n')
-
-    const draft = args.draft ?? false
-    const prBodyTemplate = JSON.stringify({ title, head: branch, base: 'main', body, draft })
-
-    const r = await runCommand(ctx,
-      command, 'gitPullRequest', {}, {
-        env: {
-          OWNER:         owner,
-          REPO:          name,
-          BRANCH:        branch,
-          PR_BODY_JSON:  prBodyTemplate,
-          INSTALL_TOKEN: installToken,
-        },
-        toolUseId: ctx.toolUseId,
-      })
-
-    if (r.exitCode === 64 || r.stdout.trim() === 'NOTHING_TO_PUBLISH') {
-      return { ok: false, error: 'no commits to publish — call gitCommit first' }
-    }
-    if (r.exitCode !== 0) {
-      return { ok: false, error: 'push or PR create failed (see execution row for details)' }
-    }
-
-    const lines = r.stdout.trim().split('\n')
-    const statusLine = lines[lines.length - 1] ?? ''
-    const jsonBody   = lines.slice(0, -1).join('\n')
-    const status = toInt(statusLine)
-    if (status !== 201) {
-      return { ok: false, error: `PR create returned HTTP ${status}: ${jsonBody.slice(0, 500)}` }
-    }
-    let prUrl: string
-    try {
-      const parsed = JSON.parse(jsonBody) as { html_url?: string }
-      if (!parsed.html_url) throw new Error('missing html_url in response')
-      prUrl = parsed.html_url
-    } catch (err) {
-      return { ok: false, error: `PR create response not parseable: ${errMsg(err)}` }
-    }
-
-    const result: PublishResult = { branch, prUrl }
-    return { ok: true, ...result }
-  } catch (err) {
-    return { ok: false, error: errMsg(err) }
+    const prInputs = buildPrInputs(ctx, args)
+    const r = await pushAndOpenPr(ctx, prInputs, 'gitPullRequest')
+    return interpretPrResponse(r, prInputs.branch)
+  } catch (errVal) {
+    return { ok: false, error: errMsg(errVal) }
   }
 }
 
-// ── gitRebase: fetch latest main + rebase session branch ──
+function interpretPrResponse(r: { exitCode: number; stdout: string; stderr: string }, branch: string) {
+  if (r.exitCode === 64 || r.stdout.trim() === 'NOTHING_TO_PUBLISH') {
+    return { ok: false, error: 'no commits to publish — call gitCommit first' }
+  }
+  if (r.exitCode !== 0) {
+    return { ok: false, error: 'push or PR create failed (see execution row for details)' }
+  }
+  const parsed = parsePrCreateResponse(r.stdout)
+  if (!parsed.ok) return { ok: false, error: parsed.error }
+  const result: PublishResult = { branch, prUrl: parsed.prUrl }
+  return { ok: true, ...result }
+}
 
-// eslint-disable-next-line max-lines-per-function -- legacy; refactor in Phase 7
+function parsePrCreateResponse(stdout: string): { ok: true; prUrl: string; prNumber?: number; status: number; jsonBody: string } | { ok: false; error: string; status: number; jsonBody: string } {
+  const lines = stdout.trim().split('\n')
+  const statusLine = lines[lines.length - 1] ?? ''
+  const jsonBody   = lines.slice(0, -1).join('\n')
+  const status = toInt(statusLine)
+  if (status !== 201) return { ok: false, error: `PR create returned HTTP ${status}: ${jsonBody.slice(0, 500)}`, status, jsonBody }
+  return parseJsonPrUrl(jsonBody, status)
+}
+
+function parseJsonPrUrl(jsonBody: string, status: number): { ok: true; prUrl: string; prNumber?: number; status: number; jsonBody: string } | { ok: false; error: string; status: number; jsonBody: string } {
+  try {
+    const parsed = JSON.parse(jsonBody) as { html_url?: string; number?: number }
+    if (!parsed.html_url) return { ok: false, error: 'missing html_url in response', status, jsonBody }
+    return { ok: true, prUrl: parsed.html_url, prNumber: parsed.number, status, jsonBody }
+  } catch (errVal) {
+    return { ok: false, error: `PR create response not parseable: ${errMsg(errVal)}`, status, jsonBody }
+  }
+}
+
+// ── gitRebase ──
+
+const GIT_REBASE_SCRIPT = [
+  'set -e',
+  'cd /home/foundry',
+  'export GIT_TERMINAL_PROMPT=0',
+  'git fetch -q "https://x-access-token:${INSTALL_TOKEN}@github.com/${OWNER}/${REPO}" main:refs/remotes/origin/main',
+  'git rebase -q origin/main',
+].join('\n')
+
 async function handleGitRebase(ctx: GithubCtx, _args: z.infer<typeof gitRebaseArgs>) {
   try {
     const { owner, name } = ticketRepo(ctx)
-
-    const installationId = await installationForRepo(ctx.config, owner, name)
-    const { token: installToken } = await installationToken(ctx.config, installationId)
-
-    const command = [
-      'set -e',
-      'cd /home/foundry',
-      'export GIT_TERMINAL_PROMPT=0',
-      'git fetch -q "https://x-access-token:${INSTALL_TOKEN}@github.com/${OWNER}/${REPO}" main:refs/remotes/origin/main',
-      'git rebase -q origin/main',
-    ].join('\n')
-
-    const r = await runCommand(ctx,
-      command, 'gitRebase', {}, {
-        env: {
-          OWNER:         owner,
-          REPO:          name,
-          INSTALL_TOKEN: installToken,
-        },
-        toolUseId: ctx.toolUseId,
-      })
-
-    if (r.exitCode !== 0) {
-      return { ok: false, error: `rebase failed: ${r.stderr || r.stdout}`.slice(0, 500) }
-    }
+    const installToken = await fetchInstallToken(ctx.config, owner, name)
+    const r = await runCommand(ctx, GIT_REBASE_SCRIPT, 'gitRebase', {}, {
+      env: { OWNER: owner, REPO: name, INSTALL_TOKEN: installToken },
+      toolUseId: ctx.toolUseId,
+    })
+    if (r.exitCode !== 0) return { ok: false, error: `rebase failed: ${r.stderr || r.stdout}`.slice(0, 500) }
     return { ok: true }
-  } catch (err) {
-    return { ok: false, error: errMsg(err) }
+  } catch (errVal) {
+    return { ok: false, error: errMsg(errVal) }
   }
 }
 
-// eslint-disable-next-line max-lines-per-function -- legacy; refactor in Phase 7
+// ── gitMerge ──
+
 async function handleGitMerge(ctx: GithubCtx, args: z.infer<typeof gitMergeArgs>) {
   try {
-    const { owner, name } = ticketRepo(ctx)
-    const branch = `foundry/${ctx.sessionId}`
-
-    const installationId = await installationForRepo(ctx.config, owner, name)
-    const { token: installToken } = await installationToken(ctx.config, installationId)
-
-    const title = (args.title ?? `[${ctx.ticket.id}] ${ctx.ticket.title.trim() || '(no title)'}`).slice(0, 200)
-    const body  = args.body ?? defaultPrBody(ctx.sessionId, ctx.ticket)
-
-    const command = [
-      'set -e',
-      'cd /home/foundry',
-      'export GIT_TERMINAL_PROMPT=0',
-      'BASE=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed "s|refs/remotes/origin/||" || echo main)',
-      'AHEAD=$(git rev-list --count "${BASE}..HEAD")',
-      'if [ "$AHEAD" -eq 0 ]; then',
-      '  echo NOTHING_TO_PUBLISH',
-      '  exit 64',
-      'fi',
-      'PR_BODY=$(printf \'%s\' "${PR_BODY_JSON}" | jq --arg b "$BASE" \'.base = $b\')',
-      'git push -q "https://x-access-token:${INSTALL_TOKEN}@github.com/${OWNER}/${REPO}" "HEAD:refs/heads/${BRANCH}"',
-      'printf \'%s\' "$PR_BODY" | curl -sS -w "\\n%{http_code}" -X POST \\',
-      '  -H "Authorization: Bearer ${INSTALL_TOKEN}" \\',
-      '  -H "Accept: application/vnd.github+json" \\',
-      '  -H "Content-Type: application/json" \\',
-      '  --data-binary @- \\',
-      '  "https://api.github.com/repos/${OWNER}/${REPO}/pulls"',
-    ].join('\n')
-
-    const prBodyTemplate = JSON.stringify({ title, head: branch, base: 'main', body, draft: false })
-
-    const r = await runCommand(ctx,
-      command, 'gitMerge', {}, {
-        env: {
-          OWNER:         owner,
-          REPO:          name,
-          BRANCH:        branch,
-          PR_BODY_JSON:  prBodyTemplate,
-          INSTALL_TOKEN: installToken,
-        },
-        toolUseId: ctx.toolUseId,
-      })
-
-    if (r.exitCode === 64 || r.stdout.trim() === 'NOTHING_TO_PUBLISH') {
-      return { ok: false, error: 'no commits to publish — call gitCommit first' }
-    }
-    if (r.exitCode !== 0) {
-      return { ok: false, error: 'push or PR create failed (see execution row for details)' }
-    }
-
-    const lines = r.stdout.trim().split('\n')
-    const statusLine = lines[lines.length - 1] ?? ''
-    const jsonBody   = lines.slice(0, -1).join('\n')
-    const status = toInt(statusLine)
-
-    let prUrl: string
-    let prNumber: number
-
-    if (status === 201) {
-      try {
-        const parsed = JSON.parse(jsonBody) as { html_url?: string; number?: number }
-        // eslint-disable-next-line max-depth -- legacy; refactor in Phase 7
-        if (!parsed.html_url || !parsed.number) throw new Error('missing html_url or number')
-        prUrl = parsed.html_url
-        prNumber = parsed.number
-      } catch (err) {
-        return { ok: false, error: `PR response not parseable: ${errMsg(err)}` }
-      }
-    } else if (status === 422 && jsonBody.includes('already exists')) {
-      const lookupRes = await fetch(
-        `https://api.github.com/repos/${owner}/${name}/pulls?head=${encodeURIComponent(`${owner}:${branch}`)}&state=open`,
-        { headers: { Authorization: `Bearer ${installToken}`, Accept: 'application/vnd.github+json' } },
-      )
-      if (!lookupRes.ok) return { ok: false, error: `PR lookup failed: ${lookupRes.status}` }
-      const prs = await lookupRes.json() as Array<{ html_url: string; number: number }>
-      if (!prs.length) return { ok: false, error: 'PR reported as existing but not found via API' }
-      prUrl = prs[0].html_url
-      prNumber = prs[0].number
-    } else {
-      return { ok: false, error: `PR create returned HTTP ${status}: ${jsonBody.slice(0, 500)}` }
-    }
-
-    const mergeRes = await fetch(
-      `https://api.github.com/repos/${owner}/${name}/pulls/${prNumber}/merge`,
-      {
-        method: 'PUT',
-        headers: {
-          Authorization:  `Bearer ${installToken}`,
-          Accept:         'application/vnd.github+json',
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ merge_method: 'merge' }),
-      },
-    )
-    if (!mergeRes.ok) {
-      const mergeErr = await mergeRes.text().catch(() => '')
-      return { ok: false, error: `merge failed (HTTP ${mergeRes.status}): ${mergeErr.slice(0, 300)}. PR is open at ${prUrl} — resolve conflicts and merge manually, or call gitRebase and retry.` }
-    }
-
-    return { ok: true, merged: true, branch, prUrl }
-  } catch (err) {
-    return { ok: false, error: errMsg(err) }
+    const prInputs = buildPrInputs(ctx, { ...args, draft: false })
+    const r = await pushAndOpenPr(ctx, prInputs, 'gitMerge')
+    return await processGitMerge(prInputs, r)
+  } catch (errVal) {
+    return { ok: false, error: errMsg(errVal) }
   }
+}
+
+async function processGitMerge(prInputs: PrInputs, r: { exitCode: number; stdout: string; stderr: string; installToken: string }) {
+  if (r.exitCode === 64 || r.stdout.trim() === 'NOTHING_TO_PUBLISH') {
+    return { ok: false, error: 'no commits to publish — call gitCommit first' }
+  }
+  if (r.exitCode !== 0) return { ok: false, error: 'push or PR create failed (see execution row for details)' }
+  const lookup = await resolvePrAfterPush(prInputs, r)
+  if (!lookup.ok) return { ok: false, error: lookup.error }
+  return mergePr(prInputs, r.installToken, lookup)
+}
+
+async function resolvePrAfterPush(prInputs: PrInputs, r: { stdout: string; installToken: string }): Promise<{ ok: true; prUrl: string; prNumber: number } | { ok: false; error: string }> {
+  const parsed = parsePrCreateResponse(r.stdout)
+  if (parsed.ok && parsed.prNumber) return { ok: true, prUrl: parsed.prUrl, prNumber: parsed.prNumber }
+  if (parsed.status === 422 && parsed.jsonBody.includes('already exists')) {
+    return await lookupExistingPr(prInputs, r.installToken)
+  }
+  return { ok: false, error: parsed.ok ? 'PR response missing number' : parsed.error }
+}
+
+async function lookupExistingPr(prInputs: PrInputs, installToken: string): Promise<{ ok: true; prUrl: string; prNumber: number } | { ok: false; error: string }> {
+  const url = `https://api.github.com/repos/${prInputs.owner}/${prInputs.name}/pulls?head=${encodeURIComponent(`${prInputs.owner}:${prInputs.branch}`)}&state=open`
+  const lookupRes = await fetch(url, { headers: { Authorization: `Bearer ${installToken}`, Accept: 'application/vnd.github+json' } })
+  if (!lookupRes.ok) return { ok: false, error: `PR lookup failed: ${lookupRes.status}` }
+  const prs = await lookupRes.json() as Array<{ html_url: string; number: number }>
+  if (!prs.length) return { ok: false, error: 'PR reported as existing but not found via API' }
+  return { ok: true, prUrl: prs[0].html_url, prNumber: prs[0].number }
+}
+
+async function mergePr(prInputs: PrInputs, installToken: string, lookup: { prUrl: string; prNumber: number }) {
+  const mergeRes = await fetch(
+    `https://api.github.com/repos/${prInputs.owner}/${prInputs.name}/pulls/${lookup.prNumber}/merge`,
+    {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${installToken}`, Accept: 'application/vnd.github+json', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ merge_method: 'merge' }),
+    },
+  )
+  if (!mergeRes.ok) {
+    const mergeErr = await mergeRes.text().catch(() => '')
+    return { ok: false, error: `merge failed (HTTP ${mergeRes.status}): ${mergeErr.slice(0, 300)}. PR is open at ${lookup.prUrl} — resolve conflicts and merge manually, or call gitRebase and retry.` }
+  }
+  return { ok: true, merged: true, branch: prInputs.branch, prUrl: lookup.prUrl }
 }
 
 function defaultPrBody(sessionId: string, ticket: Ticket): string {

@@ -6,14 +6,8 @@ import { toInt } from '@foundry/model'
 // Persistent session container.
 //
 // Each agent session gets ONE long-lived podman container. Every tool
-// call for that session execs into it. State — filesystem writes,
-// background processes, chromium instances, installed packages,
-// running dev servers — all persists across tool calls. Container is
-// created lazily on first tool use (by ensureSessionContainer) and
-// torn down when the session ends (see pipeline/bookkeeping.ts).
-//
-// Containers are named `foundry-sess-<sessionId>` so SIGTERM cleanup
-// can find them.
+// call for that session execs into it. State persists across tool calls.
+// Containers are named `foundry-sess-<sessionId>`.
 
 const activeSessionContainers = new Map<string, string>()
 
@@ -52,10 +46,14 @@ export async function ensureSessionContainer(opts: SessionContainerOpts): Promis
   return startSessionContainer(opts)
 }
 
-// eslint-disable-next-line max-lines-per-function -- legacy; refactor in Phase 7
 export function startSessionContainer(opts: SessionContainerOpts): Promise<string> {
   const name = `foundry-sess-${opts.sessionId}`
-  const args = [
+  const args = buildContainerArgs(name, opts)
+  return new Promise((resolve, reject) => spawnContainer(name, args, opts.sessionId, resolve, reject))
+}
+
+function buildContainerArgs(name: string, opts: SessionContainerOpts): string[] {
+  return [
     'run', '-d', '--rm', '--name', name,
     '--memory', `${opts.memoryMb}m`, '--memory-swap', `${opts.memoryMb}m`,
     '--cpus', String(opts.cpus), '--pids-limit', String(opts.pidsLimit),
@@ -64,18 +62,20 @@ export function startSessionContainer(opts: SessionContainerOpts): Promise<strin
     '--tmpfs', `/tmp:rw,size=${opts.tmpfsMb}m`, '--tmpfs', `/run:rw,size=8m`,
     '-v', `${opts.workspace}:/home/foundry:rw`, '-w', '/home/foundry',
     opts.image,
-    // PID 1 just idles. Tools bring their own processes (chromium,
-    // dev servers, compilers, …) via podman exec.
     'sleep', 'infinity',
   ]
-  return new Promise((resolve, reject) => {
-    const child = spawn('podman', args)
-    let err = ''
-    child.stderr.on('data', (d: Buffer) => { err += d.toString() })
-    child.on('close', (code) => {
-      if (code === 0) { activeSessionContainers.set(opts.sessionId, name); resolve(name) }
-      else reject(new Error(`podman run failed (${code}): ${err.trim()}`))
-    })
+}
+
+function spawnContainer(
+  name: string, args: string[], sessionId: string,
+  resolve: (name: string) => void, reject: (e: Error) => void,
+): void {
+  const child = spawn('podman', args)
+  let errBuf = ''
+  child.stderr.on('data', (d: Buffer) => { errBuf += d.toString() })
+  child.on('close', (code) => {
+    if (code === 0) { activeSessionContainers.set(sessionId, name); resolve(name) }
+    else reject(new Error(`podman run failed (${code}): ${errBuf.trim()}`))
   })
 }
 
@@ -92,22 +92,15 @@ export function stopSessionContainer(sessionId: string): Promise<void> {
 
 export function stopAllSessionContainers(): void {
   for (const name of activeSessionContainers.values()) {
-    try { spawn('podman', ['rm', '-f', name], { stdio: 'ignore' }) } catch {}
+    try { spawn('podman', ['rm', '-f', name], { stdio: 'ignore' }) } catch { /* best-effort */ }
   }
   activeSessionContainers.clear()
 }
 
 // ── Exec ─────────────────────────────────────────────────────────────
 //
-// The command is wrapped to emit a sentinel stats line on stderr right
-// before exit. We read cgroup v2 cpu.stat and /proc/net/dev before and
-// after the user command, subtract, and emit the deltas. Stdout stays
-// untouched — it's purely the user command's output.
-//
-// Why delta, not podman stats: podman stats reports the container's
-// cumulative totals, not per-exec. With shared cgroup, per-exec memory
-// peak can't be cleanly attributed and is dropped. CPU and network are
-// cumulative counters so deltas work cleanly.
+// Wrap commands to emit a sentinel stats line before exit. We read cgroup
+// v2 cpu.stat and /proc/net/dev before/after, subtract, emit deltas.
 
 const STATS_SENTINEL = '__FOUNDRY_STATS__'
 
@@ -130,10 +123,12 @@ function shellEscape(s: string): string {
 
 function parseStatsLine(line: string, timedOut: boolean): ContainerStats {
   if (timedOut) return { ...emptyStats(), exitSignal: 'timeout' }
-  // Format: __FOUNDRY_STATS__|cpuBefore|cpuAfter|netRxBefore|netTxBefore|netRxAfter|netTxAfter
-  // (NET_B and NET_A each carry rx|tx separated by '|')
   const parts = line.split('|')
   if (parts.length < 7 || parts[0] !== STATS_SENTINEL) return emptyStats()
+  return statsFromParts(parts)
+}
+
+function statsFromParts(parts: string[]): ContainerStats {
   const [ , cpuB, cpuA, rxB, txB, rxA, txA ] = parts
   const cpuUsec = Math.max(0, toInt(cpuA) - toInt(cpuB))
   const rxDelta = Math.max(0, toInt(rxA) - toInt(rxB))
@@ -147,7 +142,6 @@ function parseStatsLine(line: string, timedOut: boolean): ContainerStats {
   }
 }
 
-// Split stderr into the user's real stderr + the stats sentinel line.
 function extractStats(raw: string, timedOut: boolean): { userStderr: string; stats: ContainerStats } {
   const idx = raw.lastIndexOf(STATS_SENTINEL)
   if (idx < 0) return { userStderr: raw, stats: emptyStats() }
@@ -161,42 +155,45 @@ export interface ExecOptions {
   env?:       Record<string, string>
 }
 
-// eslint-disable-next-line max-lines-per-function -- legacy; refactor in Phase 7
 export function execInContainer(
   containerName: string, command: string, opts: ExecOptions = {},
 ): ExecHandle {
+  const child = spawnExec(containerName, command, opts)
+  const emitter = new EventEmitter()
+  const state = { stdoutBuf: '', stderrBuf: '', timedOut: false }
+  const timer = setTimeout(() => { state.timedOut = true; child.kill('SIGKILL') }, opts.timeoutMs ?? 120_000)
+  wireExecStreams(child, emitter, state, timer)
+  return { emitter, kill: () => child.kill('SIGKILL') }
+}
+
+function spawnExec(containerName: string, command: string, opts: ExecOptions): ChildProcess {
   const envArgs = Object.entries(opts.env ?? {}).flatMap(([k, v]) => ['-e', `${k}=${v}`])
-  const timeoutMs = opts.timeoutMs ?? 120_000
-  const child: ChildProcess = spawn('podman', [
+  return spawn('podman', [
     'exec', '-i', ...envArgs, containerName,
     'sh', '-c', statsWrapper(command),
   ])
-  const emitter = new EventEmitter()
-  let stdoutBuf = ''
-  let stderrBuf = ''
-  let timedOut = false
+}
 
-  const timer = setTimeout(() => {
-    timedOut = true
-    child.kill('SIGKILL')
-  }, timeoutMs)
-
+function wireExecStreams(
+  child: ChildProcess, emitter: EventEmitter,
+  state: { stdoutBuf: string; stderrBuf: string; timedOut: boolean },
+  timer: NodeJS.Timeout,
+): void {
   child.stdout?.on('data', (d: Buffer) => {
     const s = d.toString()
-    stdoutBuf += s
+    state.stdoutBuf += s
     emitter.emit('stdout', s)
   })
-  child.stderr?.on('data', (d: Buffer) => {
-    stderrBuf += d.toString()
-  })
-  child.on('close', (code) => {
-    clearTimeout(timer)
-    const { userStderr, stats } = extractStats(stderrBuf, timedOut)
-    if (userStderr) emitter.emit('stderr', userStderr)
-    // Ensure the stdout tail lands too (test hooks rely on a final flush)
-    if (stdoutBuf && !stdoutBuf.endsWith('\n')) { /* already flushed per-chunk */ }
-    emitter.emit('exit', timedOut ? -1 : (code ?? -1), stats)
-  })
+  child.stderr?.on('data', (d: Buffer) => { state.stderrBuf += d.toString() })
+  child.on('close', (code) => emitExecExit(emitter, timer, state, code))
+}
 
-  return { emitter, kill: () => child.kill('SIGKILL') }
+function emitExecExit(
+  emitter: EventEmitter, timer: NodeJS.Timeout,
+  state: { stderrBuf: string; timedOut: boolean }, code: number | null,
+): void {
+  clearTimeout(timer)
+  const { userStderr, stats } = extractStats(state.stderrBuf, state.timedOut)
+  if (userStderr) emitter.emit('stderr', userStderr)
+  emitter.emit('exit', state.timedOut ? -1 : (code ?? -1), stats)
 }

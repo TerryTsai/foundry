@@ -4,6 +4,8 @@
 
 import { type Db } from '@foundry/db'
 import type { Agent, Ticket } from '@foundry/db'
+import type { Result, EngineError } from '@foundry/model'
+import { ok, err } from '@foundry/model'
 
 import type { EngineConfig, EngineDeps, SessionContext } from './types.js'
 
@@ -18,27 +20,21 @@ import { withSystemPrompt }         from './pipeline/system-prompt.js'
 import { withTicketFailOnCrash }    from './pipeline/ticket-fail-on-crash.js'
 import { withWorkspace }            from './pipeline/workspace.js'
 
-// ── pipelines ────────────────────────────────────────────────────────
-// Wrap order: outermost first. Outer middleware sees crashes and side
-// effects of everything below it. The innermost stage (withEngine) is
-// what finally talks to the LLM. To change what wraps a session, edit
-// the list — that's the whole interface.
-
 const PRODUCER = compose(
-  withCrashSafe,             // catches anything below; logs, rethrows
-  withBookkeeping,           // session row started_at/ended_at/status
-  withTicketFailOnCrash,     // ticket → failed if loop crashes
-  withWorkspace,             // /tmp work dir, cloned from the project's repo
+  withCrashSafe,
+  withBookkeeping,
+  withTicketFailOnCrash,
+  withWorkspace,
   withSystemPrompt('producer'),
-  withOpeningPrompt,         // prepends the ticket's prompt
-  withCooperativeCancel,     // poll session.status; signal loop to stop
-  withEngine,                // pick anthropic|vercel SDK and run it
+  withOpeningPrompt,
+  withCooperativeCancel,
+  withEngine,
 )(async (ctx) => ctx)
 
 const VERIFIER = compose(
   withCrashSafe,
   withBookkeeping,
-  withSyntheticFailVerdict,  // crash → synthetic 'fail' verdict
+  withSyntheticFailVerdict,
   withWorkspace,
   withSystemPrompt('verifier'),
   withOpeningPrompt,
@@ -46,31 +42,37 @@ const VERIFIER = compose(
   withEngine,
 )(async (ctx) => ctx)
 
-// ── entrypoint ───────────────────────────────────────────────────────
-
 export async function runSession(
   db: Db, config: EngineConfig, deps: EngineDeps, sessionId: string,
   agent: Agent, ticket: Ticket, role: 'producer' | 'verifier',
-): Promise<void> {
-  // load session
+): Promise<Result<void, EngineError>> {
   const session = deps.crud.sessionGetById(db, sessionId)
-  if (!session) throw new Error(`session ${sessionId} not found`)
+  if (!session) return err({ kind: 'not_found', entity: 'session', id: sessionId })
+  const tokenResult = mintSandboxToken(db, deps, sessionId, config.sandboxTimeout)
+  if (!tokenResult.ok) return tokenResult
+  const ctx = buildSessionContext(db, config, deps, session, ticket, agent, tokenResult.value)
+  const pipeline = role === 'verifier' ? VERIFIER : PRODUCER
+  await pipeline(ctx)
+  return ok(undefined)
+}
 
-  // mint per-session sandbox JWT — sandbox tools curl the host with
-  // this; auth/middleware verifies and reads session/ticket/project/
-  // account from the claims
-  const ttlMs = Math.max(config.sandboxTimeout * 2, 30 * 60 * 1000)
-  const sandboxToken = deps.auth.sessionJwtMint(db, sessionId, ttlMs)
+function mintSandboxToken(
+  db: Db, deps: EngineDeps, sessionId: string, sandboxTimeout: number,
+): Result<string, EngineError> {
+  const ttlMs = Math.max(sandboxTimeout * 2, 30 * 60 * 1000)
+  const r = deps.auth.sessionJwtMint(db, sessionId, ttlMs)
+  if (!r.ok) return err({ kind: 'crashed', message: `failed to mint sandbox token: ${r.error.kind}` })
+  return ok(r.value)
+}
 
-  // build the per-session context that flows through every middleware
-  const ctx: SessionContext = {
+function buildSessionContext(
+  db: Db, config: EngineConfig, deps: EngineDeps,
+  session: SessionContext['session'], ticket: Ticket, agent: Agent, sandboxToken: string,
+): SessionContext {
+  return {
     db, config, deps, session, ticket, agent, sandboxToken,
     systemPrompt: '', userPrompt: '', workDir: '',
     shouldStop: () => false,
     startedAt: Date.now(),
   }
-
-  // drive the chosen pipeline; all the work happens inside its stages
-  const pipeline = role === 'verifier' ? VERIFIER : PRODUCER
-  await pipeline(ctx)
 }

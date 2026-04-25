@@ -122,17 +122,23 @@ async function handleWrite(ctx: SandboxCtx, args: z.infer<typeof validate.toolWr
   }
 }
 
-// eslint-disable-next-line max-lines-per-function -- legacy; refactor in Phase 7
 async function handlePatch(ctx: SandboxCtx, args: z.infer<typeof validate.toolPatch>) {
-  try { assertSafeWritePath(args.path) } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  try { assertSafeWritePath(args.path) }
+  catch (errVal) { return { ok: false, error: errVal instanceof Error ? errVal.message : String(errVal) } }
+  const command = buildPatchCommand(ctx, args)
+  try {
+    const r = await runCommand(ctx, command, 'patch', { path: args.path }, { toolUseId: ctx.toolUseId })
+    return r.exitCode === 0 ? { ok: true } : { ok: false, error: r.stderr || r.stdout || 'patch failed' }
+  } catch (errVal) {
+    return { ok: false, error: errVal instanceof Error ? errVal.message : String(errVal) }
   }
+}
+
+function buildPatchCommand(ctx: SandboxCtx, args: z.infer<typeof validate.toolPatch>): string {
   const meta = writeTmp(ctx.workspace, JSON.stringify({
-    path: workPath(args.path),
-    old:  args.old_string,
-    new:  args.new_string,
+    path: workPath(args.path), old: args.old_string, new: args.new_string,
   }), 'json')
-  const command = `python3 -c '
+  return `python3 -c '
 import json, os, sys
 m = json.load(open("/home/foundry/${meta}"))
 os.unlink("/home/foundry/${meta}")
@@ -142,12 +148,6 @@ if m["old"] not in c:
 open(m["path"],"w").write(c.replace(m["old"],m["new"],1))
 print("ok")
 '`
-  try {
-    const r = await runCommand(ctx, command, 'patch', { path: args.path }, { toolUseId: ctx.toolUseId })
-    return r.exitCode === 0 ? { ok: true } : { ok: false, error: r.stderr || r.stdout || 'patch failed' }
-  } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : String(err) }
-  }
 }
 
 const removeSchema = z.object({

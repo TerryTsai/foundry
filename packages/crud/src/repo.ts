@@ -209,19 +209,23 @@ export function setTags(d: Db, ticketId: string, tags: string[]): void {
    .where(eq(schema.ticket.id, ticketId)).run()
 }
 
-// eslint-disable-next-line max-depth -- legacy; refactor in Phase 7
 export function projectTagList(d: Db, projectId: string): string[] {
   const tickets = d.select({ tags: schema.ticket.tags }).from(schema.ticket)
     .where(eq(schema.ticket.project_id, projectId)).all() as Array<{ tags: string }>
   const set = new Set<string>()
-  for (const t of tickets) {
-    try {
-      const arr = JSON.parse(t.tags)
-      // eslint-disable-next-line max-depth -- legacy; refactor in Phase 7
-      if (Array.isArray(arr)) for (const x of arr) if (typeof x === 'string') set.add(x)
-    } catch { /* skip */ }
-  }
+  for (const t of tickets) collectTags(set, t.tags)
   return [...set].sort()
+}
+
+function collectTags(set: Set<string>, raw: string): void {
+  try {
+    const arr = JSON.parse(raw)
+    if (Array.isArray(arr)) addStringTags(set, arr)
+  } catch { /* skip malformed */ }
+}
+
+function addStringTags(set: Set<string>, arr: unknown[]): void {
+  for (const x of arr) if (typeof x === 'string') set.add(x)
 }
 
 export function ticketsByTag(d: Db, tag: string, conditions?: SQL[]): Ticket[] {

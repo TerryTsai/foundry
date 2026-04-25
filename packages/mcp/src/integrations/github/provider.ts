@@ -41,24 +41,20 @@ export async function oauthExchangeCode(config: McpConfig, code: string): Promis
   return json.access_token
 }
 
-// eslint-disable-next-line max-lines-per-function -- legacy; refactor in Phase 7
 export async function fetchUser(token: string): Promise<GitHubUser> {
   const headers = { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' }
   const userRes = await fetch('https://api.github.com/user', { headers })
   if (!userRes.ok) throw new Error(`github /user failed: ${userRes.status}`)
   const u = await userRes.json() as { id: number; login: string; name: string | null; email: string | null; avatar_url: string | null }
-
-  // GitHub /user only returns email if it's set as public. Fall back to /user/emails for the verified primary.
-  let email = u.email
-  if (!email) {
-    const emailRes = await fetch('https://api.github.com/user/emails', { headers })
-    if (emailRes.ok) {
-      const list = await emailRes.json() as Array<{ email: string; primary: boolean; verified: boolean }>
-      email = list.find(e => e.primary && e.verified)?.email ?? null
-    }
-  }
-
+  const email = u.email ?? await fetchPrimaryEmail(headers)
   return { github_id: u.id, login: u.login, name: u.name, email, avatar_url: u.avatar_url }
+}
+
+async function fetchPrimaryEmail(headers: Record<string, string>): Promise<string | null> {
+  const emailRes = await fetch('https://api.github.com/user/emails', { headers })
+  if (!emailRes.ok) return null
+  const list = await emailRes.json() as Array<{ email: string; primary: boolean; verified: boolean }>
+  return list.find(e => e.primary && e.verified)?.email ?? null
 }
 
 // ── GitHub App: installation tokens ──
@@ -121,33 +117,28 @@ export async function repoCloneUrl(config: McpConfig, owner: string, repo: strin
 // Open a pull request. Draft by default — session branches should land as
 // drafts so a human flips them to Ready only after reviewing the agent's work.
 // Returns the PR's html_url.
-// eslint-disable-next-line max-lines-per-function -- legacy; refactor in Phase 7
 export async function pullRequestCreate(
   config: McpConfig,
-  owner: string,
-  repo: string,
+  owner: string, repo: string,
   input: { title: string; head: string; base: string; body: string; draft?: boolean },
 ): Promise<string> {
   const installationId = await installationForRepo(config, owner, repo)
-  const { token }      = await installationToken(config, installationId)
-  const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/pulls`, {
-    method:  'POST',
-    headers: {
-      Authorization:  `Bearer ${token}`,
-      Accept:         'application/vnd.github+json',
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      title: input.title,
-      head:  input.head,
-      base:  input.base,
-      body:  input.body,
-      draft: input.draft ?? true,
-    }),
-  })
+  const { token } = await installationToken(config, installationId)
+  const res = await prCreateRequest(owner, repo, token, input)
   if (!res.ok) throw new Error(`pull request create failed: ${res.status} ${await res.text()}`)
   const json = await res.json() as { html_url: string }
   return json.html_url
+}
+
+async function prCreateRequest(
+  owner: string, repo: string, token: string,
+  input: { title: string; head: string; base: string; body: string; draft?: boolean },
+): Promise<Response> {
+  return fetch(`https://api.github.com/repos/${owner}/${repo}/pulls`, {
+    method:  'POST',
+    headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title: input.title, head: input.head, base: input.base, body: input.body, draft: input.draft ?? true }),
+  })
 }
 
 // List installations the signed-in user can access. Called with a fresh user

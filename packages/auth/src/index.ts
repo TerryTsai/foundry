@@ -6,6 +6,7 @@ export * as validate from './validators.js'
 export {
   authStart, authCallback, authMe, authLogout, AUTH_STATE_TTL_SEC,
 } from './service.js'
+export type { AuthCallbackResult } from './service.js'
 
 // middleware — cookie helpers + requireAuth
 export {

@@ -38,18 +38,6 @@ export type {
   ReconcilerError,
 } from './errors/index.js'
 
-// ── Legacy transition exports — removed once all modules use Result ──
-//
-// These keep the throwing AppError pattern working during the migration
-// window. New code MUST use Result<T, E>. See ARCHITECTURE.md.
-
 export {
-  appError, isAppError,
-  notFound, conflict, badRequest, unauthorized, forbidden,
-} from './legacy-errors.js'
-export type { AppError } from './legacy-errors.js'
-
-export {
-  mustExist, assertStatus,
   pick, now, timestamps, toInt, succeeds,
-} from './legacy-util.js'
+} from './util.js'

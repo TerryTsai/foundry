@@ -61,8 +61,18 @@ export function dispatchSession(
     data: JSON.stringify({ role, ticket_id: ticket.id, agent_name: agent.name }),
     caused_by: 'reconciler',
   })
-  deps.engine.runSession(db, deps.config, deps.engine.engineDeps, sess.id, agent, ticket, role)
-    .catch((err: unknown) => console.error(`session ${sess.id} crashed:`, err))
+  void runSessionAsync(db, deps, sess.id, agent, ticket, role)
+}
+
+async function runSessionAsync(
+  db: Db, deps: ReconcilerDeps, sessionId: string, agent: Agent, ticket: Ticket, role: 'producer' | 'verifier',
+): Promise<void> {
+  try {
+    const r = await deps.engine.runSession(db, deps.config, deps.engine.engineDeps, sessionId, agent, ticket, role)
+    if (!r.ok) console.error(`session ${sessionId} returned err:`, r.error)
+  } catch (errVal) {
+    console.error(`session ${sessionId} crashed:`, errVal)
+  }
 }
 
 // Parse the JSON-encoded verifier id list off an agent row.

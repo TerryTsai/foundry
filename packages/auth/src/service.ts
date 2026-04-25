@@ -3,11 +3,14 @@ import type { z } from 'zod'
 
 import { type Db } from '@foundry/db'
 import type { Account } from '@foundry/db'
-import { badRequest, forbidden } from '@foundry/model'
+import type { Result, AuthError } from '@foundry/model'
+import { ok, err } from '@foundry/model'
 import * as validate from './validators.js'
-import type { AuthConfig, AuthCrudOps, GithubOAuthDeps } from './types.js'
+import type { AuthConfig, AuthCrudOps, GithubOAuthDeps, GithubOAuthUser } from './types.js'
 
-export const AUTH_STATE_TTL_SEC = 60 * 10  // 10 min for the OAuth state cookie
+export const AUTH_STATE_TTL_SEC = 60 * 10
+
+export type AuthCallbackResult = { sessionId: string; expiresAt: Date; account: Account }
 
 export function authStart(
   config: AuthConfig, baseUrl: string, deps: GithubOAuthDeps,
@@ -16,53 +19,55 @@ export function authStart(
   return { url: deps.oauthAuthorizeUrl(config, baseUrl, state), state }
 }
 
-// eslint-disable-next-line max-lines-per-function -- legacy; refactor in Phase 7
 export async function authCallback(
-  db: Db,
-  config: AuthConfig,
+  db: Db, config: AuthConfig,
   input: z.infer<typeof validate.authCallback>,
   stateCookie: string | undefined,
-  deps: GithubOAuthDeps,
-  crud: AuthCrudOps,
-): Promise<{ sessionId: string; expiresAt: Date; account: Account }> {
-  if (!stateCookie || stateCookie !== input.state) throw badRequest('invalid oauth state')
+  deps: GithubOAuthDeps, crud: AuthCrudOps,
+): Promise<Result<AuthCallbackResult, AuthError>> {
+  if (!stateCookie || stateCookie !== input.state) return err({ kind: 'validation_failed', field: 'state', reason: 'invalid oauth state' })
   const token = await deps.oauthExchangeCode(config, input.code)
   const user  = await deps.fetchUser(token)
+  if (!isAllowed(config, user.login)) return err({ kind: 'forbidden', reason: 'account not authorized' })
+  return ok(authCallbackPersist(db, config, user, crud))
+}
 
-  // Effective allowlist = ALLOWED_GITHUB_LOGINS ∪ OWNER_GITHUB_LOGIN. Empty
-  // means no one signs in. Fail-closed so a fresh deploy with neither var
-  // set doesn't accept the whole internet.
+function isAllowed(config: AuthConfig, login: string): boolean {
   const allowed = new Set<string>(config.allowedGithubLogins)
   if (config.ownerGitHubLogin) allowed.add(config.ownerGitHubLogin)
-  if (!allowed.has(user.login)) throw forbidden('account not authorized')
+  return allowed.has(login)
+}
 
+function authCallbackPersist(db: Db, config: AuthConfig, user: GithubOAuthUser, crud: AuthCrudOps): AuthCallbackResult {
   const account = crud.accountUpsertByGithubId(db, user)
-
   const sessionId = randomBytes(32).toString('hex')
-  const created   = new Date()
-  const expires   = new Date(created.getTime() + config.sessionMaxAgeSec * 1000)
-  crud.authSessionInsert(db, {
-    id:         sessionId,
-    account_id: account.id,
-    created_at: created.toISOString(),
-    expires_at: expires.toISOString(),
-  })
-
-  // First-time bootstrap: if this account matches OWNER_GITHUB_LOGIN, claim
-  // any unowned projects. Idempotent — safe to run on every login.
-  if (config.ownerGitHubLogin && account.login === config.ownerGitHubLogin) {
-    const claimed = crud.claimUnownedProjects(db, account.login)
-    if (claimed > 0) console.log(`claimed ${claimed} unowned project(s) for ${account.login}`)
-  }
-
+  const created = new Date()
+  const expires = new Date(created.getTime() + config.sessionMaxAgeSec * 1000)
+  insertAuthSession(db, crud, sessionId, account.id, created, expires)
+  claimUnownedIfOwner(db, crud, config, account)
   return { sessionId, expiresAt: expires, account }
+}
+
+function insertAuthSession(
+  db: Db, crud: AuthCrudOps, sessionId: string, accountId: string, created: Date, expires: Date,
+): void {
+  crud.authSessionInsert(db, {
+    id: sessionId, account_id: accountId,
+    created_at: created.toISOString(), expires_at: expires.toISOString(),
+  })
+}
+
+function claimUnownedIfOwner(db: Db, crud: AuthCrudOps, config: AuthConfig, account: Account): void {
+  if (!config.ownerGitHubLogin || account.login !== config.ownerGitHubLogin) return
+  const claimed = crud.claimUnownedProjects(db, account.login)
+  if (claimed > 0) console.log(`claimed ${claimed} unowned project(s) for ${account.login}`)
 }
 
 export function authMe(account: Account): { id: string; login: string; name: string | null; avatar_url: string | null } {
   return { id: account.id, login: account.login, name: account.name, avatar_url: account.avatar_url }
 }
 
-export function authLogout(db: Db, sessionId: string, crud: AuthCrudOps): { ok: true } {
+export function authLogout(db: Db, sessionId: string, crud: AuthCrudOps): Result<{ ok: true }, AuthError> {
   crud.authSessionRemove(db, sessionId)
-  return { ok: true }
+  return ok({ ok: true })
 }

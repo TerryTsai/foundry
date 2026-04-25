@@ -23,6 +23,7 @@ export {
   sessionGet, sessionStatus, verdictSet, sessionKill,
   sessionActivities, activityCreate, sessionByTicket, sessionListAll,
 } from './session.js'
+export type { ActivityCreateInput } from './session.js'
 
 // agent
 export {
@@ -48,7 +49,7 @@ export {
   attachmentCreate, attachmentListByTicket, attachmentListByComment,
   attachmentGetBytes, attachmentListByTicketInternal, attachmentGetInternal,
 } from './attachment.js'
-export type { AttachmentMeta } from './attachment.js'
+export type { AttachmentMeta, AttachmentBytes, AttachmentCreateInput } from './attachment.js'
 
 // execution metering — DB-side writes for the sandbox runtime
 export {

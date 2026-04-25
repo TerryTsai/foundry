@@ -211,28 +211,36 @@ async function handleVerdictReport(ctx: FoundryCtx, args: z.infer<typeof verdict
   return apiPost(ctx, 'verdictReport', args, `/session/${ctx.sessionId}/verdict`, payload)
 }
 
-// eslint-disable-next-line max-lines-per-function -- legacy; refactor in Phase 7
 async function handleTicketComment(ctx: FoundryCtx, args: z.infer<typeof ticketCommentArgs>) {
   const targetTicket = args.ticket_id ?? ctx.ticketId
   const payload = JSON.stringify({ author: ctx.agentName, body: args.body })
   const resp = await apiPost(ctx, 'ticketComment', args, `/ticket/${targetTicket}/comment`, payload)
-  // Attach each file from the session workspace to the newly-created
-  // comment. Errors on individual files don't block the rest.
   const paths = args.attachments ?? []
   if (paths.length === 0) return resp
   const commentId = (resp as { id?: string } | undefined)?.id
   if (!commentId) return resp
-  const uploaded: Array<{ path: string; id?: string; error?: string }> = []
-  for (const p of paths) {
-    const mime = mimeFromPath(p)
-    if (!mime) { uploaded.push({ path: p, error: 'unsupported file type' }); continue }
-    const name = p.split('/').pop() ?? 'attachment'
-    const url = `/comment/${commentId}/attachment?name=${encodeURIComponent(name)}&created_by=${encodeURIComponent(ctx.agentName)}`
-    const r = await apiUploadFile(ctx, 'ticketComment', { path: p }, url, p, mime) as { id?: string; error?: string }
-    if (r.error) uploaded.push({ path: p, error: r.error })
-    else uploaded.push({ path: p, id: r.id })
-  }
+  const uploaded = await uploadCommentAttachments(ctx, commentId, paths)
   return { ...(resp as Record<string, unknown>), attachments: uploaded }
+}
+
+async function uploadCommentAttachments(
+  ctx: FoundryCtx, commentId: string, paths: string[],
+): Promise<Array<{ path: string; id?: string; error?: string }>> {
+  const out: Array<{ path: string; id?: string; error?: string }> = []
+  for (const p of paths) out.push(await uploadOneAttachment(ctx, commentId, p))
+  return out
+}
+
+async function uploadOneAttachment(
+  ctx: FoundryCtx, commentId: string, p: string,
+): Promise<{ path: string; id?: string; error?: string }> {
+  const mime = mimeFromPath(p)
+  if (!mime) return { path: p, error: 'unsupported file type' }
+  const name = p.split('/').pop() ?? 'attachment'
+  const url = `/comment/${commentId}/attachment?name=${encodeURIComponent(name)}&created_by=${encodeURIComponent(ctx.agentName)}`
+  const r = await apiUploadFile(ctx, 'ticketComment', { path: p }, url, p, mime) as { id?: string; error?: string }
+  if (r.error) return { path: p, error: r.error }
+  return { path: p, id: r.id }
 }
 
 async function handleTicketCancel(ctx: FoundryCtx, args: z.infer<typeof ticketCancelArgs>) {
@@ -277,28 +285,27 @@ async function handleThink(ctx: FoundryCtx, args: z.infer<typeof thinkArgs>) {
 // internal API into .foundry/attachments/<id> (keeping the attachment's
 // original filename from Content-Disposition). Agent gets the path
 // back and can read/attach/inspect it like any other workspace file.
-// eslint-disable-next-line max-lines-per-function -- legacy; refactor in Phase 7
 async function handleAttachmentGet(ctx: FoundryCtx, args: z.infer<typeof attachmentGetArgs>) {
   const url = withAccount(ctx, `/attachment/${args.id}`)
   const dir = `.foundry/attachments/${args.id}`
-  const command = [
+  const command = buildAttachmentDownloadCmd(ctx, url, dir)
+  const r = await runCommand(ctx, command, 'attachmentGet', args, {
+    env: { TOKEN: ctx.sandboxToken }, toolUseId: ctx.toolUseId,
+  })
+  if (r.exitCode !== 0) return { error: r.stderr || r.stdout || 'attachment download failed' }
+  try { return JSON.parse(r.stdout.trim()) }
+  catch { return { error: `unexpected response: ${r.stdout.slice(0, 200)}` } }
+}
+
+function buildAttachmentDownloadCmd(ctx: FoundryCtx, url: string, dir: string): string {
+  return [
     'set -e',
     `mkdir -p ${esc(dir)}`,
     `cd ${esc(dir)}`,
-    // -OJ saves under the server's Content-Disposition filename.
-    // --remote-header-name ignores the URL's trailing segment.
     `curl -sfOJ --remote-header-name -H "Authorization: Bearer $TOKEN" "http://host.containers.internal:${ctx.config.port}${url}"`,
-    // Emit the saved filename as JSON.
     `NAME=$(ls -1 | head -n1)`,
     `printf '{"path":"%s/%s"}\\n' ${esc(dir)} "$NAME"`,
   ].join('\n')
-  const r = await runCommand(ctx,
-    command, 'attachmentGet', args, {
-      env:       { TOKEN: ctx.sandboxToken },
-      toolUseId: ctx.toolUseId,
-    })
-  if (r.exitCode !== 0) return { error: r.stderr || r.stdout || 'attachment download failed' }
-  try { return JSON.parse(r.stdout.trim()) } catch { return { error: `unexpected response: ${r.stdout.slice(0, 200)}` } }
 }
 
 // ── Tools ──

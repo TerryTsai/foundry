@@ -145,24 +145,18 @@ async function handleGoto(ctx: BrowserCtx, args: z.infer<typeof gotoArgs>) {
 }
 
 const screenshotArgs = z.object({})
-// eslint-disable-next-line max-lines-per-function -- legacy; refactor in Phase 7
+
 async function handleScreenshot(ctx: BrowserCtx, args: z.infer<typeof screenshotArgs>) {
-  // Capture the active page viewport via CDP. Format is JPEG, not PNG:
-  // chromium's headless PNG encoder has a content-dependent failure
-  // where some pages (e.g. Reddit-clone-style dark UIs with sticky
-  // headers and flex grids) cause Page.captureScreenshot to return an
-  // empty response every single time for that page. JPEG on the exact
-  // same content is 5/5 reliable. Quality 85 is visually lossless for
-  // UI-review screenshots. Viewport is fixed at 1280x800 via
-  // chromium's --window-size in BOOT — captureBeyondViewport is
-  // another known footgun that silently breaks the CDP connection.
+  // Capture viewport via CDP. JPEG, not PNG: chromium headless PNG can
+  // return empty for certain dark-UI pages; JPEG q85 is reliable.
   const path = `.foundry/screenshots/${ulid()}.jpg`
-  const body = [
+  return runBrowser(ctx, 'browserScreenshot', args, buildScreenshotBody(path))
+}
+
+function buildScreenshotBody(path: string): string {
+  return [
     `OUT=${esc(path)}`,
     `mkdir -p "$(dirname "$OUT")"`,
-    // document.readyState flips to 'complete' before the first paint
-    // in headless chromium, and a capture against that gap returns
-    // empty. 2x rAF + a short settle sleep make it deterministic.
     `EXPR='new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))'`,
     `${EVAL_EXPR} >/dev/null`,
     `sleep 0.5`,
@@ -170,14 +164,11 @@ async function handleScreenshot(ctx: BrowserCtx, args: z.infer<typeof screenshot
     `  | websocat -t -1 -B 16777216 "$WS" \\`,
     `  | jq -r '.result.data // (.error.message // "capture failed" | halt_error)' \\`,
     `  | base64 -d > "$OUT"`,
-    // Defensive: fail if the JPEG is empty or missing the magic bytes.
     `[ -s "$OUT" ] && head -c 3 "$OUT" | od -An -tx1 | tr -d ' \\n' | grep -q '^ffd8ff' \\`,
     `  || { echo "screenshot produced invalid JPEG" >&2; rm -f "$OUT"; exit 1; }`,
-    // Return {path, url, title} as JSON.
     `EXPR='JSON.stringify({url: location.href, title: document.title})'`,
     `${EVAL_EXPR} | jq --arg p "$OUT" '. + {path: $p}'`,
   ].join('\n')
-  return runBrowser(ctx, 'browserScreenshot', args, body)
 }
 
 const clickArgs = z.object({
@@ -185,33 +176,38 @@ const clickArgs = z.object({
   wait_navigation: z.boolean().optional().describe('Wait for a page navigation to complete after the click. Use when clicking a link or a form submit.'),
   timeout_ms:      z.number().int().min(500).max(30_000).optional(),
 })
-// eslint-disable-next-line max-lines-per-function -- legacy; refactor in Phase 7
 async function handleClick(ctx: BrowserCtx, args: z.infer<typeof clickArgs>) {
-  const clickJs = `
+  const clickJs = clickJsFor(args.selector)
+  const body = args.wait_navigation ? clickWithNavBody(clickJs) : clickSimpleBody(clickJs)
+  return runBrowser(ctx, 'browserClick', args, body)
+}
+
+function clickJsFor(selector: string): string {
+  return `
     (() => {
-      const el = document.querySelector(${JSON.stringify(args.selector)})
-      if (!el) throw new Error('selector not found: ' + ${JSON.stringify(args.selector)})
+      const el = document.querySelector(${JSON.stringify(selector)})
+      if (!el) throw new Error('selector not found: ' + ${JSON.stringify(selector)})
       el.click()
       return JSON.stringify({url: location.href, title: document.title})
     })()
   `.trim()
-  // If wait_navigation is set, poll readyState after the click.
-  const body = args.wait_navigation ? [
-    `EXPR=${esc(clickJs)}`,
-    `${EVAL_EXPR} >/dev/null`,
+}
+
+function clickWithNavBody(clickJs: string): string {
+  return [
+    `EXPR=${esc(clickJs)}`, `${EVAL_EXPR} >/dev/null`,
     `DEADLINE=$(( $(date +%s%3N) + 15000 ))`,
     `while [ "$(date +%s%3N)" -lt "$DEADLINE" ]; do`,
     `  EXPR='document.readyState'`,
     `  [ "$(${EVAL_EXPR})" = "complete" ] && break`,
-    `  sleep 0.2`,
-    `done`,
+    `  sleep 0.2`, `done`,
     `EXPR='JSON.stringify({url: location.href, title: document.title})'`,
     `${EVAL_EXPR}`,
-  ].join('\n') : [
-    `EXPR=${esc(clickJs)}`,
-    `${EVAL_EXPR}`,
   ].join('\n')
-  return runBrowser(ctx, 'browserClick', args, body)
+}
+
+function clickSimpleBody(clickJs: string): string {
+  return [`EXPR=${esc(clickJs)}`, `${EVAL_EXPR}`].join('\n')
 }
 
 const fillArgs = z.object({
@@ -263,8 +259,8 @@ async function handleText(ctx: BrowserCtx, args: z.infer<typeof textArgs>) {
 }
 
 const domArgs = z.object({})
-async function handleDom(ctx: BrowserCtx, args: z.infer<typeof domArgs>) {
-  const js = `
+
+const DOM_PICK_JS = `
     (() => {
       const pick = (el) => ({
         tag:  el.tagName.toLowerCase(),
@@ -279,10 +275,9 @@ async function handleDom(ctx: BrowserCtx, args: z.infer<typeof domArgs>) {
       return JSON.stringify({ elements: els.slice(0, 200).map(pick), url: location.href, title: document.title })
     })()
   `.trim()
-  const body = [
-    `EXPR=${esc(js)}`,
-    `${EVAL_EXPR}`,
-  ].join('\n')
+
+async function handleDom(ctx: BrowserCtx, args: z.infer<typeof domArgs>) {
+  const body = [`EXPR=${esc(DOM_PICK_JS)}`, `${EVAL_EXPR}`].join('\n')
   return runBrowser(ctx, 'browserDom', args, body)
 }
 

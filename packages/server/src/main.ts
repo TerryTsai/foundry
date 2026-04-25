@@ -77,7 +77,7 @@ import {
 // Build the Express app, wire every route, and return it together with the
 // db handle and constructed deps bags. Split out from boot() so tests
 // (and future programmatic callers) can drive the app without listening.
-// eslint-disable-next-line max-lines-per-function -- composition root; mirrors the linear wiring of service/server.ts
+// eslint-disable-next-line max-lines-per-function -- composition root; linear wiring of routes + middleware
 export function buildApp() {
   // Fail fast if FOUNDRY_ENCRYPTION_KEY is missing or malformed — better here
   // than on the first connection write.
@@ -227,9 +227,13 @@ function buildSandboxCrudOps(): SandboxCrudOps {
   }
 }
 
+// eslint-disable-next-line max-lines-per-function -- composition root callback bag; one line per cross-module function
 function buildReconcilerCrudOps(): ReconcilerCrudOps {
   return {
-    agentList:               (db, opts) => agentList(db, opts),
+    agentList:               (db, opts) => {
+      const r = agentList(db, opts)
+      return r.ok ? r.value : []
+    },
     projectsActive:          projectsActive,
     ticketAllByProject:      ticketAllByProject,
     ticketGetById:           ticketGetById,
@@ -261,6 +265,7 @@ function buildEngineCrudOps(): EngineCrudOps {
 // Cross-module callback bag for the engine. Built from concrete imports
 // here because the composition root is the only module allowed to wire
 // logic modules together.
+// eslint-disable-next-line max-lines-per-function -- composition root callback bag; one line per cross-module function
 function buildEngineDeps(
   engineCrud: EngineCrudOps, authCrud: AuthCrudOps, sandboxCrud: SandboxCrudOps,
 ): EngineDeps {
