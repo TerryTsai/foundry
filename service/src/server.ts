@@ -7,7 +7,7 @@ import { execSync } from 'child_process'
 import { config } from './core/config.js'
 import { createDatabase } from './core/db.js'
 import { errors } from './core/http.js'
-import { assertKeyConfigured } from './connections/secrets-crypto.js'
+import { assertKeyConfigured } from '@foundry/crud'
 
 import { authRoutes }       from './auth/routes.js'
 import { requireAuth }      from './auth/middleware.js'

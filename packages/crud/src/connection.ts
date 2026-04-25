@@ -1,32 +1,52 @@
 import { eq } from 'drizzle-orm'
 import type { z } from 'zod'
 
-import { type Db } from '../core/db.js'
-import * as database from '../core/db.js'
-import * as schema from '../core/schema.js'
-import type { Connection } from '../core/schema.js'
-import { mustExist, now, timestamps } from '../core/util.js'
-import { conflict, badRequest, notFound } from '../core/errors.js'
-import * as providers from '../integrations/registry.js'
-import * as validate from './schema.js'
-import { encryptSecret, decryptSecret } from '../connections/secrets-crypto.js'
+import { type Db } from '@foundry/db'
+import * as database from '@foundry/db'
+import * as schema from '@foundry/db'
+import type { Connection } from '@foundry/db'
+import { mustExist, now, timestamps } from '@foundry/model'
+import { conflict, badRequest, notFound } from '@foundry/model'
+import { connection as validate } from './validators.js'
+import { encryptSecret, decryptSecret } from './secrets-crypto.js'
 
 // Masked shape returned by the API — secrets are never serialized directly.
 // A preview of the first password field is shown so the UI can help operators
 // confirm they're looking at the right credential.
 export type MaskedConnection = Omit<Connection, 'secrets'> & { api_key_preview: string | null }
 
+// Provider lookup is injected by the caller to keep the connection module
+// free of cross-module imports. The route handler in server passes
+// integrations.providerGet; callers that don't need kind validation can
+// pass () => undefined and skip the validate step (input still gets a
+// generic shape check).
+export interface ConnectionProviderField {
+  key:      string
+  label:    string
+  type?:    string
+  required?: boolean
+}
+export interface ConnectionProviderSpec {
+  kind:        string
+  name:        string
+  credentials: ConnectionProviderField[]
+  validate?:   (secrets: Record<string, unknown>, config: Record<string, unknown>) => string | null
+}
+export type ProviderGet      = (kind: string) => ConnectionProviderSpec | undefined
+export type SupportedKindsFn = () => string[]
+
 function maskKey(key: string): string {
   if (key.length <= 8) return '****'
   return key.slice(0, 4) + '...' + key.slice(-4)
 }
 
-function maskConnection(c: Connection): MaskedConnection {
+// eslint-disable-next-line max-lines-per-function -- legacy; refactor in Phase 7
+function maskConnection(c: Connection, providerGet: ProviderGet): MaskedConnection {
   const { secrets, ...rest } = c
   let preview: string | null = null
   try {
     const parsed = JSON.parse(decryptSecret(secrets)) as Record<string, unknown>
-    const provider = providers.providerGet(c.kind)
+    const provider = providerGet(c.kind)
     const passwordKeys = provider
       ? provider.credentials.filter(f => f.type === 'password').map(f => f.key)
       : ['api_key']
@@ -38,20 +58,26 @@ function maskConnection(c: Connection): MaskedConnection {
   return { ...rest, api_key_preview: preview }
 }
 
-export function connectionList(db: Db, accountId: string): MaskedConnection[] {
-  return database.connectionAll(db, [eq(schema.connection.account_id, accountId)]).map(maskConnection)
+export function connectionList(db: Db, accountId: string, providerGet: ProviderGet): MaskedConnection[] {
+  return database.connectionAll(db, [eq(schema.connection.account_id, accountId)]).map(c => maskConnection(c, providerGet))
 }
 
-export function connectionGet(db: Db, accountId: string, id: string): MaskedConnection {
+export function connectionGet(db: Db, accountId: string, id: string, providerGet: ProviderGet): MaskedConnection {
   const row = mustExist(database.connectionGet(db, id), `connection '${id}' not found`)
   if (row.account_id !== accountId) throw notFound()
-  return maskConnection(row)
+  return maskConnection(row, providerGet)
 }
 
-export function connectionCreate(db: Db, accountId: string, input: z.infer<typeof validate.connectionCreate>): MaskedConnection {
-  const provider = providers.providerGet(input.kind)
+// eslint-disable-next-line max-lines-per-function -- legacy; refactor in Phase 7
+export function connectionCreate(
+  db: Db, accountId: string,
+  input: z.infer<typeof validate.create>,
+  providerGet: ProviderGet,
+  supportedKinds: SupportedKindsFn,
+): MaskedConnection {
+  const provider = providerGet(input.kind)
   if (!provider) {
-    throw badRequest(`unsupported connection kind '${input.kind}' — supported: ${providers.supportedKinds().join(', ')}`)
+    throw badRequest(`unsupported connection kind '${input.kind}' — supported: ${supportedKinds().join(', ')}`)
   }
   if (database.connectionGetByName(db, input.name)) throw conflict(`connection '${input.name}' already exists`)
 
@@ -77,17 +103,21 @@ export function connectionCreate(db: Db, accountId: string, input: z.infer<typeo
     secrets:    encryptSecret(JSON.stringify(secrets)),
     ...timestamps(),
   })
-  return maskConnection(row)
+  return maskConnection(row, providerGet)
 }
 
-export function connectionUpdate(db: Db, accountId: string, id: string, input: z.infer<typeof validate.connectionUpdate>): MaskedConnection {
+export function connectionUpdate(
+  db: Db, accountId: string, id: string,
+  input: z.infer<typeof validate.update>,
+  providerGet: ProviderGet,
+): MaskedConnection {
   const row = mustExist(database.connectionGet(db, id), `connection '${id}' not found`)
   if (row.account_id !== accountId) throw notFound()
   const data: Record<string, unknown> = { updated_at: now() }
   if (input.name    !== undefined) data.name    = input.name
   if (input.config  !== undefined) data.config  = JSON.stringify(input.config)
   if (input.secrets !== undefined) data.secrets = encryptSecret(JSON.stringify(input.secrets))
-  return maskConnection(database.connectionUpdate(db, id, data))
+  return maskConnection(database.connectionUpdate(db, id, data), providerGet)
 }
 
 export function connectionRemove(db: Db, accountId: string, id: string): { ok: true } {

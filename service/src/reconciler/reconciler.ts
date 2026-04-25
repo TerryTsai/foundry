@@ -13,7 +13,7 @@ import { type Db } from '../core/db.js'
 import * as database from '../core/db.js'
 import * as schema from '../core/schema.js'
 import { now } from '../core/util.js'
-import { agentList } from '../agents/service.js'
+import { agentList } from '@foundry/crud'
 
 import { dispatchProducer }         from './policies/dispatch-producer.js'
 import { settleRunning }            from './policies/settle-running.js'

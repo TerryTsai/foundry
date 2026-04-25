@@ -5,7 +5,7 @@
 // the initial context cheap regardless of how many files are attached.
 
 import * as database from '../../../core/db.js'
-import { attachmentListByTicketInternal } from '../../../attachments/service.js'
+import { attachmentListByTicketInternal } from '@foundry/crud'
 import { now } from '../../../core/util.js'
 import type { Ticket } from '../../../core/schema.js'
 import type { Middleware } from './compose.js'

@@ -21,7 +21,7 @@ export interface ConnCtx {
 }
 
 import type { Connection } from '../core/schema.js'
-import { decryptSecret } from '../connections/secrets-crypto.js'
+import { decryptSecret } from '@foundry/crud'
 
 export function parseConn(conn: Connection): { secrets: Record<string, string>; connConfig: Record<string, unknown> } {
   let secrets:    Record<string, string>  = {}

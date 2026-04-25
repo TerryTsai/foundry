@@ -1,11 +1,11 @@
-import { type Db } from '../core/db.js'
-import * as database from '../core/db.js'
-import * as schema from '../core/schema.js'
-import type { Activity, Session } from '../core/schema.js'
-import { mustExist, assertStatus, now } from '../core/util.js'
-import { notFound } from '../core/errors.js'
-import { sessionOwned, ticketOwned } from '../projects/service.js'
-import { eq, inArray } from 'drizzle-orm'
+import { eq } from 'drizzle-orm'
+
+import { type Db } from '@foundry/db'
+import * as database from '@foundry/db'
+import * as schema from '@foundry/db'
+import type { Activity } from '@foundry/db'
+import { mustExist, assertStatus, now } from '@foundry/model'
+import { sessionOwned, ticketOwned } from './project.js'
 
 export function sessionGet(db: Db, accountId: string, id: string) {
   sessionOwned(db, id, accountId)
@@ -48,6 +48,7 @@ export function sessionActivities(db: Db, accountId: string, sessionId: string):
 
 // Internal — runtime emits activity rows for sessions it just dispatched.
 // No HTTP boundary, no ownership check; trust the caller.
+// eslint-disable-next-line max-lines-per-function -- legacy; refactor in Phase 7
 export function activityCreate(db: Db, input: {
   session_id:   string
   turn_id?:     string | null

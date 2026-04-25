@@ -16,6 +16,7 @@
     "@anthropic-ai/claude-agent-sdk": "^0.2.98",
     "@foundry/analytics": "*",
     "@foundry/client": "*",
+    "@foundry/crud": "*",
     "@foundry/db": "*",
     "@foundry/model": "*",
     "ai": "^5.0.80",

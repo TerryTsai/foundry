@@ -3,7 +3,9 @@ import type { Request, Response } from 'express'
 import type { Db } from '../core/db.js'
 import { run, send } from '../core/http.js'
 import { accountId } from '../core/account-id.js'
-import { attachmentGetBytes, attachmentCreate, attachmentListByTicket, attachmentListByComment } from './service.js'
+import {
+  attachmentGetBytes, attachmentCreate, attachmentListByTicket, attachmentListByComment,
+} from '@foundry/crud'
 
 export function attachmentRoutes(db: Db) {
   const r = Router()

@@ -7,7 +7,7 @@ import * as database from '../../../core/db.js'
 import type { Agent as AgentDef } from '../../../core/schema.js'
 import { mustExist } from '../../../core/util.js'
 import { badRequest } from '../../../core/errors.js'
-import { decryptSecret } from '../../../connections/secrets-crypto.js'
+import { decryptSecret } from '@foundry/crud'
 
 // Model factory table — one entry per provider kind that can serve as an
 // LLM. The Claude Agent SDK path (kind 'anthropic-subscription') bypasses

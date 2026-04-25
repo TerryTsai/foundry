@@ -20,6 +20,7 @@ const KEY_LEN    = 32   // AES-256
 
 let cachedKey: Buffer | null = null
 
+// eslint-disable-next-line max-lines-per-function -- legacy; refactor in Phase 7
 function loadKey(): Buffer {
   if (cachedKey) return cachedKey
   const raw = process.env.FOUNDRY_ENCRYPTION_KEY

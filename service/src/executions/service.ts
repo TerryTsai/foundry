@@ -11,7 +11,7 @@ import { scrubSecrets } from '../integrations/shared.js'
 import {
   ensureSessionContainer, execInContainer, stopSessionContainer, type ExecHandle,
 } from '../reconciler/session/sandbox/podman.js'
-import { executionOwned, sessionOwned } from '../projects/service.js'
+import { executionOwned, sessionOwned } from '@foundry/crud'
 import * as schema from '../core/schema.js'
 
 // Track live exec handles so we can kill in-flight commands on ticket

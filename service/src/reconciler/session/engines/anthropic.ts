@@ -14,7 +14,7 @@ import * as database from '../../../core/db.js'
 import type { Connection } from '../../../core/schema.js'
 import { asText, isMcpEnvelope, parseConn, toolUseId } from '../../../integrations/shared.js'
 import { now, mustExist } from '../../../core/util.js'
-import { encryptSecret, decryptSecret } from '../../../connections/secrets-crypto.js'
+import { encryptSecret, decryptSecret } from '@foundry/crud'
 
 import type { SessionContext, LoopResult } from '../pipeline/compose.js'
 import { filterTools, parseToolSelection } from '../tools/registry.js'

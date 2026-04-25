@@ -1,16 +1,15 @@
 import type { z } from 'zod'
+import { eq, inArray } from 'drizzle-orm'
 
-import { type Db } from '../core/db.js'
-import * as database from '../core/db.js'
-import * as schema from '../core/schema.js'
-import type { Ticket, Comment } from '../core/schema.js'
-import type { VerdictRow } from '../core/db.js'
-import { mustExist, pick, now, timestamps } from '../core/util.js'
-import { conflict, notFound } from '../core/errors.js'
-import * as validate from './schema.js'
-import { eq, and, inArray } from 'drizzle-orm'
-import { assertProjectOwner, ticketOwned } from '../projects/service.js'
-import { killRunningExecutionsForTicket } from '../executions/service.js'
+import { type Db } from '@foundry/db'
+import * as database from '@foundry/db'
+import * as schema from '@foundry/db'
+import type { Ticket, Comment } from '@foundry/db'
+import type { VerdictRow } from '@foundry/db'
+import { mustExist, pick, now, timestamps } from '@foundry/model'
+import { conflict } from '@foundry/model'
+import { ticket as validate } from './validators.js'
+import { assertProjectOwner, ticketOwned } from './project.js'
 
 export interface DependencyChainEntry {
   id: string; title: string; description: string
@@ -25,7 +24,8 @@ function ownedProjectIds(db: Db, accountId: string): string[] {
   return database.projectAll(db, [eq(schema.project.owner_id, accountId)]).map(p => p.id)
 }
 
-export function ticketList(db: Db, accountId: string, filters: z.infer<typeof validate.ticketList>): Ticket[] {
+// eslint-disable-next-line max-lines-per-function -- legacy; refactor in Phase 7
+export function ticketList(db: Db, accountId: string, filters: z.infer<typeof validate.list>): Ticket[] {
   const owned = ownedProjectIds(db, accountId)
   if (owned.length === 0) return []
   // If the caller scoped by projectId, verify they own it; otherwise
@@ -47,7 +47,8 @@ export function ticketGet(db: Db, accountId: string, id: string): Ticket {
   return ticketOwned(db, id, accountId)
 }
 
-export function ticketCreate(db: Db, accountId: string, input: z.infer<typeof validate.ticketCreate>): Ticket {
+// eslint-disable-next-line max-lines-per-function -- legacy; refactor in Phase 7
+export function ticketCreate(db: Db, accountId: string, input: z.infer<typeof validate.create>): Ticket {
   const { project_id, agent_id, title, description, depends_on, created_by } = input
   // Caller must own the target project.
   assertProjectOwner(db, project_id, accountId)
@@ -71,7 +72,7 @@ export function ticketCreate(db: Db, accountId: string, input: z.infer<typeof va
   return row
 }
 
-export function ticketUpdate(db: Db, accountId: string, id: string, input: z.infer<typeof validate.ticketUpdate>): Ticket {
+export function ticketUpdate(db: Db, accountId: string, id: string, input: z.infer<typeof validate.update>): Ticket {
   const t = ticketOwned(db, id, accountId)
   if (t.status !== 'created') throw conflict('ticket can only be edited while in created state')
   if (input.title !== undefined || input.description !== undefined) {
@@ -81,6 +82,9 @@ export function ticketUpdate(db: Db, accountId: string, id: string, input: z.inf
   return database.ticketUpdate(db, id, { ...pick(input, 'title', 'description', 'agent_id'), updated_at: now() })
 }
 
+// ticketCancel previously called killRunningExecutionsForTicket() to tear
+// down sandbox executions. That's a cross-module call (executions →
+// sandbox); the route handler now invokes it after this returns.
 export function ticketCancel(db: Db, accountId: string, id: string): Ticket {
   const t = ticketOwned(db, id, accountId)
   if (t.status === 'finished' || t.status === 'cancelled') {
@@ -93,15 +97,10 @@ export function ticketCancel(db: Db, accountId: string, id: string): Ticket {
     data: JSON.stringify({ from: t.status, to: 'cancelled' }),
     caused_by: 'founder',
   })
-  // Kill any in-flight sandbox executions so the SDK's current tool
-  // call returns immediately — shouldStop() then breaks the session
-  // loop on the next iteration. Without this the session keeps waiting
-  // on whatever tool was mid-flight (e.g. a long `run`) until it
-  // finishes naturally.
-  killRunningExecutionsForTicket(db, id)
   return mustExist(database.ticketGet(db, id))
 }
 
+// eslint-disable-next-line max-lines-per-function -- legacy; refactor in Phase 7
 export function ticketDependencyChain(db: Db, accountId: string, id: string): DependencyChainEntry[] {
   // Anchor must be owned; we then walk the chain. A dep chain may legally
   // cross projects, but every step is checked against the same owner.
@@ -128,6 +127,7 @@ export function ticketDependencyChain(db: Db, accountId: string, id: string): De
   }))
 }
 
+// eslint-disable-next-line max-lines-per-function -- legacy; refactor in Phase 7
 export function ticketPriorHistory(db: Db, ticketId: string, sessionId: string, agentName: string): string {
   const NOISE = new Set(['Session started', 'Session started (SDK)', 'Session finished', 'Session failed', 'Session cancelled', 'Session crashed'])
   const comments = database.commentByTicket(db, ticketId)

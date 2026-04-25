@@ -2,16 +2,26 @@ import { Router } from 'express'
 import type { Db } from '../core/db.js'
 import { parse, run, send } from '../core/http.js'
 import { accountId } from '../core/account-id.js'
-import * as validate from './schema.js'
-import { projectList, projectGet, projectCreate, projectUpdate, projectRun, projectTagList } from './service.js'
+import {
+  validate,
+  projectList, projectGet, projectCreate, projectUpdate, projectRun, projectTagList,
+} from '@foundry/crud'
+import { reconcilerTick } from '../reconciler/reconciler.js'
 
 export function projectRoutes(db: Db) {
   const r = Router()
-  r.get   ('/',         parse(validate.projectList, 'query'), run(req => projectList(db, accountId(req), req.data)),                       send())
-  r.post  ('/',         parse(validate.projectCreate),        run(req => projectCreate(db, accountId(req), req.data)),                     send(201))
-  r.get   ('/:id',                                            run(req => projectGet(db, accountId(req), req.params.id)),                   send())
-  r.put   ('/:id',      parse(validate.projectUpdate),        run(req => projectUpdate(db, accountId(req), req.params.id, req.data)),      send())
-  r.get   ('/:id/tags',                                       run(req => projectTagList(db, accountId(req), req.params.id)),               send())
-  r.post  ('/:id/run',                                        run(req => projectRun(db, accountId(req), req.params.id)),                   send(202))
+  r.get   ('/',         parse(validate.project.list, 'query'), run(req => projectList(db, accountId(req), req.data)),                       send())
+  r.post  ('/',         parse(validate.project.create),        run(req => projectCreate(db, accountId(req), req.data)),                     send(201))
+  r.get   ('/:id',                                             run(req => projectGet(db, accountId(req), req.params.id)),                   send())
+  r.put   ('/:id',      parse(validate.project.update),        run(req => projectUpdate(db, accountId(req), req.params.id, req.data)),      send())
+  r.get   ('/:id/tags',                                        run(req => projectTagList(db, accountId(req), req.params.id)),               send())
+  // projectRun used to trigger reconcilerTick from inside the service. The
+  // crud module is now reconciler-agnostic, so the route handler invokes
+  // the tick directly after a successful run.
+  r.post  ('/:id/run',                                         run(req => {
+    const result = projectRun(db, accountId(req), req.params.id)
+    reconcilerTick(db).catch((err: unknown) => console.error('reconciler error:', err))
+    return result
+  }), send(202))
   return r
 }

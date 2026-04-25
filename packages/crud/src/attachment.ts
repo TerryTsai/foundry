@@ -1,12 +1,12 @@
 import { ulid } from 'ulid'
 import { eq } from 'drizzle-orm'
-import { type Db } from '../core/db.js'
-import * as database from '../core/db.js'
-import * as schema from '../core/schema.js'
-import type { Attachment } from '../core/schema.js'
-import { now } from '../core/util.js'
-import { notFound, conflict } from '../core/errors.js'
-import { ticketOwned, assertProjectOwner } from '../projects/service.js'
+import { type Db } from '@foundry/db'
+import * as database from '@foundry/db'
+import * as schema from '@foundry/db'
+import type { Attachment } from '@foundry/db'
+import { now } from '@foundry/model'
+import { notFound, conflict } from '@foundry/model'
+import { ticketOwned, assertProjectOwner } from './project.js'
 
 // Attachment policy. Keep the list tight — only what Claude supports
 // natively so the model can actually read the content instead of
@@ -38,6 +38,7 @@ function toMeta(a: Attachment): AttachmentMeta {
 
 // ── Create ──────────────────────────────────────────────────────────
 
+// eslint-disable-next-line max-lines-per-function -- legacy; refactor in Phase 7
 export function attachmentCreate(
   db: Db, accountId: string,
   input: { ticket_id?: string; comment_id?: string; name: string; mime: string; bytes: Buffer; created_by: string },
@@ -119,6 +120,7 @@ export function attachmentListByComment(db: Db, accountId: string, commentId: st
 
 // ── Read (bytes) ────────────────────────────────────────────────────
 
+// eslint-disable-next-line max-lines-per-function -- legacy; refactor in Phase 7
 export function attachmentGetBytes(
   db: Db, accountId: string, id: string,
 ): { mime: string; name: string; bytes: Buffer } {
