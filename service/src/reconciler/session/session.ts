@@ -7,7 +7,7 @@ import * as database from '../../core/db.js'
 import type { Config } from '../../core/config.js'
 import type { Agent, Ticket } from '../../core/schema.js'
 
-import * as sessionJwt from '../../auth/session-jwt.js'
+import { sessionJwt } from '@foundry/auth'
 
 import { compose, type SessionContext } from './pipeline/compose.js'
 import { withBookkeeping }          from './pipeline/bookkeeping.js'

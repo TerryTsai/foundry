@@ -10,8 +10,7 @@ import { errors } from './core/http.js'
 import { assertKeyConfigured } from '@foundry/crud'
 
 import { authRoutes }       from './auth/routes.js'
-import { requireAuth }      from './auth/middleware.js'
-import { rateLimit }        from './auth/ratelimit.js'
+import { requireAuth, rateLimit } from '@foundry/auth'
 
 import { projectRoutes }    from './projects/routes.js'
 import { connectionRoutes } from './connections/routes.js'

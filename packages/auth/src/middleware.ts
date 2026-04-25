@@ -1,9 +1,21 @@
 import type { Request, Response, NextFunction, RequestHandler } from 'express'
-import { unauthorized } from '../core/errors.js'
-import * as database from '../core/db.js'
-import type { Db } from '../core/db.js'
-import type { Config } from '../core/config.js'
+import { unauthorized } from '@foundry/model'
+import * as database from '@foundry/db'
+import type { Db, Account } from '@foundry/db'
+import type { AuthConfig } from './types.js'
 import * as sessionJwt from './session-jwt.js'
+
+// Express request augmentation: requireAuth attaches the resolved Account to
+// req.account so downstream handlers can read it directly. Declared here
+// (the module that owns the middleware) so consumers don't need their own
+// ambient declaration.
+declare global {
+  namespace Express {
+    interface Request {
+      account?: Account
+    }
+  }
+}
 
 // ── Cookies ──
 // Tiny parser/serializer; one cookie helper is cheaper than a dependency.
@@ -44,7 +56,8 @@ export function serializeCookie(name: string, value: string, opts: {
 //      project. The legacy global INTERNAL_API_TOKEN path is no longer
 //      accepted; bearer requests must present a live sandbox JWT.
 
-export const requireAuth = (db: Db, _config: Config): RequestHandler =>
+// eslint-disable-next-line max-lines-per-function -- legacy; refactor in Phase 7
+export const requireAuth = (db: Db, _config: AuthConfig): RequestHandler =>
   (req: Request, _res: Response, next: NextFunction) => {
     const authHeader = req.headers.authorization
     if (authHeader?.startsWith('Bearer ')) {

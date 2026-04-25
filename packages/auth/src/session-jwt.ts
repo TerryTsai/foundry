@@ -1,8 +1,8 @@
 import { createHmac, timingSafeEqual } from 'crypto'
 
-import { type Db } from '../core/db.js'
-import * as database from '../core/db.js'
-import { mustExist } from '../core/util.js'
+import { type Db } from '@foundry/db'
+import * as database from '@foundry/db'
+import { mustExist } from '@foundry/model'
 
 // Per-session sandbox auth — stateless HMAC-SHA256 JWT.
 //

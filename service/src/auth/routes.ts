@@ -2,9 +2,13 @@ import { Router, type Request } from 'express'
 import type { Db } from '../core/db.js'
 import type { Config } from '../core/config.js'
 import { parse } from '../core/http.js'
-import { authStart, authCallback, authMe, authLogout, AUTH_STATE_TTL_SEC } from './service.js'
-import { parseCookie, serializeCookie, requireAuth } from './middleware.js'
-import * as validate from './schema.js'
+import {
+  authStart, authCallback, authMe, authLogout, AUTH_STATE_TTL_SEC,
+  parseCookie, serializeCookie, requireAuth,
+  validate,
+  type GithubOAuthDeps,
+} from '@foundry/auth'
+import { github } from '@foundry/mcp'
 
 // Build the user-facing base URL from the incoming request. Honours
 // X-Forwarded-* headers so a reverse proxy in front of the service still
@@ -19,12 +23,25 @@ function requestBaseUrl(req: Request): string {
   return `${proto}://${host}`
 }
 
+// eslint-disable-next-line max-lines-per-function -- legacy; refactor in Phase 7
 export function authRoutes(db: Db, config: Config) {
   const r = Router()
 
+  // Inject the GitHub OAuth helpers from @foundry/mcp into the auth
+  // module. auth is a logic module; the manifest check forbids it from
+  // importing @foundry/mcp directly. Thin closures adapt the signatures —
+  // auth passes AuthConfig; the underlying mcp helpers want McpConfig.
+  // The full service Config satisfies both structurally; the closures
+  // bridge the type aliases.
+  const githubDeps: GithubOAuthDeps = {
+    oauthAuthorizeUrl: (_authConfig, baseUrl, state) => github.oauthAuthorizeUrl(config, baseUrl, state),
+    oauthExchangeCode: (_authConfig, code)           => github.oauthExchangeCode(config, code),
+    fetchUser:         (token)                       => github.fetchUser(token),
+  }
+
   // Begin OAuth: stash a random `state` in a short-lived cookie, redirect to GitHub.
   r.get('/github', (req, res) => {
-    const { url, state } = authStart(config, requestBaseUrl(req))
+    const { url, state } = authStart(config, requestBaseUrl(req), githubDeps)
     res.setHeader('Set-Cookie', serializeCookie('oauth_state', state, {
       maxAge: AUTH_STATE_TTL_SEC, secure: config.cookieSecure, sameSite: 'Lax',
     }))
@@ -35,7 +52,7 @@ export function authRoutes(db: Db, config: Config) {
   r.get('/github/callback', parse(validate.authCallback, 'query'), async (req, res, next) => {
     try {
       const stateCookie = parseCookie(req.headers.cookie, 'oauth_state')
-      const { sessionId, expiresAt } = await authCallback(db, config, req.data, stateCookie)
+      const { sessionId, expiresAt } = await authCallback(db, config, req.data, stateCookie, githubDeps)
       const maxAge = Math.floor((expiresAt.getTime() - Date.now()) / 1000)
       res.setHeader('Set-Cookie', [
         serializeCookie('oauth_state', '', { maxAge: 0, secure: config.cookieSecure, sameSite: 'Lax' }),

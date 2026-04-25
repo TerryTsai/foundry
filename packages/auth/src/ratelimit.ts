@@ -1,5 +1,5 @@
 import type { Request, RequestHandler } from 'express'
-import { appError } from '../core/errors.js'
+import { appError } from '@foundry/model'
 
 // Tiny in-memory rate limiter. Key = bucket name + custom key (default
 // req.ip). One Map per limiter instance; pruned lazily on access.
