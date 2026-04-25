@@ -31,6 +31,8 @@ import {
   filterTools, parseToolSelection, byConnectionKind,
   foundryServer, githubServer, sandboxServer, browserServer,
   workspaceEmpty, workspaceDestroy,
+  providerGet, supportedKinds,
+  github as githubProvider,
 } from '@foundry/mcp'
 import {
   executionCreate as sandboxExecutionCreate,
@@ -41,7 +43,16 @@ import {
 import {
   agentList,
   encryptSecret, decryptSecret, attachmentListByTicketInternal,
+  executionOwned, sessionOwned,
 } from '@foundry/crud'
+
+import {
+  createInProcessClient,
+  createAuthAdapter, createBillingAdapter, createCrudAdapter,
+  createAnalyticsAdapter, createSandboxAdapter, createMcpAdapter,
+  createEngineAdapter, createReconcilerAdapter,
+  type Client,
+} from '@foundry/client'
 
 // Build the Express app, wire every route, and return it together with the
 // db handle and constructed deps bags. Split out from boot() so tests
@@ -127,7 +138,33 @@ export function buildApp() {
   app.use(errors)
 
   const reconcilerDeps = buildReconcilerDeps()
-  return { app, db, reconcilerDeps }
+  const client         = buildClient(db, reconcilerDeps.engine.engineDeps)
+  return { app, db, reconcilerDeps, client }
+}
+
+// Composition root: assemble the typed cross-module Client from the
+// in-process adapters. Routes don't use this yet — the next sweep wires
+// each handler to bind(client, ctx). For now it's available so the
+// shape compiles end-to-end.
+function buildClient(db: Db, engineDeps: EngineDeps): Client {
+  // Bridge AuthConfig (what auth's GithubOAuthDeps wants) → McpConfig (what
+  // the github provider helpers expect). The full service Config satisfies
+  // both structurally; the closures here just adapt the type aliases.
+  const githubDeps = {
+    oauthAuthorizeUrl: (_c: unknown, baseUrl: string, state: string) => githubProvider.oauthAuthorizeUrl(config, baseUrl, state),
+    oauthExchangeCode: (_c: unknown, code: string)                   => githubProvider.oauthExchangeCode(config, code),
+    fetchUser:         (token: string)                               => githubProvider.fetchUser(token),
+  }
+  return createInProcessClient({
+    auth:       createAuthAdapter({ db, config, githubDeps }),
+    billing:    createBillingAdapter(),
+    crud:       createCrudAdapter({ db, providerGet, supportedKinds }),
+    analytics:  createAnalyticsAdapter({ db }),
+    sandbox:    createSandboxAdapter({ db, config, executionOwned, sessionOwned }),
+    mcp:        createMcpAdapter({ db }),
+    engine:     createEngineAdapter({ db, config, engineDeps }),
+    reconciler: createReconcilerAdapter(),
+  })
 }
 
 // Cross-module callback bag for the engine. Built from concrete imports

@@ -10,6 +10,15 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@foundry/model": "*"
+    "@foundry/model": "*",
+    "@foundry/db": "*",
+    "@foundry/auth": "*",
+    "@foundry/billing": "*",
+    "@foundry/crud": "*",
+    "@foundry/analytics": "*",
+    "@foundry/sandbox": "*",
+    "@foundry/mcp": "*",
+    "@foundry/engine": "*",
+    "@foundry/reconciler": "*"
   }
 }

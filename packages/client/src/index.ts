@@ -19,3 +19,20 @@ export type { InProcessAdapters } from './adapters/in-process.js'
 
 export { createHttpAdapter } from './adapters/http.js'
 export type { HttpAdapterConfig } from './adapters/http.js'
+
+// In-process module adapters. Composition root constructs each one with
+// its dependency bag and assembles the full Client via createInProcessClient.
+export { createAuthAdapter }       from './adapters/auth-inprocess.js'
+export type { AuthAdapterDeps }    from './adapters/auth-inprocess.js'
+export { createBillingAdapter }    from './adapters/billing-inprocess.js'
+export { createCrudAdapter }       from './adapters/crud-inprocess.js'
+export type { CrudAdapterDeps }    from './adapters/crud-inprocess.js'
+export { createAnalyticsAdapter }  from './adapters/analytics-inprocess.js'
+export type { AnalyticsAdapterDeps } from './adapters/analytics-inprocess.js'
+export { createSandboxAdapter }    from './adapters/sandbox-inprocess.js'
+export type { SandboxAdapterDeps } from './adapters/sandbox-inprocess.js'
+export { createMcpAdapter }        from './adapters/mcp-inprocess.js'
+export type { McpAdapterDeps }     from './adapters/mcp-inprocess.js'
+export { createEngineAdapter }     from './adapters/engine-inprocess.js'
+export type { EngineAdapterDeps }  from './adapters/engine-inprocess.js'
+export { createReconcilerAdapter } from './adapters/reconciler-inprocess.js'
