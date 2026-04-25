@@ -223,12 +223,16 @@ packages/
 
 ## The cardinal rule: no cross-module imports
 
-> A module may import only from `@foundry/model`, `@foundry/client`, and its own dependencies. It may not import from any other module's package.
+> A logic module may import only from `@foundry/model`, `@foundry/client`, `@foundry/db`, and its own external dependencies. It may not import from any other logic module's package.
+
+The eight logic modules: `auth`, `billing`, `crud`, `analytics`, `sandbox`, `mcp`, `engine`, `reconciler`.
+
+The three infrastructure modules — `model`, `client`, `db` — are freely importable by any module. They are foundations: shared types, transport plumbing, persistence handles. None of them contain domain logic.
 
 Exceptions:
-- `server` is the composition root. It imports logic-module implementations directly to wire them. No other module gets this exemption.
+- `server` is the composition root. It imports logic-module implementations directly to wire them and build the in-process `Client`. No other module gets this exemption.
 
-This rule is what makes "fork out on demand" possible. The moment you let `crud` import from `analytics` directly, you've tied their lifecycles together and the seam is gone.
+This rule is what makes "fork out on demand" possible. The moment you let `crud` import from `analytics` directly, you've tied their lifecycles together and the seam is gone. Cross-module work flows through `client` (typed function calls) or via callback parameters supplied by the composition root — never through direct imports.
 
 ### Enforcement (mechanical, not discipline-based)
 
@@ -443,6 +447,22 @@ Promotion rule: a type goes in `model` only when at least two modules need it. S
 - Post-fork-out: that module's client surface is now an inter-service contract. Standard API evolution rules — additive only, no field removals, no required-arg additions, no semantic changes. Use `kind` discriminators to extend error unions safely.
 
 Don't pay this cost until you actually fork something out.
+
+## Cross-module callback bridges
+
+Some logic modules need functions that live in other logic modules — for example, `auth` needs the github OAuth helpers in `mcp`, `sandbox` needs ownership checks from `crud`, `engine` needs many things from `mcp`/`sandbox`/`crud`. The cardinal rule forbids the direct import.
+
+The pattern: each module declares a callback-interface type for what it needs (`GithubOAuthDeps`, `IsExecutionOwned`, `EngineDeps`), takes that interface as a parameter on its functions or a deps bundle on init, and the composition root in `@foundry/server` injects the actual function references at boot.
+
+Example: `engine.runSession(db, config, deps, ...)` where `deps: EngineDeps` carries `auth.sessionJwtMint`, `mcp.foundryServer`, `sandbox.executionCreate`, `crud.encryptSecret`, etc. Engine doesn't know which logic module those came from; it sees only the function shapes it declares.
+
+## Grandfathered legacy code
+
+Code migrated during Phase 4 retains the throw-AppError pattern internally, with `Result<T, E>` exposed at the client surface via adapter wrapping in `@foundry/client/src/adapters/`. Internal Result conversion is a future cleanup pass.
+
+Logic modules currently run at 30-line / depth-3 ESLint settings (relaxed from the architecture target of 10/2) to accommodate inherited large functions. New-code packages — `model`, `client`, `billing` — already enforce the strict 10/2 target.
+
+Functions that exceed the target carry `// eslint-disable-next-line max-lines-per-function -- legacy; refactor in Phase 7+` comments. Adding such a disable to NEW code is a code-review red flag.
 
 ## Ground rules summary
 
