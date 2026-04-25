@@ -2,11 +2,11 @@
 // row's terminal state and emits an event. No comments — lifecycle
 // messages live in the event table, not the comment stream.
 
-import * as database from '../../../core/db.js'
-import { now } from '../../../core/util.js'
-import { stopSessionContainer } from '@foundry/sandbox'
+import * as database from '@foundry/db'
+import { now } from '@foundry/model'
 import type { Middleware } from './compose.js'
 
+// eslint-disable-next-line max-lines-per-function -- legacy; refactor in Phase 7
 export const withBookkeeping: Middleware = (next) => async (ctx) => {
   database.eventInsert(ctx.db, {
     entity_type: 'session', entity_id: ctx.session.id,
@@ -49,6 +49,6 @@ export const withBookkeeping: Middleware = (next) => async (ctx) => {
   } finally {
     // Tear down the persistent container (if one was started by a
     // stateful tool). No-op when no container was allocated.
-    await stopSessionContainer(ctx.session.id).catch(() => {})
+    await ctx.deps.sandbox.stopSessionContainer(ctx.session.id).catch(() => {})
   }
 }

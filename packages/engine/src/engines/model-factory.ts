@@ -2,12 +2,12 @@ import { createAnthropic } from '@ai-sdk/anthropic'
 import { createOpenAI } from '@ai-sdk/openai'
 import { wrapLanguageModel, defaultSettingsMiddleware } from 'ai'
 
-import { type Db } from '../../../core/db.js'
-import * as database from '../../../core/db.js'
-import type { Agent as AgentDef } from '../../../core/schema.js'
-import { mustExist } from '../../../core/util.js'
-import { badRequest } from '../../../core/errors.js'
-import { decryptSecret } from '@foundry/crud'
+import { type Db } from '@foundry/db'
+import * as database from '@foundry/db'
+import type { Agent } from '@foundry/db'
+import { mustExist, badRequest } from '@foundry/model'
+
+import type { EngineDeps } from '../types.js'
 
 // Model factory table — one entry per provider kind that can serve as an
 // LLM. The Claude Agent SDK path (kind 'anthropic-subscription') bypasses
@@ -26,9 +26,9 @@ export const modelFactoryByKind: Record<string, ModelFactory | undefined> = {
   openai:    openaiModel,
 }
 
-function secretFor(conn: { secrets: string }, field: string): string {
+function secretFor(conn: { secrets: string }, field: string, deps: EngineDeps): string {
   try {
-    const parsed = JSON.parse(decryptSecret(conn.secrets)) as Record<string, unknown>
+    const parsed = JSON.parse(deps.crud.decryptSecret(conn.secrets)) as Record<string, unknown>
     const v = parsed[field]
     if (typeof v !== 'string' || !v) throw new Error(`missing ${field}`)
     return v
@@ -37,14 +37,14 @@ function secretFor(conn: { secrets: string }, field: string): string {
   }
 }
 
-export function resolveModel(db: Db, connectionId: string, modelId: string) {
+export function resolveModel(db: Db, deps: EngineDeps, connectionId: string, modelId: string) {
   const row = mustExist(database.connectionGet(db, connectionId), `connection '${connectionId}' not found`)
   const factory = modelFactoryByKind[row.kind]
   if (!factory) throw badRequest(`connection kind '${row.kind}' has no model factory — cannot serve as an LLM provider`)
-  return factory(secretFor(row, 'api_key')).languageModel(modelId)
+  return factory(secretFor(row, 'api_key', deps)).languageModel(modelId)
 }
 
-export function resolveModelWithDefaults(db: Db, agentDef: AgentDef) {
+export function resolveModelWithDefaults(db: Db, deps: EngineDeps, agentDef: Agent) {
   const settings: Parameters<typeof defaultSettingsMiddleware>[0]['settings'] = { maxOutputTokens: agentDef.max_tokens }
   if (agentDef.temperature     !== null) settings.temperature      = agentDef.temperature
   if (agentDef.reasoning_budget !== null) settings.providerOptions = {
@@ -52,7 +52,7 @@ export function resolveModelWithDefaults(db: Db, agentDef: AgentDef) {
   }
   return wrapLanguageModel({
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- ai-sdk provider type drifts across adapter versions
-    model:      resolveModel(db, agentDef.connection_id, agentDef.model) as any,
+    model:      resolveModel(db, deps, agentDef.connection_id, agentDef.model) as any,
     middleware: defaultSettingsMiddleware({ settings }),
   })
 }

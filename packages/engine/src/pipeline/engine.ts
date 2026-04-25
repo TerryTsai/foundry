@@ -1,4 +1,4 @@
-import * as database from '../../../core/db.js'
+import * as database from '@foundry/db'
 import type { Middleware } from './compose.js'
 
 // Innermost pipeline stage — picks the engine for this session's

@@ -2,8 +2,8 @@
 // so it doesn't sit in `running` forever. The reconciler will see the
 // terminal state and move on.
 
-import * as database from '../../../core/db.js'
-import { now } from '../../../core/util.js'
+import * as database from '@foundry/db'
+import { now } from '@foundry/model'
 import type { Middleware } from './compose.js'
 
 export const withTicketFailOnCrash: Middleware = (next) => async (ctx) => {

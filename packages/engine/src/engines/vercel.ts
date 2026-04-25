@@ -5,20 +5,12 @@
 import { generateText, stepCountIs, tool, type ModelMessage, type ToolSet } from 'ai'
 import { ulid } from 'ulid'
 
-import { type Db } from '../../../core/db.js'
-import * as database from '../../../core/db.js'
-import {
-  parseConn, asText,
-  byConnectionKind,
-  foundryServer, githubServer, sandboxServer, browserServer,
-  type ToolDef,
-} from '@foundry/mcp'
-import { now } from '../../../core/util.js'
-import { decryptSecret } from '@foundry/crud'
-import { executionCreate as sandboxExecutionCreate } from '@foundry/sandbox'
+import { type Db } from '@foundry/db'
+import * as database from '@foundry/db'
+import { now } from '@foundry/model'
 
 import { resolveModelWithDefaults } from './model-factory.js'
-import type { SessionContext, LoopResult } from '../pipeline/compose.js'
+import type { SessionContext, LoopResult, ToolDef } from '../types.js'
 
 type StepResult = Awaited<ReturnType<typeof generateText<ToolSet>>>
 
@@ -34,31 +26,32 @@ function toAiTools(defs: ToolDef[], ctx: unknown, prefix?: string): ToolSet {
   const out: ToolSet = {}
   for (const t of defs) {
     const key = prefix ? `${prefix}-${t.name}` : t.name
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- mcp tool ctx is structurally open
     out[key] = tool({ description: t.description, inputSchema: t.schema as any, execute: (a: any) => t.handler(ctx, a) })
   }
   return out
 }
 
 function buildTools(ctx: SessionContext): ToolSet {
-  const { db, config, workDir } = ctx
+  const { db, config, workDir, deps } = ctx
   const sessionId  = ctx.session.id
   const agentDef   = ctx.agent
   const ticketData = ctx.ticket
   // Cross-module callback for the sandbox lifecycle (mcp can't depend
   // on @foundry/sandbox; engine binds it).
-  const executionCreate = (input: Parameters<typeof sandboxExecutionCreate>[2]) =>
-    sandboxExecutionCreate(db, config, input)
+  const executionCreate = (input: Parameters<typeof deps.sandbox.executionCreate>[2]) =>
+    deps.sandbox.executionCreate(db, config, input)
   const result: ToolSet = {
-    ...toAiTools(foundryServer.tools, { db, config, sessionId, workspace: workDir, projectId: ticketData.project_id, accountId: agentDef.account_id, ticketId: ticketData.id, agentName: agentDef.name, sandboxToken: ctx.sandboxToken, executionCreate }),
-    ...toAiTools(githubServer.tools,  { db, config, sessionId, workspace: workDir, ticket: ticketData, agentName: agentDef.name, executionCreate }),
-    ...toAiTools(sandboxServer.tools, { db, config, sessionId, workspace: workDir, executionCreate }),
-    ...toAiTools(browserServer.tools, { db, config, sessionId, workspace: workDir, executionCreate }),
+    ...toAiTools(deps.mcp.foundryServer.tools, { db, config, sessionId, workspace: workDir, projectId: ticketData.project_id, accountId: agentDef.account_id, ticketId: ticketData.id, agentName: agentDef.name, sandboxToken: ctx.sandboxToken, executionCreate }),
+    ...toAiTools(deps.mcp.githubServer.tools,  { db, config, sessionId, workspace: workDir, ticket: ticketData, agentName: agentDef.name, executionCreate }),
+    ...toAiTools(deps.mcp.sandboxServer.tools, { db, config, sessionId, workspace: workDir, executionCreate }),
+    ...toAiTools(deps.mcp.browserServer.tools, { db, config, sessionId, workspace: workDir, executionCreate }),
   }
   const conns = database.connectionByAccount(db, agentDef.account_id)
   for (const conn of conns) {
-    const mod = byConnectionKind[conn.kind as keyof typeof byConnectionKind]
+    const mod = deps.mcp.byConnectionKind[conn.kind]
     if (!mod) continue
-    const { secrets, connConfig } = parseConn(conn, decryptSecret)
+    const { secrets, connConfig } = deps.mcp.parseConn(conn, deps.crud.decryptSecret)
     const prefix = `${conn.kind}-${conn.name}`
     Object.assign(result, toAiTools(mod.tools, { db, config, sessionId, workspace: workDir, secrets, connConfig, connectionName: conn.name, executionCreate }, prefix))
   }
@@ -72,10 +65,12 @@ function contentPartsOf(result: StepResult): ContentPart[] {
 
 // Project a StepResult's content parts into activity rows. Returns the
 // number of tool calls emitted in this step.
+// eslint-disable-next-line max-lines-per-function -- legacy; refactor in Phase 7
 function writeStepActivities(db: Db, sessionId: string, turnId: string, result: StepResult): number {
   const parts = contentPartsOf(result)
   const { inputTokens, outputTokens } = result.usage ?? {}
   let toolCalls = 0
+  // eslint-disable-next-line max-lines-per-function -- legacy; refactor in Phase 7
   parts.forEach((b, idx) => {
     let kind: 'said' | 'thought' | 'tool_call' = 'said'
     let payload: unknown = b
@@ -112,10 +107,10 @@ function writeStepActivities(db: Db, sessionId: string, turnId: string, result: 
 }
 
 export async function runEngine(ctx: SessionContext): Promise<LoopResult> {
-  const { db, systemPrompt, userPrompt, shouldStop } = ctx
+  const { db, deps, systemPrompt, userPrompt, shouldStop } = ctx
   const sessionId = ctx.session.id
   const agentDef  = ctx.agent
-  const model     = resolveModelWithDefaults(db, agentDef)
+  const model     = resolveModelWithDefaults(db, deps, agentDef)
   const tools     = buildTools(ctx)
   const messages: ModelMessage[] = [{ role: 'user', content: userPrompt }]
 

@@ -4,17 +4,18 @@
 // only when the agent explicitly calls the attachmentGet tool, keeping
 // the initial context cheap regardless of how many files are attached.
 
-import * as database from '../../../core/db.js'
-import { attachmentListByTicketInternal } from '@foundry/crud'
-import { now } from '../../../core/util.js'
-import type { Ticket } from '../../../core/schema.js'
+import * as database from '@foundry/db'
+import type { Db } from '@foundry/db'
+import { now } from '@foundry/model'
+import type { Ticket } from '@foundry/db'
+import type { EngineDeps } from '../types.js'
 import type { Middleware } from './compose.js'
 
-function triggerPrompt(db: database.Db, ticket: Ticket): string {
+function triggerPrompt(db: Db, ticket: Ticket, deps: EngineDeps): string {
   const title = ticket.title.trim() || '(untitled)'
   const lines: string[] = [`Begin work on the ticket above: **${title}**. Proceed autonomously.`]
 
-  const atts = attachmentListByTicketInternal(db, ticket.id)
+  const atts = deps.crud.attachmentListByTicketInternal(db, ticket.id)
   if (atts.length > 0) {
     lines.push('')
     lines.push(`This ticket has ${atts.length} attachment${atts.length === 1 ? '' : 's'}. Call \`attachmentGet\` with the id to view the content; do that only when you actually need to see it.`)
@@ -29,7 +30,7 @@ function triggerPrompt(db: database.Db, ticket: Ticket): string {
 }
 
 export const withOpeningPrompt: Middleware = (next) => async (ctx) => {
-  ctx.userPrompt = triggerPrompt(ctx.db, ctx.ticket)
+  ctx.userPrompt = triggerPrompt(ctx.db, ctx.ticket, ctx.deps)
   database.activityInsert(ctx.db, {
     session_id:   ctx.session.id,
     turn_id:      null,

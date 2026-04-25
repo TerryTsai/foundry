@@ -3,6 +3,23 @@ import * as database from '../../core/db.js'
 import type { Agent, Project, Ticket } from '../../core/schema.js'
 import { now } from '../../core/util.js'
 
+import { runSession, type EngineDeps } from '@foundry/engine'
+import { sessionJwt } from '@foundry/auth'
+import {
+  asText, isMcpEnvelope, parseConn, toolUseId,
+  filterTools, parseToolSelection, byConnectionKind,
+  foundryServer, githubServer, sandboxServer, browserServer,
+  workspaceEmpty, workspaceDestroy,
+} from '@foundry/mcp'
+import {
+  executionCreate as sandboxExecutionCreate,
+  registerSessionWorkspace, unregisterSessionWorkspace,
+  stopSessionContainer,
+} from '@foundry/sandbox'
+import {
+  encryptSecret, decryptSecret, attachmentListByTicketInternal,
+} from '@foundry/crud'
+
 // ── shape ────────────────────────────────────────────────────────────
 // Each policy receives the same context: the project being reconciled,
 // its agents, the ticket under consideration, and a mutable slots
@@ -41,6 +58,35 @@ export function transition(
   return true
 }
 
+// EngineDeps bundle. Constructed once at module load — every dispatched
+// session gets the same callback wiring. The reconciler is itself a
+// logic module per the manifest check; this direct cross-import is the
+// temporary debt called out in Phase 4g — reconciler moves out of
+// service/ in Phase 4h, at which point this becomes the composition
+// root's job in server.ts.
+//
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- typed below
+const ENGINE_DEPS: EngineDeps = {
+  auth: {
+    sessionJwtMint: (db, sessionId, ttlMs) => sessionJwt.mint(db, sessionId, ttlMs),
+  },
+  mcp: {
+    foundryServer, githubServer, sandboxServer, browserServer,
+    byConnectionKind: byConnectionKind as Record<string, { tools: import('@foundry/mcp').ToolDef[] } | undefined>,
+    filterTools, parseToolSelection,
+    parseConn, asText, isMcpEnvelope, toolUseId,
+    workspaceEmpty, workspaceDestroy,
+  },
+  sandbox: {
+    executionCreate: (db, config, input) => sandboxExecutionCreate(db, config, input),
+    registerSessionWorkspace, unregisterSessionWorkspace,
+    stopSessionContainer,
+  },
+  crud: {
+    encryptSecret, decryptSecret, attachmentListByTicketInternal,
+  },
+}
+
 // Insert a session row, fire the started event, and dispatch the runner
 // in the background (fire-and-forget — the runner emits its own events
 // when it terminates).
@@ -57,10 +103,10 @@ export function dispatchSession(
     data: JSON.stringify({ role, ticket_id: ticket.id, agent_name: agent.name }),
     caused_by: 'reconciler',
   })
-  import('../session/session.js').then(({ runSession }) =>
-    runSession(db, (globalThis as any).__foundryConfig, sess.id, agent, ticket, role)
-      .catch((err: unknown) => console.error(`session ${sess.id} crashed:`, err))
-  )
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- composition-root global set in server.ts
+  const config = (globalThis as any).__foundryConfig
+  runSession(db, config, ENGINE_DEPS, sess.id, agent, ticket, role)
+    .catch((err: unknown) => console.error(`session ${sess.id} crashed:`, err))
 }
 
 // Parse the JSON-encoded verifier id list off an agent row.

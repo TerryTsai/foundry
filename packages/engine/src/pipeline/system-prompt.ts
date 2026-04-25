@@ -14,9 +14,8 @@
 // verifier N+1 therefore sees verifier N's verdict in its own system
 // prompt.
 
-import * as database from '../../../core/db.js'
-import type { Ticket, Agent as AgentDef } from '../../../core/schema.js'
-import type { Db } from '../../../core/db.js'
+import * as database from '@foundry/db'
+import type { Db, Ticket, Agent } from '@foundry/db'
 import type { Middleware } from './compose.js'
 
 type Role = 'producer' | 'verifier'
@@ -31,7 +30,8 @@ Then call the \`verdictReport\` tool exactly once with:
 
 You MUST call verdictReport before ending your session. A silent verifier is treated as a failed review.`
 
-function assemble(db: Db, ticket: Ticket, agent: AgentDef, role: Role): string {
+// eslint-disable-next-line max-lines-per-function -- legacy; refactor in Phase 7
+function assemble(db: Db, ticket: Ticket, agent: Agent, role: Role): string {
   const project = database.projectGet(db, ticket.project_id)
   const account = project ? database.accountGet(db, project.owner_id) : undefined
 

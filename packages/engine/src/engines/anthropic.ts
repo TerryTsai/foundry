@@ -9,20 +9,12 @@ import { createSdkMcpServer, tool as sdkTool, query } from '@anthropic-ai/claude
 import { readFileSync } from 'fs'
 import { join } from 'path'
 import { homedir } from 'os'
-import { type Db } from '../../../core/db.js'
-import * as database from '../../../core/db.js'
-import type { Connection } from '../../../core/schema.js'
-import {
-  asText, isMcpEnvelope, parseConn, toolUseId,
-  filterTools, parseToolSelection, byConnectionKind,
-  foundryServer, githubServer, sandboxServer, browserServer,
-  type ToolDef,
-} from '@foundry/mcp'
-import { now, mustExist } from '../../../core/util.js'
-import { encryptSecret, decryptSecret } from '@foundry/crud'
-import { executionCreate as sandboxExecutionCreate } from '@foundry/sandbox'
+import { type Db } from '@foundry/db'
+import * as database from '@foundry/db'
+import type { Connection } from '@foundry/db'
+import { now, mustExist } from '@foundry/model'
 
-import type { SessionContext, LoopResult } from '../pipeline/compose.js'
+import type { EngineDeps, SessionContext, LoopResult, ToolDef } from '../types.js'
 
 type Block = { type: string; id?: string; text?: string; thinking?: string; name?: string; input?: unknown; signature?: string }
 
@@ -30,18 +22,19 @@ type Block = { type: string; id?: string; text?: string; thinking?: string; name
 // Read the SDK's on-disk credentials first (Claude Code refreshes them).
 // Fall back to the stored connection secret. Keep the DB in sync when the
 // file token is newer than the stored one.
-function resolveSubscriptionToken(db: Db, conn: Connection): string {
+// eslint-disable-next-line max-lines-per-function -- legacy; refactor in Phase 7
+function resolveSubscriptionToken(db: Db, deps: EngineDeps, conn: Connection): string {
   const credPath = join(homedir(), '.claude', '.credentials.json')
   try {
     const raw  = readFileSync(credPath, 'utf-8')
     const cred = (JSON.parse(raw) as { claudeAiOauth?: { accessToken?: string; expiresAt?: number } }).claudeAiOauth
     if (cred?.accessToken && cred.expiresAt && cred.expiresAt > Date.now()) {
-      const stored = JSON.parse(decryptSecret(conn.secrets)) as Record<string, unknown>
+      const stored = JSON.parse(deps.crud.decryptSecret(conn.secrets)) as Record<string, unknown>
       if (stored.access_token !== cred.accessToken) {
         stored.access_token = cred.accessToken
         stored.api_key      = cred.accessToken
         database.connectionUpdate(db, conn.id, {
-          secrets:    encryptSecret(JSON.stringify(stored)),
+          secrets:    deps.crud.encryptSecret(JSON.stringify(stored)),
           updated_at: new Date().toISOString(),
         })
       }
@@ -49,7 +42,7 @@ function resolveSubscriptionToken(db: Db, conn: Connection): string {
     }
   } catch { /* file missing */ }
   try {
-    const secrets = JSON.parse(decryptSecret(conn.secrets)) as Record<string, unknown>
+    const secrets = JSON.parse(deps.crud.decryptSecret(conn.secrets)) as Record<string, unknown>
     const v = secrets.access_token ?? secrets.api_key
     if (typeof v === 'string' && v) return v
   } catch { /* malformed */ }
@@ -59,6 +52,7 @@ function resolveSubscriptionToken(db: Db, conn: Connection): string {
 // Merge an incoming partial content list into the prior merged list for the
 // same turn. Text/thinking blocks are replaced-by-longer (streaming grows);
 // tool_use blocks append once per unique id.
+// eslint-disable-next-line max-lines-per-function -- legacy; refactor in Phase 7
 function mergeBlocks(prior: Block[], incoming: Block[]): Block[] {
   const merged = prior.slice()
   for (const b of incoming) {
@@ -98,6 +92,7 @@ function blockToActivity(b: Block): { kind: string; payload: unknown; tool_use_i
 
 // Upsert a single activity row keyed by (session_id, turn_id, order_index).
 // Tokens stay on whichever row carries them — set once on first sight.
+// eslint-disable-next-line max-lines-per-function -- legacy; refactor in Phase 7
 function upsertActivity(db: Db, params: {
   sessionId: string; turnId: string; orderIndex: number
   kind: string; payload: unknown; tool_use_id?: string
@@ -132,41 +127,45 @@ function upsertActivity(db: Db, params: {
 }
 
 function toSdkServer(
+  deps: EngineDeps,
   name: string, defs: ToolDef[], serverCtx: unknown, allowed: string[] | '*' | null | undefined,
   isCancelled: () => boolean,
 ) {
-  const tu = (extra: unknown) => ({ ...(serverCtx as any), toolUseId: toolUseId(extra) })
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- mcp tool ctx is structurally open
+  const tu = (extra: unknown) => ({ ...(serverCtx as any), toolUseId: deps.mcp.toolUseId(extra) })
   const all = defs.map(t =>
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- sdk shape
     sdkTool(t.name, t.description, (t.schema as any).shape, async (a: any, x: unknown) => {
       // The SDK dispatches MCP handlers as soon as the model emits a
       // tool_use block, which can be AFTER we've already flipped the
       // ticket to cancelled but BEFORE our for-await loop sees the
       // corresponding assistant message and breaks. Guard here so no
       // side effects fire post-cancel.
-      if (isCancelled()) return asText({ error: 'session cancelled' })
+      if (isCancelled()) return deps.mcp.asText({ error: 'session cancelled' })
       const result = await t.handler(tu(x), a)
       // Handlers may return a pre-formed MCP envelope (image, document);
       // otherwise we JSON-wrap the plain result as text.
-      return isMcpEnvelope(result) ? (result as any) : asText(result)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- mcp envelope
+      return deps.mcp.isMcpEnvelope(result) ? (result as any) : deps.mcp.asText(result)
     })
   )
-  return createSdkMcpServer({ name, tools: filterTools(all, allowed) })
+  return createSdkMcpServer({ name, tools: deps.mcp.filterTools(all, allowed) })
 }
 
 // eslint-disable-next-line max-lines-per-function -- legacy; refactor in Phase 7
 function buildMcpServers(ctx: SessionContext) {
-  const { db, config, workDir } = ctx
+  const { db, config, workDir, deps } = ctx
   const sessionId  = ctx.session.id
   const agentDef   = ctx.agent
   const ticketData = ctx.ticket
-  const selection  = parseToolSelection(agentDef.tools)
+  const selection  = deps.mcp.parseToolSelection(agentDef.tools)
   const mcpServers: Record<string, ReturnType<typeof createSdkMcpServer>> = {}
 
   // Cross-module callbacks injected into every tool ctx. mcp can't import
   // @foundry/sandbox or @foundry/crud directly, so the engine layer
   // (composition root for sessions) binds them here.
-  const executionCreate = (input: Parameters<typeof sandboxExecutionCreate>[2]) =>
-    sandboxExecutionCreate(db, config, input)
+  const executionCreate = (input: Parameters<typeof deps.sandbox.executionCreate>[2]) =>
+    deps.sandbox.executionCreate(db, config, input)
 
   // Read fresh status from the DB on every tool dispatch — same check
   // as withCooperativeCancel but applied at the handler boundary.
@@ -182,30 +181,32 @@ function buildMcpServers(ctx: SessionContext) {
   const githubCtx  = { db, config, sessionId, workspace: workDir, ticket: ticketData, agentName: agentDef.name, executionCreate }
   const sandboxCtx = { db, config, sessionId, workspace: workDir, executionCreate }
 
-  if (selection === null || 'foundry' in selection) mcpServers.foundry = toSdkServer('foundry', foundryServer.tools, foundryCtx, selection?.foundry, isCancelled)
-  if (selection === null || 'github'  in selection) mcpServers.github  = toSdkServer('github',  githubServer.tools,  githubCtx,  selection?.github, isCancelled)
-  if (selection === null || 'sandbox' in selection) mcpServers.sandbox = toSdkServer('sandbox', sandboxServer.tools, sandboxCtx, selection?.sandbox, isCancelled)
-  if (selection === null || 'browser' in selection) mcpServers.browser = toSdkServer('browser', browserServer.tools, sandboxCtx, selection?.browser, isCancelled)
+  if (selection === null || 'foundry' in selection) mcpServers.foundry = toSdkServer(deps, 'foundry', deps.mcp.foundryServer.tools, foundryCtx, selection?.foundry, isCancelled)
+  if (selection === null || 'github'  in selection) mcpServers.github  = toSdkServer(deps, 'github',  deps.mcp.githubServer.tools,  githubCtx,  selection?.github, isCancelled)
+  if (selection === null || 'sandbox' in selection) mcpServers.sandbox = toSdkServer(deps, 'sandbox', deps.mcp.sandboxServer.tools, sandboxCtx, selection?.sandbox, isCancelled)
+  if (selection === null || 'browser' in selection) mcpServers.browser = toSdkServer(deps, 'browser', deps.mcp.browserServer.tools, sandboxCtx, selection?.browser, isCancelled)
 
   const conns = database.connectionByAccount(db, agentDef.account_id)
   for (const conn of conns) {
-    const mod = byConnectionKind[conn.kind as keyof typeof byConnectionKind]
+    const mod = deps.mcp.byConnectionKind[conn.kind]
     if (!mod) continue
     const key = `${conn.kind}:${conn.name}`
     if (selection !== null && !(key in selection)) continue
-    const { secrets, connConfig } = parseConn(conn, decryptSecret)
+    const { secrets, connConfig } = deps.mcp.parseConn(conn, deps.crud.decryptSecret)
     const connCtx = { db, config, sessionId, workspace: workDir, secrets, connConfig, connectionName: conn.name, executionCreate }
-    mcpServers[key] = toSdkServer(key, mod.tools, connCtx, selection === null ? null : selection[key], isCancelled)
+    mcpServers[key] = toSdkServer(deps, key, mod.tools, connCtx, selection === null ? null : selection[key], isCancelled)
   }
   return mcpServers
 }
 
+// eslint-disable-next-line max-lines-per-function, max-depth -- legacy; refactor in Phase 7
 export async function runEngine(ctx: SessionContext): Promise<LoopResult> {
-  const { db, systemPrompt, userPrompt, workDir, shouldStop } = ctx
+  /* eslint-disable max-depth -- legacy; refactor in Phase 7 */
+  const { db, deps, systemPrompt, userPrompt, workDir, shouldStop } = ctx
   const sessionId  = ctx.session.id
   const agentDef   = ctx.agent
   const conn       = mustExist(database.connectionGet(db, agentDef.connection_id), 'connection not found')
-  const oauthToken = resolveSubscriptionToken(db, conn)
+  const oauthToken = resolveSubscriptionToken(db, deps, conn)
   const mcpServers = buildMcpServers(ctx)
 
   const prevToken = process.env.CLAUDE_CODE_OAUTH_TOKEN

@@ -19,6 +19,7 @@
     "@foundry/client": "*",
     "@foundry/crud": "*",
     "@foundry/db": "*",
+    "@foundry/engine": "*",
     "@foundry/mcp": "*",
     "@foundry/model": "*",
     "@foundry/sandbox": "*",

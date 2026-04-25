@@ -2,14 +2,13 @@
 // returned or threw." The pipeline below mirrors README.md exactly —
 // every entry here is one box in that diagram, in order.
 
-import { type Db } from '../../core/db.js'
-import * as database from '../../core/db.js'
-import type { Config } from '../../core/config.js'
-import type { Agent, Ticket } from '../../core/schema.js'
+import { type Db } from '@foundry/db'
+import * as database from '@foundry/db'
+import type { Agent, Ticket } from '@foundry/db'
 
-import { sessionJwt } from '@foundry/auth'
+import type { EngineConfig, EngineDeps, SessionContext } from './types.js'
 
-import { compose, type SessionContext } from './pipeline/compose.js'
+import { compose }                   from './pipeline/compose.js'
 import { withBookkeeping }          from './pipeline/bookkeeping.js'
 import { withCooperativeCancel }    from './pipeline/cooperative-cancel.js'
 import { withCrashSafe }            from './pipeline/crash-safe.js'
@@ -51,7 +50,7 @@ const VERIFIER = compose(
 // ── entrypoint ───────────────────────────────────────────────────────
 
 export async function runSession(
-  db: Db, config: Config, sessionId: string,
+  db: Db, config: EngineConfig, deps: EngineDeps, sessionId: string,
   agent: Agent, ticket: Ticket, role: 'producer' | 'verifier',
 ): Promise<void> {
   // load session
@@ -62,11 +61,11 @@ export async function runSession(
   // this; auth/middleware verifies and reads session/ticket/project/
   // account from the claims
   const ttlMs = Math.max(config.sandboxTimeout * 2, 30 * 60 * 1000)
-  const sandboxToken = sessionJwt.mint(db, sessionId, ttlMs)
+  const sandboxToken = deps.auth.sessionJwtMint(db, sessionId, ttlMs)
 
   // build the per-session context that flows through every middleware
   const ctx: SessionContext = {
-    db, config, session, ticket, agent, sandboxToken,
+    db, config, deps, session, ticket, agent, sandboxToken,
     systemPrompt: '', userPrompt: '', workDir: '',
     shouldStop: () => false,
     startedAt: Date.now(),

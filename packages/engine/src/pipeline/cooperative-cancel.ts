@@ -4,7 +4,7 @@
 // Stops when the ticket leaves `running` (founder cancel, reconciler
 // state change) or the session leaves `running` (external kill).
 
-import * as database from '../../../core/db.js'
+import * as database from '@foundry/db'
 import type { Middleware } from './compose.js'
 
 export const withCooperativeCancel: Middleware = (next) => async (ctx) => {

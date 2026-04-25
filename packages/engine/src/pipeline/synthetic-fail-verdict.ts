@@ -4,7 +4,7 @@
 // so the next producer's prompt surfaces the reason. Silent = failed
 // review, never implicit approval.
 
-import * as database from '../../../core/db.js'
+import * as database from '@foundry/db'
 import type { Middleware } from './compose.js'
 
 export const withSyntheticFailVerdict: Middleware = (next) => async (ctx) => {
