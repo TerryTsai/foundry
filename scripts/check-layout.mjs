@@ -16,14 +16,20 @@ const HERE = dirname(fileURLToPath(import.meta.url))
 const ROOT = dirname(HERE)
 const PKG_ROOT = join(ROOT, 'packages')
 
-const REQUIRED = ['package.json', 'tsconfig.json', 'README.md', 'src/index.ts']
+// Library packages re-export from src/index.ts. SPAs (Vite apps) bootstrap
+// from src/main.tsx + index.html. Both are valid; check the right shape per
+// package kind (detected by the presence of vite.config.ts).
+const LIB_REQUIRED = ['package.json', 'tsconfig.json', 'README.md', 'src/index.ts']
+const SPA_REQUIRED = ['package.json', 'tsconfig.json', 'README.md', 'src/main.tsx', 'index.html', 'vite.config.ts']
 
 const violations = []
 
 for (const pkg of readdirSync(PKG_ROOT)) {
   const dir = join(PKG_ROOT, pkg)
   if (!statSync(dir).isDirectory()) continue
-  for (const rel of REQUIRED) {
+  const isSpa = existsSync(join(dir, 'vite.config.ts')) || existsSync(join(dir, 'vite.config.js'))
+  const required = isSpa ? SPA_REQUIRED : LIB_REQUIRED
+  for (const rel of required) {
     if (!existsSync(join(dir, rel))) {
       violations.push(`${pkg}: missing ${rel}`)
     }
