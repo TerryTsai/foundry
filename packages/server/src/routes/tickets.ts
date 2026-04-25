@@ -2,7 +2,6 @@ import { Router } from 'express'
 import type { Db } from '@foundry/db'
 import { parse, run, send } from '../http.js'
 import { accountId } from '../account-id.js'
-import { eventByEntity } from '@foundry/db'
 import {
   validate,
   ticketList, ticketGet, ticketCreate, ticketUpdate,
@@ -10,11 +9,12 @@ import {
   commentList, commentCreate, tagList, tagAdd, tagRemove, verdictList,
   ticketOwned,
   sessionByTicket,
+  eventByEntity,
 } from '@foundry/crud'
 import { ticketUsage } from '@foundry/analytics'
-import { killRunningExecutionsForTicket } from '@foundry/sandbox'
+import { killRunningExecutionsForTicket, type SandboxCrudOps } from '@foundry/sandbox'
 
-export function ticketRoutes(db: Db) {
+export function ticketRoutes(db: Db, sandboxCrud: SandboxCrudOps) {
   const r = Router()
   r.get   ('/',            parse(validate.ticket.list, 'query'), run(req => ticketList(db, accountId(req), req.data)),                            send())
   r.post  ('/',            parse(validate.ticket.create),        run(req => ticketCreate(db, accountId(req), req.data)),                          send(201))
@@ -25,7 +25,7 @@ export function ticketRoutes(db: Db) {
   // route handler after the cancel succeeds.
   r.post  ('/:id/cancel',                                        run(req => {
     const ticket = ticketCancel(db, accountId(req), req.params.id)
-    killRunningExecutionsForTicket(db, req.params.id)
+    killRunningExecutionsForTicket(db, req.params.id, sandboxCrud)
     return ticket
   }),                     send())
   r.get   ('/:id/chain',                                         run(req => ticketDependencyChain(db, accountId(req), req.params.id)),            send())

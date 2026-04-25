@@ -5,6 +5,7 @@
 import type { Db } from '@foundry/db'
 import type { AppError, McpError } from '@foundry/model'
 import * as mcp from '@foundry/mcp'
+import { connectionByAccount } from '@foundry/crud'
 
 import type { McpSlice } from '../slices/mcp.js'
 import { wrap } from './wrap.js'
@@ -17,5 +18,5 @@ const toMcpError = (e: AppError): McpError =>
 const w = <T>(fn: () => T | Promise<T>) => wrap<T, McpError>(fn, toMcpError)
 
 export const createMcpAdapter = (deps: McpAdapterDeps): McpSlice => ({
-  agentMcpList: (ctx) => w(() => mcp.agentMcpList(deps.db, ctx.accountId)),
+  agentMcpList: (ctx) => w(() => mcp.agentMcpList(deps.db, ctx.accountId, connectionByAccount)),
 })

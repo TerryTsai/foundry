@@ -30,12 +30,15 @@ import { join } from 'path'
 
 import { z } from 'zod'
 
-import type { Db, Ticket } from '@foundry/db'
-import * as database from '@foundry/db'
+import type { Db, Project, Ticket } from '@foundry/db'
 import { mustExist, toInt } from '@foundry/model'
 import type { McpConfig, ExecutionCreate, McpServerInfo, ToolDef } from '../../types.js'
 import { installationForRepo, installationToken } from './provider.js'
 import { runCommand } from '../shared.js'
+
+// mcp can't import @foundry/crud; project lookup is injected per-call
+// via GithubCtx.projectGet, bound by the composition root.
+export type GithubProjectGet = (db: Db, projectId: string) => Project | undefined
 
 // ════════════════════════════════════════════════════════════════════════════
 // WORKSPACE LIFECYCLE (host-side)
@@ -58,7 +61,7 @@ function parseRepo(repo: string): { owner: string; name: string } {
 // Resolve the project's configured repo. Throws if unset — callers catch
 // and return `{ ok: false, error }`.
 function ticketRepo(ctx: GithubCtx): { owner: string; name: string } {
-  const proj = mustExist(database.projectGet(ctx.db, ctx.ticket.project_id), `project ${ctx.ticket.project_id} not found`)
+  const proj = mustExist(ctx.projectGet(ctx.db, ctx.ticket.project_id), `project ${ctx.ticket.project_id} not found`)
   if (!proj.repo) throw new Error('project has no repo configured')
   return parseRepo(proj.repo)
 }
@@ -116,6 +119,7 @@ export interface GithubCtx {
   agentName: string
   toolUseId?: string
   executionCreate: ExecutionCreate
+  projectGet:      GithubProjectGet
 }
 
 // ── Schemas ──

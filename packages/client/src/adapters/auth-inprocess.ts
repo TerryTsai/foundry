@@ -9,7 +9,7 @@
 import type { Db } from '@foundry/db'
 import type { AppError, AuthError } from '@foundry/model'
 import * as auth from '@foundry/auth'
-import type { AuthConfig, GithubOAuthDeps } from '@foundry/auth'
+import type { AuthConfig, AuthCrudOps, GithubOAuthDeps } from '@foundry/auth'
 
 import type { AuthSlice } from '../slices/auth.js'
 import { wrap } from './wrap.js'
@@ -18,6 +18,7 @@ export type AuthAdapterDeps = {
   db:         Db
   config:     AuthConfig
   githubDeps: GithubOAuthDeps
+  authCrud:   AuthCrudOps
 }
 
 const toAuthError = (e: AppError): AuthError => {
@@ -36,12 +37,12 @@ export const createAuthAdapter = (deps: AuthAdapterDeps): AuthSlice => ({
   authCallback: (_ctx, args) => w(() => auth.authCallback(
     deps.db, deps.config,
     { code: args.code, state: args.state },
-    args.stateCookie, deps.githubDeps,
+    args.stateCookie, deps.githubDeps, deps.authCrud,
   )),
   authMe:       (_ctx, account)   => w(() => auth.authMe(account)),
-  authLogout:   (_ctx, sessionId) => w(() => auth.authLogout(deps.db, sessionId)),
+  authLogout:   (_ctx, sessionId) => w(() => auth.authLogout(deps.db, sessionId, deps.authCrud)),
 
-  sessionJwtMint:   (_ctx, sessionId, ttlMs) => w(() => auth.sessionJwt.mint(deps.db, sessionId, ttlMs)),
+  sessionJwtMint:   (_ctx, sessionId, ttlMs) => w(() => auth.sessionJwt.mint(deps.db, deps.authCrud, sessionId, ttlMs)),
   sessionJwtVerify: (_ctx, token) => w(() => {
     const claims = auth.sessionJwt.verify(token)
     if (!claims) throw Object.assign(new Error('invalid sandbox token'), { status: 401, _tag: 'AppError' as const })

@@ -20,7 +20,7 @@ export * as githubServer  from './integrations/github/tools.js'
 export type { FoundryCtx } from './tools/foundry.js'
 export type { SandboxCtx } from './tools/sandbox.js'
 export type { BrowserCtx } from './tools/browser.js'
-export type { GithubCtx, PublishResult } from './integrations/github/tools.js'
+export type { GithubCtx, PublishResult, GithubProjectGet } from './integrations/github/tools.js'
 
 // Built-in registry
 export {
@@ -52,3 +52,4 @@ export type { ConnCtx, RunCommandOptions, RunCommandCtx } from './integrations/s
 
 // Agent → MCP listing for the UI
 export { agentMcpList } from './agent-mcp-list.js'
+export type { ConnectionByAccountFn } from './agent-mcp-list.js'

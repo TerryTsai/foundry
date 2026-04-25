@@ -10,7 +10,6 @@ import { readFileSync } from 'fs'
 import { join } from 'path'
 import { homedir } from 'os'
 import { type Db } from '@foundry/db'
-import * as database from '@foundry/db'
 import type { Connection } from '@foundry/db'
 import { now, mustExist } from '@foundry/model'
 
@@ -33,7 +32,7 @@ function resolveSubscriptionToken(db: Db, deps: EngineDeps, conn: Connection): s
       if (stored.access_token !== cred.accessToken) {
         stored.access_token = cred.accessToken
         stored.api_key      = cred.accessToken
-        database.connectionUpdate(db, conn.id, {
+        deps.crud.connectionUpdateById(db, conn.id, {
           secrets:    deps.crud.encryptSecret(JSON.stringify(stored)),
           updated_at: new Date().toISOString(),
         })
@@ -93,12 +92,12 @@ function blockToActivity(b: Block): { kind: string; payload: unknown; tool_use_i
 // Upsert a single activity row keyed by (session_id, turn_id, order_index).
 // Tokens stay on whichever row carries them — set once on first sight.
 // eslint-disable-next-line max-lines-per-function -- legacy; refactor in Phase 7
-function upsertActivity(db: Db, params: {
+function upsertActivity(db: Db, deps: EngineDeps, params: {
   sessionId: string; turnId: string; orderIndex: number
   kind: string; payload: unknown; tool_use_id?: string
   tokens_in?: number | null; tokens?: number | null
 }) {
-  const existing = database.activityByTurnOrder(db, params.sessionId, params.turnId, params.orderIndex)
+  const existing = deps.crud.activityByTurnOrder(db, params.sessionId, params.turnId, params.orderIndex)
   const baseData = {
     kind:         params.kind,
     payload:      JSON.stringify(params.payload),
@@ -108,14 +107,14 @@ function upsertActivity(db: Db, params: {
   // Tokens are re-applied on every upsert so the first-row snapshot
   // tracks the turn's growing usage (non-first rows stay null).
   if (existing) {
-    database.activityUpdate(db, existing.id, {
+    deps.crud.activityUpdate(db, existing.id, {
       ...baseData,
       tokens_in: params.tokens_in ?? null,
       tokens:    params.tokens    ?? null,
     })
     return existing
   }
-  return database.activityInsert(db, {
+  return deps.crud.activityCreate(db, {
     session_id:  params.sessionId,
     turn_id:     params.turnId,
     order_index: params.orderIndex,
@@ -170,9 +169,9 @@ function buildMcpServers(ctx: SessionContext) {
   // Read fresh status from the DB on every tool dispatch — same check
   // as withCooperativeCancel but applied at the handler boundary.
   const isCancelled = () => {
-    const t = database.ticketGet(db, ticketData.id)
+    const t = deps.crud.ticketGetById(db, ticketData.id)
     if (!t || t.status !== 'running') return true
-    const s = database.sessionGet(db, sessionId)
+    const s = deps.crud.sessionGetById(db, sessionId)
     if (!s || s.status !== 'running') return true
     return false
   }
@@ -186,7 +185,7 @@ function buildMcpServers(ctx: SessionContext) {
   if (selection === null || 'sandbox' in selection) mcpServers.sandbox = toSdkServer(deps, 'sandbox', deps.mcp.sandboxServer.tools, sandboxCtx, selection?.sandbox, isCancelled)
   if (selection === null || 'browser' in selection) mcpServers.browser = toSdkServer(deps, 'browser', deps.mcp.browserServer.tools, sandboxCtx, selection?.browser, isCancelled)
 
-  const conns = database.connectionByAccount(db, agentDef.account_id)
+  const conns = deps.crud.connectionByAccount(db, agentDef.account_id)
   for (const conn of conns) {
     const mod = deps.mcp.byConnectionKind[conn.kind]
     if (!mod) continue
@@ -205,7 +204,7 @@ export async function runEngine(ctx: SessionContext): Promise<LoopResult> {
   const { db, deps, systemPrompt, userPrompt, workDir, shouldStop } = ctx
   const sessionId  = ctx.session.id
   const agentDef   = ctx.agent
-  const conn       = mustExist(database.connectionGet(db, agentDef.connection_id), 'connection not found')
+  const conn       = mustExist(deps.crud.connectionGetById(db, agentDef.connection_id), 'connection not found')
   const oauthToken = resolveSubscriptionToken(db, deps, conn)
   const mcpServers = buildMcpServers(ctx)
 
@@ -275,7 +274,7 @@ export async function runEngine(ctx: SessionContext): Promise<LoopResult> {
 
         merged.forEach((b, idx) => {
           const { kind, payload, tool_use_id } = blockToActivity(b)
-          upsertActivity(db, {
+          upsertActivity(db, deps, {
             sessionId, turnId, orderIndex: idx,
             kind, payload, tool_use_id,
             tokens_in: idx === 0 ? turnMaxIn .get(turnId) ?? 0 : null,
@@ -300,7 +299,7 @@ export async function runEngine(ctx: SessionContext): Promise<LoopResult> {
 
         // Reconcile delta — SUM over activities now equals modelUsage.
         if (deltaIn !== 0 || deltaOut !== 0) {
-          database.activityInsert(db, {
+          deps.crud.activityCreate(db, {
             session_id:   sessionId,
             turn_id:      null,
             kind:         'reconcile',

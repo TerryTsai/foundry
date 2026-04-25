@@ -2,11 +2,11 @@ import { eq } from 'drizzle-orm'
 import type { z } from 'zod'
 
 import { type Db } from '@foundry/db'
-import * as database from '@foundry/db'
 import * as schema from '@foundry/db'
 import { assertStatus, pick, now, timestamps } from '@foundry/model'
 import { notFound } from '@foundry/model'
 import { project as validate } from './validators.js'
+import * as database from './repo.js'
 
 // Ownership-aware fetch: 404 (not 403) on mismatch so other accounts can't
 // probe for valid project ids.

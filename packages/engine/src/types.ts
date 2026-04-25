@@ -6,7 +6,7 @@
 
 import type { ZodType } from 'zod'
 import type { Db } from '@foundry/db'
-import type { Agent, Connection, Ticket, Session } from '@foundry/db'
+import type { Account, Activity, Agent, Connection, Comment, Event, Project, Session, Ticket } from '@foundry/db'
 
 // ── EngineConfig ─────────────────────────────────────────────────────
 // Engine reads `sandboxTimeout` directly (mintTtl). The remaining fields
@@ -90,10 +90,58 @@ export interface ExecutionHandle {
 
 export type ExecutionCreate = (input: ExecutionCreateInput) => ExecutionHandle
 
+// ── Verdict shape (structural mirror of crud's VerdictRow) ───────────
+
+export interface VerdictRow {
+  id:         string
+  session_id: string
+  agent_id:   string
+  ticket_id:  string
+  pass:       boolean
+  reason:     string
+  created_at: string
+}
+
+// ── Attachment summary returned by attachmentListByTicketInternal ────
+
+export interface AttachmentSummary {
+  id:   string
+  name: string
+  mime: string
+  size: number
+}
+
 // ── EngineDeps ───────────────────────────────────────────────────────
 // Single bundle of every cross-module function the engine needs. The
 // composition root constructs this once per service boot from the real
 // implementations in @foundry/{auth,mcp,sandbox,crud}.
+
+export interface EngineCrudOps {
+  // crypto / connection helpers
+  encryptSecret:                   (s: string) => string
+  decryptSecret:                   (s: string) => string
+  attachmentListByTicketInternal:  (db: Db, ticketId: string) => AttachmentSummary[]
+  // entity reads
+  ticketGetById:                   (db: Db, id: string) => Ticket | undefined
+  sessionGetById:                  (db: Db, id: string) => Session | undefined
+  agentGetById:                    (db: Db, id: string) => Agent | undefined
+  projectGetById:                  (db: Db, id: string) => Project | undefined
+  accountGetById:                  (db: Db, id: string) => Account | undefined
+  connectionGetById:               (db: Db, id: string) => Connection | undefined
+  connectionByAccount:             (db: Db, accountId: string) => Connection[]
+  commentByTicket:                 (db: Db, ticketId: string) => Comment[]
+  verdictBySession:                (db: Db, sessionId: string) => VerdictRow | undefined
+  verdictByTicket:                 (db: Db, ticketId: string) => VerdictRow[]
+  // entity writes
+  ticketUpdateById:                (db: Db, id: string, data: Record<string, unknown>) => Ticket
+  sessionUpdateById:               (db: Db, id: string, data: Record<string, unknown>) => Session
+  connectionUpdateById:            (db: Db, id: string, data: Record<string, unknown>) => Connection
+  activityCreate:                  (db: Db, data: Record<string, unknown>) => Activity
+  activityUpdate:                  (db: Db, id: string, data: Record<string, unknown>) => Activity
+  activityByTurnOrder:             (db: Db, sessionId: string, turnId: string, orderIndex: number) => Activity | undefined
+  // event log
+  eventCreate:                     (db: Db, data: { entity_type: string; entity_id: string; kind: string; data?: string; caused_by: string; caused_by_id?: string | null }) => Event
+}
 
 export interface EngineDeps {
   auth: {
@@ -120,16 +168,7 @@ export interface EngineDeps {
     unregisterSessionWorkspace: (sessionId: string) => void
     stopSessionContainer:       (sessionId: string) => Promise<void>
   }
-  crud: {
-    encryptSecret:                  (s: string) => string
-    decryptSecret:                  (s: string) => string
-    attachmentListByTicketInternal: (db: Db, ticketId: string) => Array<{
-      id:   string
-      name: string
-      mime: string
-      size: number
-    }>
-  }
+  crud: EngineCrudOps
 }
 
 // ── SessionContext ───────────────────────────────────────────────────

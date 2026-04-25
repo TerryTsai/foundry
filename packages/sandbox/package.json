@@ -12,7 +12,6 @@
   "dependencies": {
     "@foundry/db": "*",
     "@foundry/model": "*",
-    "drizzle-orm": "^0.30.10",
     "zod": "^4.3.6"
   },
   "devDependencies": {

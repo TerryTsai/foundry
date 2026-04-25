@@ -11,7 +11,7 @@ export {
 export type {
   ReconcilerDeps,
   ReconcilerConfig,
+  ReconcilerCrudOps,
   EngineDeps,
   RunSessionFn,
-  AgentListFn,
 } from './types.js'

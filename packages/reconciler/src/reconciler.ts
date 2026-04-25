@@ -6,12 +6,10 @@
 // interface.
 //
 // Reconciler never executes a session itself — runSession arrives via
-// ReconcilerDeps from the composition root.
+// ReconcilerDeps from the composition root. Persistence access is also
+// dep-injected (no direct @foundry/db imports).
 
-import { eq } from 'drizzle-orm'
 import { type Db } from '@foundry/db'
-import * as database from '@foundry/db'
-import * as schema from '@foundry/db'
 import type { Agent, Project, Ticket } from '@foundry/db'
 import { now } from '@foundry/model'
 
@@ -44,7 +42,7 @@ const POLICIES = [
 // ── tick ─────────────────────────────────────────────────────────────
 
 export async function reconcilerTick(db: Db, deps: ReconcilerDeps): Promise<void> {
-  for (const project of database.projectsActive(db)) {
+  for (const project of deps.crud.projectsActive(db)) {
     tickProject(db, deps, project)
   }
 }
@@ -52,16 +50,15 @@ export async function reconcilerTick(db: Db, deps: ReconcilerDeps): Promise<void
 // Walk every non-terminal ticket in one project through the policy list.
 function tickProject(db: Db, deps: ReconcilerDeps, project: Project): void {
   const agents = deps.crud.agentList(db, { accountId: project.owner_id })
-  const ticketsByStatus = (status: string) =>
-    database.ticketAll(db, [eq(schema.ticket.project_id, project.id), eq(schema.ticket.status, status)])
+  const ticketsByStatus = (status: string) => deps.crud.ticketAllByProject(db, project.id, status)
   const running = ticketsByStatus('running')
   const slots   = { remaining: project.max_agents - running.length }
 
   // FIFO across non-terminal tickets — whatever waited longest goes first
   const queue = [...running, ...ticketsByStatus('waiting'), ...ticketsByStatus('created')]
     .sort((a, b) => {
-      const ea = database.eventLatest(db, 'ticket', a.id)?.created_at ?? '1970-01-01'
-      const eb = database.eventLatest(db, 'ticket', b.id)?.created_at ?? '1970-01-01'
+      const ea = deps.crud.eventLatest(db, 'ticket', a.id)?.created_at ?? '1970-01-01'
+      const eb = deps.crud.eventLatest(db, 'ticket', b.id)?.created_at ?? '1970-01-01'
       return ea.localeCompare(eb)
     })
 
@@ -96,15 +93,15 @@ export function reconcilerStopAll(): void {
   globalDeps = null
 }
 
-export function shutdownDrain(db: Db): void {
-  const running = database.sessionRunning(db)
+export function shutdownDrain(db: Db, deps: ReconcilerDeps): void {
+  const running = deps.crud.sessionRunning(db)
   for (const s of running) {
-    database.sessionUpdate(db, s.id, {
+    deps.crud.sessionUpdateById(db, s.id, {
       status: 'failed', error: 'deploy-restart', ended_at: now(),
     })
-    const t = database.ticketGet(db, s.ticket_id)
+    const t = deps.crud.ticketGetById(db, s.ticket_id)
     if (t?.status === 'running') {
-      database.ticketUpdate(db, t.id, { status: 'waiting', updated_at: now() })
+      deps.crud.ticketUpdateById(db, t.id, { status: 'waiting', updated_at: now() })
     }
   }
   if (running.length) console.log(`drained ${running.length} running session(s)`)

@@ -2,7 +2,7 @@
 
 export * as validate from './validators.js'
 
-export type { SandboxConfig } from './types.js'
+export type { SandboxConfig, SandboxCrudOps, ExecutionMeterCreateInput } from './types.js'
 
 export {
   ensureSessionContainer, startSessionContainer,

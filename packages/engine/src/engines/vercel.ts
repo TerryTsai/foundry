@@ -6,11 +6,10 @@ import { generateText, stepCountIs, tool, type ModelMessage, type ToolSet } from
 import { ulid } from 'ulid'
 
 import { type Db } from '@foundry/db'
-import * as database from '@foundry/db'
 import { now } from '@foundry/model'
 
 import { resolveModelWithDefaults } from './model-factory.js'
-import type { SessionContext, LoopResult, ToolDef } from '../types.js'
+import type { EngineDeps, SessionContext, LoopResult, ToolDef } from '../types.js'
 
 type StepResult = Awaited<ReturnType<typeof generateText<ToolSet>>>
 
@@ -47,7 +46,7 @@ function buildTools(ctx: SessionContext): ToolSet {
     ...toAiTools(deps.mcp.sandboxServer.tools, { db, config, sessionId, workspace: workDir, executionCreate }),
     ...toAiTools(deps.mcp.browserServer.tools, { db, config, sessionId, workspace: workDir, executionCreate }),
   }
-  const conns = database.connectionByAccount(db, agentDef.account_id)
+  const conns = deps.crud.connectionByAccount(db, agentDef.account_id)
   for (const conn of conns) {
     const mod = deps.mcp.byConnectionKind[conn.kind]
     if (!mod) continue
@@ -66,7 +65,7 @@ function contentPartsOf(result: StepResult): ContentPart[] {
 // Project a StepResult's content parts into activity rows. Returns the
 // number of tool calls emitted in this step.
 // eslint-disable-next-line max-lines-per-function -- legacy; refactor in Phase 7
-function writeStepActivities(db: Db, sessionId: string, turnId: string, result: StepResult): number {
+function writeStepActivities(db: Db, deps: EngineDeps, sessionId: string, turnId: string, result: StepResult): number {
   const parts = contentPartsOf(result)
   const { inputTokens, outputTokens } = result.usage ?? {}
   let toolCalls = 0
@@ -90,7 +89,7 @@ function writeStepActivities(db: Db, sessionId: string, turnId: string, result: 
       // tool-result mirrors the execution row; skip so we don't double-log.
       return
     }
-    database.activityInsert(db, {
+    deps.crud.activityCreate(db, {
       session_id:   sessionId,
       turn_id:      turnId,
       kind,
@@ -124,7 +123,7 @@ export async function runEngine(ctx: SessionContext): Promise<LoopResult> {
     if (shouldStop()) { cancelled = true; break }
     const result = await generateText({ model, system: systemPrompt, messages, tools, stopWhen: stepCountIs(1) })
     const turnId = ulid()
-    toolCalls += writeStepActivities(db, sessionId, turnId, result)
+    toolCalls += writeStepActivities(db, deps, sessionId, turnId, result)
     tokensIn  += result.usage?.inputTokens  ?? 0
     tokensOut += result.usage?.outputTokens ?? 0
     messages.push(...result.response.messages)

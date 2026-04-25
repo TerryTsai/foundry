@@ -2,13 +2,12 @@
 // row's terminal state and emits an event. No comments — lifecycle
 // messages live in the event table, not the comment stream.
 
-import * as database from '@foundry/db'
 import { now } from '@foundry/model'
 import type { Middleware } from './compose.js'
 
 // eslint-disable-next-line max-lines-per-function -- legacy; refactor in Phase 7
 export const withBookkeeping: Middleware = (next) => async (ctx) => {
-  database.eventInsert(ctx.db, {
+  ctx.deps.crud.eventCreate(ctx.db, {
     entity_type: 'session', entity_id: ctx.session.id,
     kind: 'session_started',
     data: JSON.stringify({ agent: ctx.agent.name, ticket_id: ctx.ticket.id }),
@@ -18,13 +17,13 @@ export const withBookkeeping: Middleware = (next) => async (ctx) => {
     await next(ctx)
     const r = ctx.result!
     const status = r.cancelled ? 'cancelled' : 'finished'
-    database.sessionUpdate(ctx.db, ctx.session.id, {
+    ctx.deps.crud.sessionUpdateById(ctx.db, ctx.session.id, {
       status,
       cost_usd:    r.costUsd,
       duration_ms: Date.now() - ctx.startedAt,
       ended_at:    now(),
     })
-    database.eventInsert(ctx.db, {
+    ctx.deps.crud.eventCreate(ctx.db, {
       entity_type: 'session', entity_id: ctx.session.id,
       kind: 'session_' + status,
       data: JSON.stringify({ duration_ms: Date.now() - ctx.startedAt, cost_usd: r.costUsd }),
@@ -33,13 +32,13 @@ export const withBookkeeping: Middleware = (next) => async (ctx) => {
     return ctx
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
-    database.sessionUpdate(ctx.db, ctx.session.id, {
+    ctx.deps.crud.sessionUpdateById(ctx.db, ctx.session.id, {
       status:      'failed',
       error:       msg,
       duration_ms: Date.now() - ctx.startedAt,
       ended_at:    now(),
     })
-    database.eventInsert(ctx.db, {
+    ctx.deps.crud.eventCreate(ctx.db, {
       entity_type: 'session', entity_id: ctx.session.id,
       kind: 'session_failed',
       data: JSON.stringify({ error: msg }),

@@ -2,14 +2,14 @@ import type { z } from 'zod'
 import { eq, inArray } from 'drizzle-orm'
 
 import { type Db } from '@foundry/db'
-import * as database from '@foundry/db'
 import * as schema from '@foundry/db'
 import type { Ticket, Comment } from '@foundry/db'
-import type { VerdictRow } from '@foundry/db'
 import { mustExist, pick, now, timestamps } from '@foundry/model'
 import { conflict } from '@foundry/model'
 import { ticket as validate } from './validators.js'
 import { assertProjectOwner, ticketOwned } from './project.js'
+import * as database from './repo.js'
+import type { VerdictRow } from './repo.js'
 
 export interface DependencyChainEntry {
   id: string; title: string; description: string

@@ -4,7 +4,6 @@
 // only when the agent explicitly calls the attachmentGet tool, keeping
 // the initial context cheap regardless of how many files are attached.
 
-import * as database from '@foundry/db'
 import type { Db } from '@foundry/db'
 import { now } from '@foundry/model'
 import type { Ticket } from '@foundry/db'
@@ -31,7 +30,7 @@ function triggerPrompt(db: Db, ticket: Ticket, deps: EngineDeps): string {
 
 export const withOpeningPrompt: Middleware = (next) => async (ctx) => {
   ctx.userPrompt = triggerPrompt(ctx.db, ctx.ticket, ctx.deps)
-  database.activityInsert(ctx.db, {
+  ctx.deps.crud.activityCreate(ctx.db, {
     session_id:   ctx.session.id,
     turn_id:      null,
     kind:         'prompt',

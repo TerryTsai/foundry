@@ -20,5 +20,5 @@ export { rateLimit } from './ratelimit.js'
 
 // types — config slice + cross-module callbacks
 export type {
-  AuthConfig, GithubOAuthDeps, GithubOAuthUser,
+  AuthConfig, AuthCrudOps, GithubOAuthDeps, GithubOAuthUser,
 } from './types.js'

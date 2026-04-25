@@ -6,7 +6,7 @@ import {
   authStart, authCallback, authMe, authLogout, AUTH_STATE_TTL_SEC,
   parseCookie, serializeCookie, requireAuth,
   validate,
-  type GithubOAuthDeps,
+  type AuthCrudOps, type GithubOAuthDeps,
 } from '@foundry/auth'
 import { github } from '@foundry/mcp'
 
@@ -24,7 +24,7 @@ function requestBaseUrl(req: Request): string {
 }
 
 // eslint-disable-next-line max-lines-per-function -- legacy; refactor in Phase 7
-export function authRoutes(db: Db, config: Config) {
+export function authRoutes(db: Db, config: Config, authCrud: AuthCrudOps) {
   const r = Router()
 
   // Inject the GitHub OAuth helpers from @foundry/mcp into the auth
@@ -52,7 +52,7 @@ export function authRoutes(db: Db, config: Config) {
   r.get('/github/callback', parse(validate.authCallback, 'query'), async (req, res, next) => {
     try {
       const stateCookie = parseCookie(req.headers.cookie, 'oauth_state')
-      const { sessionId, expiresAt } = await authCallback(db, config, req.data, stateCookie, githubDeps)
+      const { sessionId, expiresAt } = await authCallback(db, config, req.data, stateCookie, githubDeps, authCrud)
       const maxAge = Math.floor((expiresAt.getTime() - Date.now()) / 1000)
       res.setHeader('Set-Cookie', [
         serializeCookie('oauth_state', '', { maxAge: 0, secure: config.cookieSecure, sameSite: 'Lax' }),
@@ -64,13 +64,13 @@ export function authRoutes(db: Db, config: Config) {
     }
   })
 
-  r.get('/me', requireAuth(db, config), (req, res) => {
+  r.get('/me', requireAuth(db, config, authCrud), (req, res) => {
     res.json(authMe(req.account!))
   })
 
   r.post('/logout', (req, res) => {
     const sid = parseCookie(req.headers.cookie, 'foundry_session')
-    if (sid) authLogout(db, sid)
+    if (sid) authLogout(db, sid, authCrud)
     res.setHeader('Set-Cookie', serializeCookie('foundry_session', '', {
       maxAge: 0, secure: config.cookieSecure, sameSite: 'Lax',
     }))

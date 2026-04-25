@@ -1,5 +1,14 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import * as database from '@foundry/db'
+import {
+  accountUpsertByGithubId,
+  accountGetById, sessionGetById, ticketGetById, projectGetById,
+  authSessionGet, authSessionInsert, authSessionRemove,
+  claimUnownedProjects,
+  executionList as crudExecutionList,
+  executionBySession as crudExecutionBySession,
+  executionMeterCreate, executionMeterUpdate, executionMarkCancelled,
+  sessionsForTicketRaw,
+} from '@foundry/crud'
 import type { Db, Account } from '@foundry/db'
 import { makeCtx } from '@foundry/model'
 import type { Ctx } from '@foundry/model'
@@ -23,7 +32,7 @@ let account: Account
 
 beforeEach(() => {
   db = makeTestDb()
-  account = database.accountUpsertByGithubId(db, {
+  account = accountUpsertByGithubId(db, {
     github_id: 1, login: 'tester', name: 'Tester', email: null, avatar_url: null,
   })
   ctx = makeCtx({ accountId: account.id })
@@ -110,8 +119,18 @@ describe('sandbox adapter', () => {
     throw Object.assign(new Error('not found'), { status: 404, _tag: 'AppError' as const })
   }
 
+  const sandboxCrud = {
+    sessionGetById,
+    executionList: crudExecutionList,
+    executionBySession: crudExecutionBySession,
+    sessionsForTicketRaw,
+    executionMeterCreate,
+    executionMeterUpdate,
+    executionMarkCancelled,
+  }
+
   it('executionList returns ok with empty list when account has nothing', async () => {
-    const s = createSandboxAdapter({ db, config: sandboxConfig, executionOwned: stubExecOwn, sessionOwned: stubSessOwn })
+    const s = createSandboxAdapter({ db, config: sandboxConfig, executionOwned: stubExecOwn, sessionOwned: stubSessOwn, sandboxCrud })
     const bound = bind(createInProcessClient(emptyAdapters({ sandbox: s })), ctx)
     const r = await bound.sandbox.executionList()
     expect(r.ok).toBe(true)
@@ -119,7 +138,7 @@ describe('sandbox adapter', () => {
   })
 
   it('executionGet returns err Result on missing execution', async () => {
-    const s = createSandboxAdapter({ db, config: sandboxConfig, executionOwned: stubExecOwn, sessionOwned: stubSessOwn })
+    const s = createSandboxAdapter({ db, config: sandboxConfig, executionOwned: stubExecOwn, sessionOwned: stubSessOwn, sandboxCrud })
     const bound = bind(createInProcessClient(emptyAdapters({ sandbox: s })), ctx)
     const r = await bound.sandbox.executionGet('nonexistent')
     expect(r.ok).toBe(false)
@@ -162,8 +181,18 @@ describe('auth adapter', () => {
     }),
   }
 
+  const authCrud = {
+    accountGet: accountGetById,
+    accountUpsertByGithubId,
+    authSessionGet, authSessionInsert, authSessionRemove,
+    claimUnownedProjects,
+    sessionGet: sessionGetById,
+    ticketGet:  ticketGetById,
+    projectGet: projectGetById,
+  }
+
   it('authStart returns ok with url + state', async () => {
-    const a = createAuthAdapter({ db, config: authConfig, githubDeps })
+    const a = createAuthAdapter({ db, config: authConfig, githubDeps, authCrud })
     const bound = bind(createInProcessClient(emptyAdapters({ auth: a })), ctx)
     const r = await bound.auth.authStart({ baseUrl: 'http://localhost' })
     expect(r.ok).toBe(true)
@@ -171,7 +200,7 @@ describe('auth adapter', () => {
   })
 
   it('authCallback returns err Result on bad oauth state', async () => {
-    const a = createAuthAdapter({ db, config: authConfig, githubDeps })
+    const a = createAuthAdapter({ db, config: authConfig, githubDeps, authCrud })
     const bound = bind(createInProcessClient(emptyAdapters({ auth: a })), ctx)
     const r = await bound.auth.authCallback({
       code: 'x', state: 'mismatch', stateCookie: 'something-else',

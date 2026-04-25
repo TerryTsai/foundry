@@ -1,5 +1,4 @@
 import { type Db } from '@foundry/db'
-import * as database from '@foundry/db'
 import type { Agent, Project, Ticket } from '@foundry/db'
 import { now } from '@foundry/model'
 
@@ -31,11 +30,12 @@ export type Policy = (ctx: PolicyCtx) => 'acted' | 'pass'
 // on success (returns true). Returns false if the current status doesn't
 // match `from` (race with another tick or operator action).
 export function transition(
-  db: Db, ticketId: string, from: string, to: string,
+  db: Db, deps: ReconcilerDeps,
+  ticketId: string, from: string, to: string,
   causedBy: string, data?: Record<string, unknown>,
 ): boolean {
-  if (!database.ticketTransition(db, ticketId, from, to)) return false
-  database.eventInsert(db, {
+  if (!deps.crud.ticketTransition(db, ticketId, from, to)) return false
+  deps.crud.eventCreate(db, {
     entity_type: 'ticket', entity_id: ticketId,
     kind: 'status_changed',
     data: JSON.stringify({ from, to, ...data }),
@@ -51,11 +51,11 @@ export function transition(
 export function dispatchSession(
   db: Db, deps: ReconcilerDeps, ticket: Ticket, agent: Agent, role: 'producer' | 'verifier',
 ): void {
-  const sess = database.sessionInsert(db, {
+  const sess = deps.crud.sessionInsert(db, {
     ticket_id: ticket.id, agent_id: agent.id,
     status: 'running', started_at: now(),
   })
-  database.eventInsert(db, {
+  deps.crud.eventCreate(db, {
     entity_type: 'session', entity_id: sess.id,
     kind: 'started',
     data: JSON.stringify({ role, ticket_id: ticket.id, agent_name: agent.name }),

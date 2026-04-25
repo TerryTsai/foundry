@@ -3,7 +3,6 @@ import { createOpenAI } from '@ai-sdk/openai'
 import { wrapLanguageModel, defaultSettingsMiddleware } from 'ai'
 
 import { type Db } from '@foundry/db'
-import * as database from '@foundry/db'
 import type { Agent } from '@foundry/db'
 import { mustExist, badRequest } from '@foundry/model'
 
@@ -38,7 +37,7 @@ function secretFor(conn: { secrets: string }, field: string, deps: EngineDeps): 
 }
 
 export function resolveModel(db: Db, deps: EngineDeps, connectionId: string, modelId: string) {
-  const row = mustExist(database.connectionGet(db, connectionId), `connection '${connectionId}' not found`)
+  const row = mustExist(deps.crud.connectionGetById(db, connectionId), `connection '${connectionId}' not found`)
   const factory = modelFactoryByKind[row.kind]
   if (!factory) throw badRequest(`connection kind '${row.kind}' has no model factory — cannot serve as an LLM provider`)
   return factory(secretFor(row, 'api_key', deps)).languageModel(modelId)

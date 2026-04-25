@@ -1,11 +1,11 @@
 import { eq } from 'drizzle-orm'
 
 import { type Db } from '@foundry/db'
-import * as database from '@foundry/db'
 import * as schema from '@foundry/db'
 import type { Activity } from '@foundry/db'
 import { mustExist, assertStatus, now } from '@foundry/model'
 import { sessionOwned, ticketOwned } from './project.js'
+import * as database from './repo.js'
 
 export function sessionGet(db: Db, accountId: string, id: string) {
   sessionOwned(db, id, accountId)

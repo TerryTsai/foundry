@@ -2,7 +2,6 @@
 // so it doesn't sit in `running` forever. The reconciler will see the
 // terminal state and move on.
 
-import * as database from '@foundry/db'
 import { now } from '@foundry/model'
 import type { Middleware } from './compose.js'
 
@@ -11,8 +10,8 @@ export const withTicketFailOnCrash: Middleware = (next) => async (ctx) => {
   catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     try {
-      database.ticketUpdate(ctx.db, ctx.ticket.id, { status: 'failed', updated_at: now() })
-      database.eventInsert(ctx.db, {
+      ctx.deps.crud.ticketUpdateById(ctx.db, ctx.ticket.id, { status: 'failed', updated_at: now() })
+      ctx.deps.crud.eventCreate(ctx.db, {
         entity_type: 'ticket', entity_id: ctx.ticket.id,
         kind: 'status_changed',
         data: JSON.stringify({ from: 'running', to: 'failed', reason: msg }),

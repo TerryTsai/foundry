@@ -4,15 +4,14 @@
 // Stops when the ticket leaves `running` (founder cancel, reconciler
 // state change) or the session leaves `running` (external kill).
 
-import * as database from '@foundry/db'
 import type { Middleware } from './compose.js'
 
 export const withCooperativeCancel: Middleware = (next) => async (ctx) => {
-  const { db, session, ticket } = ctx
+  const { db, deps, session, ticket } = ctx
   ctx.shouldStop = () => {
-    const t = database.ticketGet(db, ticket.id)
+    const t = deps.crud.ticketGetById(db, ticket.id)
     if (!t || t.status !== 'running') return true
-    const s = database.sessionGet(db, session.id)
+    const s = deps.crud.sessionGetById(db, session.id)
     if (!s || s.status !== 'running') return true
     return false
   }

@@ -1,4 +1,3 @@
-import * as database from '@foundry/db'
 import { type Policy, transition, dispatchSession, parseVerifierIds } from './shared.js'
 
 // Ticket is in waiting, all verifiers in the current round have run,
@@ -16,7 +15,7 @@ export const retryAfterFail: Policy = (ctx) => {
   const verifierIds = parseVerifierIds(agent.verifiers)
   if (verifierIds.length === 0) return 'pass'
 
-  const sessions = database.sessionsByTicketRaw(db, ticket.id)
+  const sessions = deps.crud.sessionsByTicketRaw(db, ticket.id)
   const producers = sessions.filter(s => s.agent_id === ticket.agent_id)
   const latestProducer = producers[producers.length - 1]
   if (!latestProducer) return 'pass'
@@ -28,16 +27,16 @@ export const retryAfterFail: Policy = (ctx) => {
   if (verifierSessions.some(s => s.status === 'running')) return 'pass'
 
   const verdicts = verifierSessions
-    .map(s => database.verdictBySession(db, s.id))
+    .map(s => deps.crud.verdictBySession(db, s.id))
     .filter((v): v is NonNullable<typeof v> => v != null)
 
   // All-pass (or empty pass set) is finishOnAllPass's job — nothing for us here.
   if (verdicts.length > 0 && verdicts.every(v => v.pass)) return 'pass'
 
   // Mark the round failed and try a new producer if a slot is free.
-  transition(db, ticket.id, 'waiting', 'waiting', 'reconciler', { reason: 'verdict_fail' })
+  transition(db, deps, ticket.id, 'waiting', 'waiting', 'reconciler', { reason: 'verdict_fail' })
   if (slots.remaining > 0
-   && transition(db, ticket.id, 'waiting', 'running', 'reconciler', { reason: 'retry' })) {
+   && transition(db, deps, ticket.id, 'waiting', 'running', 'reconciler', { reason: 'retry' })) {
     slots.remaining--
     dispatchSession(db, deps, { ...ticket, status: 'running' }, agent, 'producer')
   }

@@ -4,7 +4,7 @@
 // runtime uses when mounting the Agent-SDK server.
 
 import { type Db } from '@foundry/db'
-import * as database from '@foundry/db'
+import type { Connection } from '@foundry/db'
 import * as providers from './integrations/registry.js'
 import { registry as mcpRegistry } from './tools/registry.js'
 import { byConnectionKind } from './integrations/registry.js'
@@ -25,13 +25,18 @@ const builtInTools: Record<string, { name: string; description: string }[]> = {
   browser: browserMcp.tools.map(t => ({ name: t.name, description: t.description })),
 }
 
+// mcp can't import @foundry/crud — composition root injects this lookup.
+export type ConnectionByAccountFn = (db: Db, accountId: string) => Connection[]
+
 // eslint-disable-next-line max-lines-per-function -- legacy; refactor in Phase 7
-export function agentMcpList(db: Db, accountId: string): McpListEntry[] {
+export function agentMcpList(
+  db: Db, accountId: string, connectionByAccount: ConnectionByAccountFn,
+): McpListEntry[] {
   const out: McpListEntry[] = mcpRegistry.map(info => ({
     ...info,
     tools: builtInTools[info.id] ?? [],
   }))
-  const conns = database.connectionByAccount(db, accountId)
+  const conns = connectionByAccount(db, accountId)
   for (const conn of conns) {
     const mod = byConnectionKind[conn.kind as keyof typeof byConnectionKind]
     const provider = providers.providerGet(conn.kind)

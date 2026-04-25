@@ -1,8 +1,9 @@
 import { createHmac, timingSafeEqual } from 'crypto'
 
 import { type Db } from '@foundry/db'
-import * as database from '@foundry/db'
 import { mustExist } from '@foundry/model'
+
+import type { AuthCrudOps } from './types.js'
 
 // Per-session sandbox auth — stateless HMAC-SHA256 JWT.
 //
@@ -35,10 +36,12 @@ export function isSandboxToken(token: string): boolean {
   return token.startsWith(PREFIX)
 }
 
-export function mint(db: Db, sessionId: string, ttlMs: number = DEFAULT_TTL_MS): string {
-  const session = mustExist(database.sessionGet(db, sessionId), `session '${sessionId}' not found`)
-  const ticket  = mustExist(database.ticketGet(db, session.ticket_id), `ticket '${session.ticket_id}' not found`)
-  const project = mustExist(database.projectGet(db, ticket.project_id), `project '${ticket.project_id}' not found`)
+export function mint(
+  db: Db, crud: AuthCrudOps, sessionId: string, ttlMs: number = DEFAULT_TTL_MS,
+): string {
+  const session = mustExist(crud.sessionGet(db, sessionId), `session '${sessionId}' not found`)
+  const ticket  = mustExist(crud.ticketGet(db, session.ticket_id), `ticket '${session.ticket_id}' not found`)
+  const project = mustExist(crud.projectGet(db, ticket.project_id), `project '${ticket.project_id}' not found`)
   if (!project.owner_id) throw new Error(`project '${project.id}' has no owner — cannot mint sandbox token`)
   return sign({
     v: 1, sid: session.id, tid: ticket.id, pid: project.id, aid: project.owner_id,

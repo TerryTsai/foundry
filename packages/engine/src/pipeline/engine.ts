@@ -1,4 +1,3 @@
-import * as database from '@foundry/db'
 import type { Middleware } from './compose.js'
 
 // Innermost pipeline stage — picks the engine for this session's
@@ -10,7 +9,7 @@ import type { Middleware } from './compose.js'
 // none — this is the leaf) sees the populated result.
 
 export const withEngine: Middleware = (next) => async (ctx) => {
-  const conn = database.connectionGet(ctx.db, ctx.agent.connection_id)
+  const conn = ctx.deps.crud.connectionGetById(ctx.db, ctx.agent.connection_id)
   const runEngine = conn?.kind === 'anthropic-subscription'
     ? (await import('../engines/anthropic.js')).runEngine
     : (await import('../engines/vercel.js'   )).runEngine

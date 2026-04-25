@@ -1,4 +1,3 @@
-import * as database from '@foundry/db'
 import { type Policy, transition, dispatchSession, parseVerifierIds } from './shared.js'
 
 // Ticket is in waiting, verifiers are configured, and at least one
@@ -14,7 +13,7 @@ export const dispatchVerifier: Policy = (ctx) => {
   const verifierIds = parseVerifierIds(agent.verifiers)
   if (verifierIds.length === 0) return 'pass'
 
-  const sessions = database.sessionsByTicketRaw(db, ticket.id)
+  const sessions = deps.crud.sessionsByTicketRaw(db, ticket.id)
   const producers = sessions.filter(s => s.agent_id === ticket.agent_id)
   const latestProducer = producers[producers.length - 1]
   if (!latestProducer) return 'pass'   // recovery-producer policy handles this case
@@ -31,7 +30,7 @@ export const dispatchVerifier: Policy = (ctx) => {
     const verifier = agents.find(a => a.id === vid)
     if (!verifier) continue
     if (slots.remaining <= 0) return 'pass'
-    if (!transition(db, ticket.id, 'waiting', 'running', 'reconciler', { reason: 'verifier', verifier_name: verifier.name })) return 'pass'
+    if (!transition(db, deps, ticket.id, 'waiting', 'running', 'reconciler', { reason: 'verifier', verifier_name: verifier.name })) return 'pass'
     slots.remaining--
     dispatchSession(db, deps, { ...ticket, status: 'running' }, verifier, 'verifier')
     return 'acted'

@@ -1,4 +1,3 @@
-import * as database from '@foundry/db'
 import { type Policy, transition, dispatchSession } from './shared.js'
 
 // Newly-created ticket → dispatch its assigned producer agent if a slot
@@ -13,11 +12,11 @@ export const dispatchProducer: Policy = (ctx) => {
   if (!agent) return 'pass'
 
   if (ticket.depends_on) {
-    const dep = database.ticketGet(db, ticket.depends_on)
+    const dep = deps.crud.ticketGetById(db, ticket.depends_on)
     if (!dep || dep.status !== 'finished') return 'pass'
   }
 
-  if (!transition(db, ticket.id, 'created', 'running', 'reconciler')) return 'pass'
+  if (!transition(db, deps, ticket.id, 'created', 'running', 'reconciler')) return 'pass'
   slots.remaining--
   dispatchSession(db, deps, { ...ticket, status: 'running' }, agent, 'producer')
   return 'acted'

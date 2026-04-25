@@ -2,13 +2,13 @@ import { eq } from 'drizzle-orm'
 import type { z } from 'zod'
 
 import { type Db } from '@foundry/db'
-import * as database from '@foundry/db'
 import * as schema from '@foundry/db'
 import type { Connection } from '@foundry/db'
 import { mustExist, now, timestamps } from '@foundry/model'
 import { conflict, badRequest, notFound } from '@foundry/model'
 import { connection as validate } from './validators.js'
 import { encryptSecret, decryptSecret } from './secrets-crypto.js'
+import * as database from './repo.js'
 
 // Masked shape returned by the API — secrets are never serialized directly.
 // A preview of the first password field is shown so the UI can help operators

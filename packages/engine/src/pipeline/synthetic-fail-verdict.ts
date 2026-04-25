@@ -4,7 +4,6 @@
 // so the next producer's prompt surfaces the reason. Silent = failed
 // review, never implicit approval.
 
-import * as database from '@foundry/db'
 import type { Middleware } from './compose.js'
 
 export const withSyntheticFailVerdict: Middleware = (next) => async (ctx) => {
@@ -15,11 +14,11 @@ export const withSyntheticFailVerdict: Middleware = (next) => async (ctx) => {
     // verdictReport can still land seconds later. Writing a synthetic
     // fail here would shadow it. A cancelled verifier is inconclusive,
     // not failed — the orchestrator halts the dance instead.
-    if (!ctx.result?.cancelled && !database.verdictBySession(ctx.db, ctx.session.id)) {
+    if (!ctx.result?.cancelled && !ctx.deps.crud.verdictBySession(ctx.db, ctx.session.id)) {
       const reason = ctx.result
         ? 'verifier ended without reporting a verdict'
         : 'verifier crashed before reporting a verdict'
-      database.sessionUpdate(ctx.db, ctx.session.id, {
+      ctx.deps.crud.sessionUpdateById(ctx.db, ctx.session.id, {
         verdict_pass:   false,
         verdict_reason: reason,
       })

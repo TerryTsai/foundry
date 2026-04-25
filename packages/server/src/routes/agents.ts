@@ -6,6 +6,7 @@ import {
   validate,
   agentList, agentGet, agentCreate, agentUpdate, agentRemove,
   sessionGet, sessionStatus, sessionKill, sessionActivities,
+  connectionByAccount,
 } from '@foundry/crud'
 import { agentMcpList, TOOL_NAMES } from '@foundry/mcp'
 import { agentUsage } from '@foundry/analytics'
@@ -13,7 +14,7 @@ import { agentUsage } from '@foundry/analytics'
 export function agentRoutes(db: Db) {
   const r = Router()
   r.get   ('/tools',                              run(()  => [...TOOL_NAMES]),                                                              send())
-  r.get   ('/mcp',                                run(req => agentMcpList(db, accountId(req))),                                             send())
+  r.get   ('/mcp',                                run(req => agentMcpList(db, accountId(req), connectionByAccount)),                        send())
   r.get   ('/',           parse(validate.agent.list, 'query'), run(req => agentList(db, { accountId: accountId(req) })),                    send())
   r.post  ('/',           parse(validate.agent.create),        run(req => agentCreate(db, accountId(req), req.data)),                       send(201))
   r.get   ('/:id',                                run(req => agentGet(db, accountId(req), req.params.id)),                                  send())

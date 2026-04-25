@@ -229,6 +229,12 @@ The eight logic modules: `auth`, `billing`, `crud`, `analytics`, `sandbox`, `mcp
 
 The three infrastructure modules — `model`, `client`, `db` — are freely importable by any module. They are foundations: shared types, transport plumbing, persistence handles. None of them contain domain logic.
 
+### Persistence boundary: only `crud` and `analytics` may import `@foundry/db`
+
+`@foundry/db` exposes drizzle schema, the `Db` connection handle, `createDatabase`, and entity row types. The per-entity query helpers (ticketGet, sessionInsert, eventInsert, executionUpdate, …) live in `@foundry/crud`. Logic modules other than crud and analytics MUST NOT import `@foundry/db` — they get persistence through callback bundles the composition root injects (e.g. `EngineDeps.crud`, `ReconcilerCrudOps`, `SandboxCrudOps`, `AuthCrudOps`).
+
+`analytics` is a deliberate, bounded exception. Its dashboards run hand-written SQL aggregates that don't fit the per-entity helper surface; threading those through crud callbacks would invert the shape and cost legibility. The rule for analytics is **read queries only**: any analytics writes must go through crud. The manifest check enforces "non-{crud,analytics} logic modules cannot import @foundry/db" mechanically.
+
 Exceptions:
 - `server` is the composition root. It imports logic-module implementations directly to wire them and build the in-process `Client`. No other module gets this exemption.
 

@@ -1,8 +1,7 @@
 import type { Request, Response, NextFunction, RequestHandler } from 'express'
 import { unauthorized } from '@foundry/model'
-import * as database from '@foundry/db'
 import type { Db, Account } from '@foundry/db'
-import type { AuthConfig } from './types.js'
+import type { AuthConfig, AuthCrudOps } from './types.js'
 import * as sessionJwt from './session-jwt.js'
 
 // Express request augmentation: requireAuth attaches the resolved Account to
@@ -57,7 +56,7 @@ export function serializeCookie(name: string, value: string, opts: {
 //      accepted; bearer requests must present a live sandbox JWT.
 
 // eslint-disable-next-line max-lines-per-function -- legacy; refactor in Phase 7
-export const requireAuth = (db: Db, _config: AuthConfig): RequestHandler =>
+export const requireAuth = (db: Db, _config: AuthConfig, crud: AuthCrudOps): RequestHandler =>
   (req: Request, _res: Response, next: NextFunction) => {
     const authHeader = req.headers.authorization
     if (authHeader?.startsWith('Bearer ')) {
@@ -69,7 +68,7 @@ export const requireAuth = (db: Db, _config: AuthConfig): RequestHandler =>
       if (token.startsWith('sb_')) {
         const claims = sessionJwt.verify(token)
         if (!claims) return next(unauthorized())
-        const account = database.accountGet(db, claims.aid)
+        const account = crud.accountGet(db, claims.aid)
         if (!account) return next(unauthorized())
         req.account = account
         return next()
@@ -79,9 +78,9 @@ export const requireAuth = (db: Db, _config: AuthConfig): RequestHandler =>
     // Session cookie — real user.
     const sid = parseCookie(req.headers.cookie, 'foundry_session')
     if (!sid) return next(unauthorized())
-    const session = database.authSessionGet(db, sid)
+    const session = crud.authSessionGet(db, sid)
     if (!session || new Date(session.expires_at) < new Date()) return next(unauthorized())
-    const account = database.accountGet(db, session.account_id)
+    const account = crud.accountGet(db, session.account_id)
     if (!account) return next(unauthorized())
     req.account = account
     next()

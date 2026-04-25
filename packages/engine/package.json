@@ -16,7 +16,6 @@
     "@foundry/db": "*",
     "@foundry/model": "*",
     "ai": "^5.0.80",
-    "drizzle-orm": "^0.30.10",
     "ulid": "^2.3.0",
     "zod": "^4.3.6"
   }

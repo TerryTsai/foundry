@@ -5,6 +5,7 @@ export { runSession } from './session.js'
 export type {
   EngineConfig,
   EngineDeps,
+  EngineCrudOps,
   SessionContext,
   LoopResult,
   ToolDef,
@@ -16,4 +17,6 @@ export type {
   ExecutionCreateInput,
   ExecutionHandle,
   ExecHandleEmitter,
+  AttachmentSummary,
+  VerdictRow,
 } from './types.js'

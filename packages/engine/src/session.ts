@@ -3,7 +3,6 @@
 // every entry here is one box in that diagram, in order.
 
 import { type Db } from '@foundry/db'
-import * as database from '@foundry/db'
 import type { Agent, Ticket } from '@foundry/db'
 
 import type { EngineConfig, EngineDeps, SessionContext } from './types.js'
@@ -54,7 +53,7 @@ export async function runSession(
   agent: Agent, ticket: Ticket, role: 'producer' | 'verifier',
 ): Promise<void> {
   // load session
-  const session = database.sessionGet(db, sessionId)
+  const session = deps.crud.sessionGetById(db, sessionId)
   if (!session) throw new Error(`session ${sessionId} not found`)
 
   // mint per-session sandbox JWT — sandbox tools curl the host with

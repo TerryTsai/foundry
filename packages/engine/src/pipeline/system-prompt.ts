@@ -14,8 +14,8 @@
 // verifier N+1 therefore sees verifier N's verdict in its own system
 // prompt.
 
-import * as database from '@foundry/db'
 import type { Db, Ticket, Agent } from '@foundry/db'
+import type { EngineDeps } from '../types.js'
 import type { Middleware } from './compose.js'
 
 type Role = 'producer' | 'verifier'
@@ -31,9 +31,9 @@ Then call the \`verdictReport\` tool exactly once with:
 You MUST call verdictReport before ending your session. A silent verifier is treated as a failed review.`
 
 // eslint-disable-next-line max-lines-per-function -- legacy; refactor in Phase 7
-function assemble(db: Db, ticket: Ticket, agent: Agent, role: Role): string {
-  const project = database.projectGet(db, ticket.project_id)
-  const account = project ? database.accountGet(db, project.owner_id) : undefined
+function assemble(db: Db, deps: EngineDeps, ticket: Ticket, agent: Agent, role: Role): string {
+  const project = deps.crud.projectGetById(db, ticket.project_id)
+  const account = project ? deps.crud.accountGetById(db, project.owner_id) : undefined
 
   const parts: string[] = []
   const push = (heading: string, body: string | null | undefined) => {
@@ -45,15 +45,15 @@ function assemble(db: Db, ticket: Ticket, agent: Agent, role: Role): string {
   push('Ticket',    ticket.description)
   if (role === 'verifier') parts.push(VERIFIER_RUBRIC)
 
-  const comments = database.commentByTicket(db, ticket.id)
+  const comments = deps.crud.commentByTicket(db, ticket.id)
   if (comments.length > 0) {
     parts.push('## Comments\n\n' + comments.map(c => `[${c.author}] ${c.body}`).join('\n\n'))
   }
 
-  const verdicts = database.verdictByTicket(db, ticket.id)
+  const verdicts = deps.crud.verdictByTicket(db, ticket.id)
   if (verdicts.length > 0) {
     const lines = verdicts.map(v => {
-      const name = database.agentGet(db, v.agent_id)?.name ?? v.agent_id
+      const name = deps.crud.agentGetById(db, v.agent_id)?.name ?? v.agent_id
       const tag  = v.pass ? 'PASS' : 'FAIL'
       return `[${name}] ${tag} — ${v.reason}`
     })
@@ -63,6 +63,6 @@ function assemble(db: Db, ticket: Ticket, agent: Agent, role: Role): string {
 }
 
 export const withSystemPrompt = (role: Role): Middleware => (next) => async (ctx) => {
-  ctx.systemPrompt = assemble(ctx.db, ctx.ticket, ctx.agent, role)
+  ctx.systemPrompt = assemble(ctx.db, ctx.deps, ctx.ticket, ctx.agent, role)
   return next(ctx)
 }

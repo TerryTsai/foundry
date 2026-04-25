@@ -1,21 +1,18 @@
 import type { Response } from 'express'
 import { EventEmitter } from 'events'
-import { eq } from 'drizzle-orm'
 
 import { type Db } from '@foundry/db'
-import * as database from '@foundry/db'
-import * as schema from '@foundry/db'
 import type { Execution, Session } from '@foundry/db'
 import { mustExist, assertStatus, now } from '@foundry/model'
 
 import {
   ensureSessionContainer, execInContainer, stopSessionContainer, type ExecHandle,
 } from './podman.js'
-import type { SandboxConfig } from './types.js'
+import type { SandboxConfig, SandboxCrudOps } from './types.js'
 
 // Cross-module ownership-check callbacks injected by the route layer.
-// sandbox can't import @foundry/crud (no logic-to-logic). The route
-// handler in service binds these to the crud helpers it already has.
+// sandbox can't import @foundry/crud (no logic-to-logic). The composition
+// root binds these to the crud helpers it already has.
 export type IsExecutionOwned = (db: Db, executionId: string, accountId: string) => Execution
 export type IsSessionOwned   = (db: Db, sessionId: string,   accountId: string) => Session
 
@@ -42,19 +39,10 @@ function scrubSecrets(s: string | null | undefined): string | null {
   return out
 }
 
-export function executionList(db: Db, accountId: string): Execution[] {
-  // Restrict to executions whose session sits in a project the requester
-  // owns. Walk the join in JS — execution volume is bounded (last 200).
-  const owned = database.projectAll(db, [eq(schema.project.owner_id, accountId)]).map(p => p.id)
-  if (owned.length === 0) return []
-  const ownedSet = new Set(owned)
-  return database.executionAll(db).reverse().filter(e => {
-    if (!e.session_id) return false
-    const s = database.sessionGet(db, e.session_id)
-    if (!s) return false
-    const t = database.ticketGet(db, s.ticket_id)
-    return t ? ownedSet.has(t.project_id) : false
-  }).slice(0, 200)
+export function executionList(
+  db: Db, accountId: string, crud: SandboxCrudOps,
+): Execution[] {
+  return crud.executionList(db, accountId)
 }
 
 export function executionGet(
@@ -64,10 +52,11 @@ export function executionGet(
 }
 
 export function executionBySession(
-  db: Db, accountId: string, sessionId: string, isSessionOwned: IsSessionOwned,
+  db: Db, accountId: string, sessionId: string,
+  isSessionOwned: IsSessionOwned, crud: SandboxCrudOps,
 ): Execution[] {
   isSessionOwned(db, sessionId, accountId)
-  return database.executionBySession(db, sessionId)
+  return crud.executionBySession(db, sessionId)
 }
 
 export interface ExecutionCreateInput {
@@ -90,7 +79,7 @@ export interface ExecutionCreateInput {
 // with cpu/net deltas on exit.
 // eslint-disable-next-line max-lines-per-function -- legacy; refactor in Phase 7
 export function executionCreate(
-  db: Db, config: SandboxConfig, input: ExecutionCreateInput,
+  db: Db, config: SandboxConfig, crud: SandboxCrudOps, input: ExecutionCreateInput,
 ): { id: string; emitter: ExecHandle['emitter'] } {
   if (!input.session_id) {
     throw new Error('executionCreate: session_id is required for persistent-container execution')
@@ -99,12 +88,12 @@ export function executionCreate(
   // Resolve the session's workspace (set up once by withWorkspace) so
   // startSessionContainer can bind-mount it. Sessions always have a
   // workspace by the time they make a tool call.
-  const session = mustExist(database.sessionGet(db, sessionId))
+  const session = mustExist(crud.sessionGetById(db, sessionId))
   void session // for future use; right now just validates existence
 
   const timeout_ms = input.timeout_ms ?? config.sandboxTimeout
 
-  const row = database.executionInsert(db, {
+  const row = crud.executionMeterCreate(db, {
     session_id:  sessionId,
     tool_name:   input.tool_name   ?? null,
     tool_input:  input.tool_input !== undefined ? JSON.stringify(input.tool_input) : null,
@@ -149,7 +138,7 @@ export function executionCreate(
       handle.emitter.on('stderr', (s: string) => { stderr.push(s); outward.emit('stderr', s) })
       handle.emitter.once('exit', (code: number, stats) => {
         activeExecs.delete(row.id)
-        database.executionUpdate(db, row.id, {
+        crud.executionMeterUpdate(db, row.id, {
           status:         code === 0 ? 'finished' : 'failed',
           exit_code:      code,
           ended_at:       now(),
@@ -165,7 +154,7 @@ export function executionCreate(
       })
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
-      database.executionUpdate(db, row.id, {
+      crud.executionMeterUpdate(db, row.id, {
         status:      'failed',
         exit_code:   -1,
         ended_at:    now(),
@@ -200,33 +189,36 @@ function sessionWorkspaceDir(sessionId: string): string {
 }
 
 export function executionKill(
-  db: Db, accountId: string, id: string, isExecutionOwned: IsExecutionOwned,
+  db: Db, accountId: string, id: string,
+  isExecutionOwned: IsExecutionOwned, crud: SandboxCrudOps,
 ): { ok: true } {
   const row = isExecutionOwned(db, id, accountId)
   assertStatus(row, 'running', 'execution is not active')
-  killOne(db, id)
+  killOne(db, id, crud)
   return { ok: true }
 }
 
-function killOne(db: Db, id: string): void {
+function killOne(db: Db, id: string, crud: SandboxCrudOps): void {
   const handle = activeExecs.get(id)
   if (handle) { handle.kill(); activeExecs.delete(id) }
-  database.executionUpdate(db, id, { status: 'cancelled', exit_code: -1, ended_at: now() })
+  crud.executionMarkCancelled(db, id)
 }
 
 // Called on ticket cancel. Tearing down each running session's
 // container kills its chromium, its dev servers, and every in-flight
 // exec in one shot — no need to walk executions individually.
-export function killRunningExecutionsForTicket(db: Db, ticketId: string): void {
-  const sessions = database.sessionsByTicketRaw(db, ticketId)
+export function killRunningExecutionsForTicket(
+  db: Db, ticketId: string, crud: SandboxCrudOps,
+): void {
+  const sessions = crud.sessionsForTicketRaw(db, ticketId)
   for (const s of sessions) {
     if (s.status !== 'running') continue
     // Best-effort: mark any live exec rows for this session as cancelled,
     // then kill the container so chromium / dev servers / anything still
     // running inside dies cleanly.
-    const execs = database.executionBySession(db, s.id)
+    const execs = crud.executionBySession(db, s.id)
     for (const e of execs) {
-      if (e.status === 'running') killOne(db, e.id)
+      if (e.status === 'running') killOne(db, e.id, crud)
     }
     void stopSessionContainer(s.id)
   }

@@ -7,10 +7,9 @@ import { execSync } from 'child_process'
 import { config } from './config.js'
 import { createDatabase, type Db } from '@foundry/db'
 import { errors } from './http.js'
-import { assertKeyConfigured } from '@foundry/crud'
 
 import { authRoutes }       from './routes/auth.js'
-import { requireAuth, rateLimit } from '@foundry/auth'
+import { requireAuth, rateLimit, type AuthCrudOps } from '@foundry/auth'
 
 import { projectRoutes }    from './routes/projects.js'
 import { connectionRoutes } from './routes/connections.js'
@@ -23,8 +22,8 @@ import {
   attachmentRoutes, ticketAttachmentRoutes, commentAttachmentRoutes,
 } from './routes/attachments.js'
 
-import { reconcilerGlobalStart, reconcilerStopAll, shutdownDrain, type ReconcilerDeps } from '@foundry/reconciler'
-import { runSession, type EngineDeps } from '@foundry/engine'
+import { reconcilerGlobalStart, reconcilerStopAll, shutdownDrain, type ReconcilerCrudOps, type ReconcilerDeps } from '@foundry/reconciler'
+import { runSession, type EngineCrudOps, type EngineDeps } from '@foundry/engine'
 import { sessionJwt } from '@foundry/auth'
 import {
   asText, isMcpEnvelope, parseConn, toolUseId,
@@ -39,11 +38,32 @@ import {
   registerSessionWorkspace, unregisterSessionWorkspace,
   stopSessionContainer,
   stopAllSessionContainers,
+  type SandboxCrudOps,
 } from '@foundry/sandbox'
 import {
   agentList,
   encryptSecret, decryptSecret, attachmentListByTicketInternal,
   executionOwned, sessionOwned,
+  // moved-from-db helpers (now crud)
+  assertKeyConfigured,
+  ticketGetById, ticketUpdateById, ticketTransition, ticketAllByProject,
+  projectGetById, projectsActive,
+  sessionGetById, sessionUpdateById, sessionInsert,
+  sessionRunning, sessionRunningForTicket, sessionsByTicketRaw,
+  activityWrite, activityUpdate, activityByTurnOrder,
+  agentGetById,
+  connectionGetById, connectionByAccount, connectionUpdateById,
+  accountGetById,
+  verdictBySession, verdictByTicket,
+  authSessionGet, authSessionInsert, authSessionRemove,
+  accountUpsertByGithubId, claimUnownedProjects,
+  commentByTicket,
+  eventCreate, eventLatest,
+  // execution metering
+  executionList as crudExecutionList,
+  executionBySession as crudExecutionBySession,
+  executionMeterCreate, executionMeterUpdate, executionMarkCancelled,
+  sessionsForTicketRaw,
 } from '@foundry/crud'
 
 import {
@@ -68,6 +88,15 @@ export function buildApp() {
 
   app.use(express.json())
 
+  // Build the cross-module callback bundles. crud is the only logic
+  // module that imports @foundry/db; everyone else gets its persistence
+  // through these closures.
+  const authCrud      = buildAuthCrudOps()
+  const sandboxCrud   = buildSandboxCrudOps()
+  const reconcilerCrud = buildReconcilerCrudOps()
+  const engineCrud    = buildEngineCrudOps()
+  const engineDeps    = buildEngineDeps(engineCrud, authCrud, sandboxCrud)
+
   // ── Public routes (no auth) ──
   app.get('/health',        (_req, res) => res.json({ ok: true }))
   app.get('/health/detail', (_req, res) => res.json({ ok: true, uptime: process.uptime(), version: '1.0.0' }))
@@ -75,7 +104,7 @@ export function buildApp() {
   // Rate-limit the auth surface — prevents brute force on the OAuth state /
   // callback endpoints. Bucket per IP. Public so it lives ABOVE requireAuth.
   app.use('/auth', rateLimit({ windowMs: 5 * 60 * 1000, max: 30, bucket: 'auth' }))
-  app.use('/auth', authRoutes(db, config))
+  app.use('/auth', authRoutes(db, config, authCrud))
 
   // ── Static web app (production) ──
   // Serve the built site SPA from packages/site/dist. In dev (tsx watch)
@@ -111,7 +140,7 @@ export function buildApp() {
   }
 
   // ── Authenticated routes ──
-  app.use(requireAuth(db, config))
+  app.use(requireAuth(db, config, authCrud))
 
   // Per-account write throttle. Bucket key is account id (req.account.id is
   // set by requireAuth). 600/min comfortably covers sandbox bursts; cookie
@@ -123,10 +152,10 @@ export function buildApp() {
 
   app.use('/project',    projectRoutes(db))
   app.use('/connection', connectionRoutes(db))
-  app.use('/ticket',     ticketRoutes(db))
+  app.use('/ticket',     ticketRoutes(db, sandboxCrud))
   app.use('/agent',      agentRoutes(db))
-  app.use('/session',    sessionRoutes(db))
-  app.use('/execution',  executionRoutes(db, config))
+  app.use('/session',    sessionRoutes(db, sandboxCrud))
+  app.use('/execution',  executionRoutes(db, config, sandboxCrud))
   app.use('/analytics',  analyticsRoutes(db))
   app.use('/attachment', attachmentRoutes(db))
 
@@ -137,8 +166,8 @@ export function buildApp() {
 
   app.use(errors)
 
-  const reconcilerDeps = buildReconcilerDeps()
-  const client         = buildClient(db, reconcilerDeps.engine.engineDeps)
+  const reconcilerDeps = buildReconcilerDeps(reconcilerCrud, engineDeps)
+  const client         = buildClient(db, engineDeps, authCrud, sandboxCrud)
   return { app, db, reconcilerDeps, client }
 }
 
@@ -146,7 +175,10 @@ export function buildApp() {
 // in-process adapters. Routes don't use this yet — the next sweep wires
 // each handler to bind(client, ctx). For now it's available so the
 // shape compiles end-to-end.
-function buildClient(db: Db, engineDeps: EngineDeps): Client {
+function buildClient(
+  db: Db, engineDeps: EngineDeps,
+  authCrud: AuthCrudOps, sandboxCrud: SandboxCrudOps,
+): Client {
   // Bridge AuthConfig (what auth's GithubOAuthDeps wants) → McpConfig (what
   // the github provider helpers expect). The full service Config satisfies
   // both structurally; the closures here just adapt the type aliases.
@@ -156,25 +188,85 @@ function buildClient(db: Db, engineDeps: EngineDeps): Client {
     fetchUser:         (token: string)                               => githubProvider.fetchUser(token),
   }
   return createInProcessClient({
-    auth:       createAuthAdapter({ db, config, githubDeps }),
+    auth:       createAuthAdapter({ db, config, githubDeps, authCrud }),
     billing:    createBillingAdapter(),
     crud:       createCrudAdapter({ db, providerGet, supportedKinds }),
     analytics:  createAnalyticsAdapter({ db }),
-    sandbox:    createSandboxAdapter({ db, config, executionOwned, sessionOwned }),
+    sandbox:    createSandboxAdapter({ db, config, executionOwned, sessionOwned, sandboxCrud }),
     mcp:        createMcpAdapter({ db }),
     engine:     createEngineAdapter({ db, config, engineDeps }),
     reconciler: createReconcilerAdapter(),
   })
 }
 
+// ── crud-callback bundle constructors ────────────────────────────────
+
+function buildAuthCrudOps(): AuthCrudOps {
+  return {
+    accountGet:               accountGetById,
+    accountUpsertByGithubId:  accountUpsertByGithubId,
+    authSessionGet:           authSessionGet,
+    authSessionInsert:        authSessionInsert,
+    authSessionRemove:        authSessionRemove,
+    claimUnownedProjects:     claimUnownedProjects,
+    sessionGet:               sessionGetById,
+    ticketGet:                ticketGetById,
+    projectGet:               projectGetById,
+  }
+}
+
+function buildSandboxCrudOps(): SandboxCrudOps {
+  return {
+    sessionGetById:         sessionGetById,
+    executionList:          crudExecutionList,
+    executionBySession:     crudExecutionBySession,
+    sessionsForTicketRaw:   sessionsForTicketRaw,
+    executionMeterCreate:   executionMeterCreate,
+    executionMeterUpdate:   executionMeterUpdate,
+    executionMarkCancelled: executionMarkCancelled,
+  }
+}
+
+function buildReconcilerCrudOps(): ReconcilerCrudOps {
+  return {
+    agentList:               (db, opts) => agentList(db, opts),
+    projectsActive:          projectsActive,
+    ticketAllByProject:      ticketAllByProject,
+    ticketGetById:           ticketGetById,
+    ticketTransition:        ticketTransition,
+    ticketUpdateById:        ticketUpdateById,
+    sessionInsert:           sessionInsert,
+    sessionUpdateById:       sessionUpdateById,
+    sessionRunning:          sessionRunning,
+    sessionRunningForTicket: sessionRunningForTicket,
+    sessionsByTicketRaw:     sessionsByTicketRaw,
+    verdictBySession:        verdictBySession,
+    eventCreate:             eventCreate,
+    eventLatest:             eventLatest,
+  }
+}
+
+function buildEngineCrudOps(): EngineCrudOps {
+  return {
+    encryptSecret, decryptSecret, attachmentListByTicketInternal,
+    ticketGetById, sessionGetById, agentGetById, projectGetById, accountGetById,
+    connectionGetById, connectionByAccount, commentByTicket,
+    verdictBySession, verdictByTicket,
+    ticketUpdateById, sessionUpdateById, connectionUpdateById,
+    activityCreate: activityWrite, activityUpdate, activityByTurnOrder,
+    eventCreate,
+  }
+}
+
 // Cross-module callback bag for the engine. Built from concrete imports
 // here because the composition root is the only module allowed to wire
 // logic modules together.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- structural mirror in @foundry/reconciler
-function buildEngineDeps(): EngineDeps {
+function buildEngineDeps(
+  engineCrud: EngineCrudOps, authCrud: AuthCrudOps, sandboxCrud: SandboxCrudOps,
+): EngineDeps {
   return {
     auth: {
-      sessionJwtMint: (db, sessionId, ttlMs) => sessionJwt.mint(db, sessionId, ttlMs),
+      sessionJwtMint: (db, sessionId, ttlMs) => sessionJwt.mint(db, authCrud, sessionId, ttlMs),
     },
     mcp: {
       foundryServer, githubServer, sandboxServer, browserServer,
@@ -185,21 +277,21 @@ function buildEngineDeps(): EngineDeps {
       workspaceEmpty, workspaceDestroy,
     },
     sandbox: {
-      executionCreate: (db, cfg, input) => sandboxExecutionCreate(db, cfg, input),
+      executionCreate: (db, cfg, input) => sandboxExecutionCreate(db, cfg, sandboxCrud, input),
       registerSessionWorkspace, unregisterSessionWorkspace,
       stopSessionContainer,
     },
-    crud: {
-      encryptSecret, decryptSecret, attachmentListByTicketInternal,
-    },
+    crud: engineCrud,
   }
 }
 
-function buildReconcilerDeps(): ReconcilerDeps {
+function buildReconcilerDeps(
+  reconcilerCrud: ReconcilerCrudOps, engineDeps: EngineDeps,
+): ReconcilerDeps {
   return {
     config,
-    crud: { agentList },
-    engine: { runSession, engineDeps: buildEngineDeps() },
+    crud: reconcilerCrud,
+    engine: { runSession, engineDeps },
   }
 }
 
@@ -215,15 +307,15 @@ export function boot() {
   })
 
   // ── Graceful shutdown on deploy restart ──
-  process.on('SIGTERM', () => shutdown(db))
+  process.on('SIGTERM', () => shutdown(db, reconcilerDeps))
 
   return server
 }
 
-function shutdown(db: Db) {
+function shutdown(db: Db, reconcilerDeps: ReconcilerDeps) {
   console.log('SIGTERM received, draining…')
   reconcilerStopAll()
-  shutdownDrain(db)
+  shutdownDrain(db, reconcilerDeps)
   stopAllSessionContainers()
   try { execSync('podman kill --all', { timeout: 5000, stdio: 'ignore' }) } catch {
     // Ignored — best-effort container cleanup; podman may not be installed

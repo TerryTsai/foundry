@@ -5,7 +5,10 @@
 //   - every imported workspace package (@foundry/*) is declared in
 //     dependencies or devDependencies
 //   - no logic module imports another logic module directly (only
-//     @foundry/model, @foundry/client, @foundry/db are allowed)
+//     @foundry/model, @foundry/client, @foundry/db are infra-importable)
+//   - only the crud and analytics logic modules may import @foundry/db.
+//     Every other logic module must access persistence via callbacks
+//     injected by the composition root (@foundry/server).
 //
 // Exits non-zero with a concrete violation list on failure.
 
@@ -19,6 +22,11 @@ const PKG_ROOT = join(ROOT, 'packages')
 
 const INFRA = new Set(['model', 'client', 'db'])
 const LOGIC = new Set(['auth', 'billing', 'crud', 'analytics', 'sandbox', 'mcp', 'engine', 'reconciler'])
+
+// Logic modules allowed to import @foundry/db directly. Crud owns
+// persistence; analytics keeps direct read-only access for its big
+// SQL aggregates (ARCHITECTURE.md flags this as a deliberate exception).
+const DB_ALLOWED = new Set(['crud', 'analytics'])
 
 const violations = []
 
@@ -53,7 +61,7 @@ function checkPackage(name, dir) {
   if (!existsSync(srcDir)) return
 
   const imports = collectImports(srcDir)
-  for (const { file, spec } of imports) {
+  for (const { file, spec, valueOnly } of imports) {
     if (!spec.startsWith('@foundry/')) continue
     if (!declared.has(spec)) {
       violations.push(`${name}: imports ${spec} but it's not in package.json (${relative(ROOT, file)})`)
@@ -62,6 +70,13 @@ function checkPackage(name, dir) {
       const target = spec.slice('@foundry/'.length)
       if (LOGIC.has(target)) {
         violations.push(`${name}: forbidden cross-logic-module import of ${spec} (logic modules may only import @foundry/{model,client,db}) (${relative(ROOT, file)})`)
+      }
+      // Type-only imports of Db/entity types are fine — they don't pull
+      // any runtime drizzle/SQL code into the module. Value imports of
+      // @foundry/db (the per-entity helpers) are the real coupling and
+      // are restricted to crud + analytics.
+      if (target === 'db' && valueOnly && !DB_ALLOWED.has(name)) {
+        violations.push(`${name}: forbidden value import of @foundry/db (only crud and analytics may import db at runtime; others go through composition-root callbacks) (${relative(ROOT, file)})`)
       }
     }
   }
@@ -72,11 +87,24 @@ function collectImports(dir) {
   walk(dir, (file) => {
     if (!file.endsWith('.ts') && !file.endsWith('.tsx')) return
     const src = readFileSync(file, 'utf-8')
-    const re = /(?:^|\n)\s*import[^'"`]*['"`]([^'"`]+)['"`]|(?:^|\n)\s*export[^'"`]*from\s*['"`]([^'"`]+)['"`]/g
+    // Match `import …` or `export … from …`. Capture the leading
+    // statement so we can tell type-only forms (`import type {…}` or
+    // `import { type X } from …`) apart from value imports.
+    const re = /(?:^|\n)\s*(import\b[^'"`]*|export\b[^'"`]*from\s*)['"`]([^'"`]+)['"`]/g
     let m
     while ((m = re.exec(src)) !== null) {
-      const spec = m[1] ?? m[2]
-      if (spec) out.push({ file, spec })
+      const head = m[1] ?? ''
+      const spec = m[2]
+      if (!spec) continue
+      // `import type { … } from …` — entire import is type-only.
+      // `import { type X, type Y } from …` — every named binding is
+      // marked type, so no runtime code lands. Side-effect imports
+      // (`import 'foo'`) and namespace/value imports are NOT type-only.
+      const isTypeOnlyImport = /^\s*import\s+type\s/.test(head)
+      const namedMatch = head.match(/\{([^}]*)\}/)
+      const isAllNamedTypes = namedMatch && namedMatch[1].split(',').every(n => /^\s*type\s/.test(n) && n.trim().length > 0)
+      const valueOnly = !(isTypeOnlyImport || isAllNamedTypes)
+      out.push({ file, spec, valueOnly })
     }
   })
   return out

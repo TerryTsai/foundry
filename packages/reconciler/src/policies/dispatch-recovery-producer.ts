@@ -1,4 +1,3 @@
-import * as database from '@foundry/db'
 import { type Policy, transition, dispatchSession } from './shared.js'
 
 // Ticket is in waiting but no producer session has ever run for it
@@ -11,12 +10,12 @@ export const dispatchRecoveryProducer: Policy = (ctx) => {
   const agent = agents.find(a => a.id === ticket.agent_id)
   if (!agent) return 'pass'
 
-  const sessions = database.sessionsByTicketRaw(db, ticket.id)
+  const sessions = deps.crud.sessionsByTicketRaw(db, ticket.id)
   const hasProducer = sessions.some(s => s.agent_id === ticket.agent_id)
   if (hasProducer) return 'pass'
 
   if (slots.remaining <= 0) return 'pass'
-  if (!transition(db, ticket.id, 'waiting', 'running', 'reconciler', { reason: 'retry' })) return 'pass'
+  if (!transition(db, deps, ticket.id, 'waiting', 'running', 'reconciler', { reason: 'retry' })) return 'pass'
   slots.remaining--
   dispatchSession(db, deps, { ...ticket, status: 'running' }, agent, 'producer')
   return 'acted'

@@ -2,12 +2,12 @@ import { eq, isNull } from 'drizzle-orm'
 import type { z } from 'zod'
 
 import { type Db } from '@foundry/db'
-import * as database from '@foundry/db'
 import * as schema from '@foundry/db'
 import type { Agent } from '@foundry/db'
 import { mustExist, now } from '@foundry/model'
 import { conflict, badRequest, notFound } from '@foundry/model'
 import { agent as validate } from './validators.js'
+import * as database from './repo.js'
 
 export function agentList(db: Db, filters: z.infer<typeof validate.list>): Agent[] {
   // Hide superseded versions — the list UI only shows the current row per

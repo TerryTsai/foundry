@@ -1,12 +1,12 @@
 import { ulid } from 'ulid'
 import { eq } from 'drizzle-orm'
 import { type Db } from '@foundry/db'
-import * as database from '@foundry/db'
 import * as schema from '@foundry/db'
 import type { Attachment } from '@foundry/db'
 import { now } from '@foundry/model'
 import { notFound, conflict } from '@foundry/model'
 import { ticketOwned, assertProjectOwner } from './project.js'
+import * as database from './repo.js'
 
 // Attachment policy. Keep the list tight — only what Claude supports
 // natively so the model can actually read the content instead of

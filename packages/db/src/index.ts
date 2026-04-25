@@ -1,10 +1,14 @@
-// Public surface for @foundry/db. Drizzle schema tables, entity types,
-// connection factory, and per-entity query helpers. Infrastructure
-// module — direct imports allowed across packages.
+// Public surface for @foundry/db. Slim by design: drizzle schema tables,
+// drizzle-inferred entity types, the Db handle type, and createDatabase.
 //
-// Names don't collide between schema and db.ts: schema exports nouns
-// (account, ticket, agent), db.ts exports verbs (ticketAll, ticketGet,
-// eventInsert) and createDatabase + the Db type.
+// Per-entity write helpers live in @foundry/crud. Analytics keeps a
+// narrow set of read-only query helpers here (queries.ts) — see
+// ARCHITECTURE.md for the exception. Every other logic module accesses
+// persistence through callbacks the composition root injects.
 
 export * from './schema.js'
-export * from './db.js'
+export { createDatabase, type Db } from './db.js'
+export {
+  projectAll, ticketGet, agentGet, executionBySession,
+  sessionGetAggregated, sessionAggregateAll,
+} from './queries.js'

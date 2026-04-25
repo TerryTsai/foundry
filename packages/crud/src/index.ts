@@ -49,3 +49,41 @@ export {
   attachmentGetBytes, attachmentListByTicketInternal, attachmentGetInternal,
 } from './attachment.js'
 export type { AttachmentMeta } from './attachment.js'
+
+// execution metering — DB-side writes for the sandbox runtime
+export {
+  executionList,
+  executionGet as executionGetById,
+  executionBySession,
+  executionCreate as executionMeterCreate,
+  executionUpdate as executionMeterUpdate,
+  executionMarkCancelled,
+  sessionsForTicketRaw,
+} from './execution.js'
+export type { ExecutionInsertInput } from './execution.js'
+
+// event log
+export {
+  eventCreate, eventByEntity, eventLatest,
+} from './event.js'
+export type { EventCreateInput } from './event.js'
+
+// internal cross-module callbacks (engine / reconciler / sandbox / auth / mcp)
+export {
+  ticketGetById, ticketTransition, ticketUpdateById, ticketAllByProject,
+  projectGetById, projectsActive,
+  sessionGetById, sessionUpdateById, sessionInsert,
+  sessionRunning, sessionRunningForTicket, sessionsByTicketRaw,
+  activityCreate as activityWrite,
+  activityUpdate, activityByTurnOrder,
+  agentGetById,
+  connectionGetById, connectionByAccount, connectionUpdateById,
+  accountGetById,
+  verdictBySession, verdictByTicket,
+  authSessionGet, authSessionInsert, authSessionRemove,
+  accountUpsertByGithubId, claimUnownedProjects,
+  commentByTicket,
+} from './internal.js'
+
+// verdict row type (formerly @foundry/db's VerdictRow)
+export type { VerdictRow } from './repo.js'
