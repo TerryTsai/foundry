@@ -12,7 +12,7 @@ import {
   sessionByTicket,
 } from '@foundry/crud'
 import { ticketUsage } from '@foundry/analytics'
-import { killRunningExecutionsForTicket } from '../executions/service.js'
+import { killRunningExecutionsForTicket } from '@foundry/sandbox'
 
 export function ticketRoutes(db: Db) {
   const r = Router()

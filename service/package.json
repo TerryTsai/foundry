@@ -19,6 +19,7 @@
     "@foundry/crud": "*",
     "@foundry/db": "*",
     "@foundry/model": "*",
+    "@foundry/sandbox": "*",
     "ai": "^5.0.80",
     "better-sqlite3": "^9.6.0",
     "drizzle-orm": "^0.30.10",

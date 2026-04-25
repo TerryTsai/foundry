@@ -1,7 +1,7 @@
 import { spawn, type ChildProcess } from 'child_process'
 import { EventEmitter } from 'events'
 
-import { toInt } from '../../../core/util.js'
+import { toInt } from '@foundry/model'
 
 // Persistent session container.
 //
@@ -52,6 +52,7 @@ export async function ensureSessionContainer(opts: SessionContainerOpts): Promis
   return startSessionContainer(opts)
 }
 
+// eslint-disable-next-line max-lines-per-function -- legacy; refactor in Phase 7
 export function startSessionContainer(opts: SessionContainerOpts): Promise<string> {
   const name = `foundry-sess-${opts.sessionId}`
   const args = [
@@ -160,6 +161,7 @@ export interface ExecOptions {
   env?:       Record<string, string>
 }
 
+// eslint-disable-next-line max-lines-per-function -- legacy; refactor in Phase 7
 export function execInContainer(
   containerName: string, command: string, opts: ExecOptions = {},
 ): ExecHandle {

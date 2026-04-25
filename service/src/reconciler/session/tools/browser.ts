@@ -2,7 +2,7 @@
 // interactive browser primitives driven by chromium over CDP.
 //
 // Everything runs inside the session's persistent podman container
-// (reconciler/session/sandbox/podman.ts). The browser primitives drive
+// (@foundry/sandbox). The browser primitives drive
 // a long-lived headless chromium — launched lazily on the first call,
 // kept alive for the session so tabs, cookies, and DOM carry across.
 //

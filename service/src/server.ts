@@ -23,7 +23,7 @@ import { analyticsRoutes }  from './analytics/routes.js'
 import { attachmentRoutes, ticketAttachmentRoutes, commentAttachmentRoutes } from './attachments/routes.js'
 
 import { reconcilerGlobalStart, reconcilerStopAll, shutdownDrain } from './reconciler/reconciler.js'
-import { stopAllSessionContainers } from './reconciler/session/sandbox/podman.js'
+import { stopAllSessionContainers } from '@foundry/sandbox'
 
 // Fail fast if FOUNDRY_ENCRYPTION_KEY is missing or malformed — better here
 // than on the first connection write.

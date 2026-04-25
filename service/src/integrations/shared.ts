@@ -38,7 +38,7 @@ import { ulid } from 'ulid'
 
 import type { Db } from '../core/db.js'
 import type { Config } from '../core/config.js'
-import { executionCreate } from '../executions/service.js'
+import { executionCreate } from '@foundry/sandbox'
 
 // ── Output bounding ──
 // Large tool stdout/stderr gets spilled to a file in the workspace so the

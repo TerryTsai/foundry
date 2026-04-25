@@ -4,7 +4,7 @@
 // bind-mount it at /home/foundry on first tool use.
 
 import { workspaceEmpty, workspaceDestroy } from '../../../integrations/github/tools.js'
-import { registerSessionWorkspace, unregisterSessionWorkspace } from '../../../executions/service.js'
+import { registerSessionWorkspace, unregisterSessionWorkspace } from '@foundry/sandbox'
 import type { Middleware } from './compose.js'
 
 export const withWorkspace: Middleware = (next) => async (ctx) => {

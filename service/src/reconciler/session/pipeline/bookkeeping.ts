@@ -4,7 +4,7 @@
 
 import * as database from '../../../core/db.js'
 import { now } from '../../../core/util.js'
-import { stopSessionContainer } from '../sandbox/podman.js'
+import { stopSessionContainer } from '@foundry/sandbox'
 import type { Middleware } from './compose.js'
 
 export const withBookkeeping: Middleware = (next) => async (ctx) => {

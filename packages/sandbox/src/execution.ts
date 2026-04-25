@@ -2,22 +2,45 @@ import type { Response } from 'express'
 import { EventEmitter } from 'events'
 import { eq } from 'drizzle-orm'
 
-import { type Db } from '../core/db.js'
-import * as database from '../core/db.js'
-import type { Execution } from '../core/schema.js'
-import type { Config } from '../core/config.js'
-import { mustExist, assertStatus, now } from '../core/util.js'
-import { scrubSecrets } from '../integrations/shared.js'
+import { type Db } from '@foundry/db'
+import * as database from '@foundry/db'
+import * as schema from '@foundry/db'
+import type { Execution, Session } from '@foundry/db'
+import { mustExist, assertStatus, now } from '@foundry/model'
+
 import {
   ensureSessionContainer, execInContainer, stopSessionContainer, type ExecHandle,
-} from '../reconciler/session/sandbox/podman.js'
-import { executionOwned, sessionOwned } from '@foundry/crud'
-import * as schema from '../core/schema.js'
+} from './podman.js'
+import type { SandboxConfig } from './types.js'
+
+// Cross-module ownership-check callbacks injected by the route layer.
+// sandbox can't import @foundry/crud (no logic-to-logic). The route
+// handler in service binds these to the crud helpers it already has.
+export type IsExecutionOwned = (db: Db, executionId: string, accountId: string) => Execution
+export type IsSessionOwned   = (db: Db, sessionId: string,   accountId: string) => Session
 
 // Track live exec handles so we can kill in-flight commands on ticket
 // cancel. Container teardown also kills them, but explicit kills give
 // a cleaner exit code trail.
 const activeExecs = new Map<string, ExecHandle>()
+
+// ── Secret scrubbing ──────────────────────────────────────────────────
+//
+// stdout/stderr from sandbox executions can leak secrets the agent
+// passed via env. Run a regex pass over the captured output before
+// persisting the execution row. The patterns cover URL-embedded
+// install tokens and Bearer tokens for common providers.
+const SECRET_PATTERNS: Array<[RegExp, string]> = [
+  [/x-access-token:[^@\s'"]+@/g, 'x-access-token:[REDACTED]@'],
+  [/Bearer\s+(ghs_[A-Za-z0-9]+|gho_[A-Za-z0-9]+|ghp_[A-Za-z0-9]+|github_pat_[A-Za-z0-9_]+|sk-ant-[A-Za-z0-9_-]+|xoxb-[A-Za-z0-9-]+|xoxp-[A-Za-z0-9-]+)/g, 'Bearer [REDACTED]'],
+]
+
+function scrubSecrets(s: string | null | undefined): string | null {
+  if (!s) return s ?? null
+  let out = s
+  for (const [pat, rep] of SECRET_PATTERNS) out = out.replace(pat, rep)
+  return out
+}
 
 export function executionList(db: Db, accountId: string): Execution[] {
   // Restrict to executions whose session sits in a project the requester
@@ -34,12 +57,16 @@ export function executionList(db: Db, accountId: string): Execution[] {
   }).slice(0, 200)
 }
 
-export function executionGet(db: Db, accountId: string, id: string): Execution {
-  return executionOwned(db, id, accountId)
+export function executionGet(
+  db: Db, accountId: string, id: string, isExecutionOwned: IsExecutionOwned,
+): Execution {
+  return isExecutionOwned(db, id, accountId)
 }
 
-export function executionBySession(db: Db, accountId: string, sessionId: string): Execution[] {
-  sessionOwned(db, sessionId, accountId)
+export function executionBySession(
+  db: Db, accountId: string, sessionId: string, isSessionOwned: IsSessionOwned,
+): Execution[] {
+  isSessionOwned(db, sessionId, accountId)
   return database.executionBySession(db, sessionId)
 }
 
@@ -61,8 +88,9 @@ export interface ExecutionCreateInput {
 // the execution row, ensures the session's persistent container is up,
 // execs the command, streams stdout/stderr, and finalizes the row
 // with cpu/net deltas on exit.
+// eslint-disable-next-line max-lines-per-function -- legacy; refactor in Phase 7
 export function executionCreate(
-  db: Db, config: Config, input: ExecutionCreateInput,
+  db: Db, config: SandboxConfig, input: ExecutionCreateInput,
 ): { id: string; emitter: ExecHandle['emitter'] } {
   if (!input.session_id) {
     throw new Error('executionCreate: session_id is required for persistent-container execution')
@@ -171,8 +199,10 @@ function sessionWorkspaceDir(sessionId: string): string {
   return w
 }
 
-export function executionKill(db: Db, accountId: string, id: string): { ok: true } {
-  const row = executionOwned(db, id, accountId)
+export function executionKill(
+  db: Db, accountId: string, id: string, isExecutionOwned: IsExecutionOwned,
+): { ok: true } {
+  const row = isExecutionOwned(db, id, accountId)
   assertStatus(row, 'running', 'execution is not active')
   killOne(db, id)
   return { ok: true }
@@ -202,8 +232,11 @@ export function killRunningExecutionsForTicket(db: Db, ticketId: string): void {
   }
 }
 
-export function executionStream(db: Db, accountId: string, id: string, res: Response): void {
-  const row = executionOwned(db, id, accountId)
+// eslint-disable-next-line max-lines-per-function -- legacy; refactor in Phase 7
+export function executionStream(
+  db: Db, accountId: string, id: string, res: Response, isExecutionOwned: IsExecutionOwned,
+): void {
+  const row = isExecutionOwned(db, id, accountId)
   res.setHeader('Content-Type', 'text/event-stream')
   res.setHeader('Cache-Control', 'no-cache')
   res.setHeader('Connection', 'keep-alive')
