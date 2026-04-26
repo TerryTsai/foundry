@@ -9,7 +9,7 @@
 const Database = require('better-sqlite3')
 const { ulid } = require('ulid')
 
-const DB_PATH = '/home/terry/foundry/service/foundry.db'
+const DB_PATH = '/home/terry/foundry/server/foundry.db'
 const db = new Database(DB_PATH)
 db.pragma('foreign_keys = ON')
 

@@ -7,7 +7,7 @@ This repository is a TypeScript monorepo. See [`ARCHITECTURE.md`](./ARCHITECTURE
 ## Layout
 
 ```
-packages/
+packages/                ← standalone library packages, no wiring
 ├── model         shared types: entities, error unions, Result, Ctx
 ├── client        typed cross-module surface + bind() + adapters
 ├── db            drizzle schema + per-entity query helpers
@@ -21,12 +21,16 @@ packages/
 ├── engine        agent SDK loop: pipeline middleware, anthropic + vercel engines
 ├── reconciler    tick loop + policies (dispatch / settle / verdict / retry)
 │
-├── server        HTTP entry + composition root (only module allowed to import logic modules directly)
 ├── site          customer-facing React SPA — day-to-day project work
 └── admin         admin React SPA — system observability (stubbed in v1)
+
+server/                  ← composition root + HTTP entrypoint (binary)
+                          systemd unit, deploy.sh, env, sqlite db all live here
 ```
 
-`service/` is a thin wrapper over `@foundry/server` that preserves the systemd / deploy.sh paths.
+The `server/` directory sits outside `packages/` deliberately: it owns
+the wiring (composition root, env, on-disk state, deploy artifacts).
+Packages stay decoupled and independently forkable.
 
 ## Quick start
 
@@ -35,20 +39,20 @@ packages/
 npm install
 
 # Type-check the entire workspace
-npx tsc -b
+npx tsc -b server
 
 # Lint, layout, manifest checks
 npm run check
 
 # Run the backend (dev, hot-reload)
-cd service && npm run dev
+cd server && npm run dev
 
 # Run the customer SPA (dev, vite)
 cd packages/site && npm run dev
 
 # Build everything for production
 cd packages/site && npm run build
-cd service && npm run build
+cd server && npm run build
 ```
 
 ## Conventions in one breath

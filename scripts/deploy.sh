@@ -29,7 +29,7 @@ fi
 echo "$LOG_PREFIX $(date '+%Y-%m-%d %H:%M:%S') deploying ${DEPLOYED_SHA:-<none>} → $HEAD_SHA"
 
 # Install workspace deps from the repo root so every package under
-# packages/* and service/ is wired up in one pass.
+# packages/* and server/ is wired up in one pass.
 echo "$LOG_PREFIX installing deps..."
 npm install --prefer-offline --no-audit --no-fund --silent
 
@@ -40,9 +40,9 @@ npm run build --workspace=@foundry/site --silent
 
 # Rebuild sandbox image if its Dockerfile changed since last deploy.
 if [ -n "$DEPLOYED_SHA" ] && git diff --name-only "$DEPLOYED_SHA" "$HEAD_SHA" \
-     | grep -qE '^service/Dockerfile\.sandbox$'; then
+     | grep -qE '^server/Dockerfile\.sandbox$'; then
   echo "$LOG_PREFIX rebuilding sandbox image..."
-  cd "$REPO_DIR/service"
+  cd "$REPO_DIR/server"
   podman build -f Dockerfile.sandbox -t foundry-sandbox . --quiet
   cd "$REPO_DIR"
 fi

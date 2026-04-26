@@ -132,10 +132,10 @@ export function buildApp() {
   // :3006. Must be ABOVE requireAuth so the login page and its assets can
   // load without a session cookie.
   //
-  // Path resolution: this file is packages/server/{src,dist}/main.{ts,js}.
-  // The site app lives at packages/site/dist (sibling package).
+  // Path resolution: this file is server/{src,dist}/main.{ts,js}; the
+  // site app lives at packages/site/dist one level up.
   const __dirname = dirname(fileURLToPath(import.meta.url))
-  const webDist   = join(__dirname, '../../site/dist')
+  const webDist   = join(__dirname, '../../packages/site/dist')
   if (existsSync(webDist)) {
     app.use(express.static(webDist))
     // SPA fallback: serve index.html for client-side routing. API paths pass

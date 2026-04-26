@@ -6,10 +6,10 @@
 // Usage:
 //   FOUNDRY_ENCRYPTION_KEY=<hex> node scripts/encrypt-secrets.js [db-path]
 //
-// Default db-path: ./service/foundry.db
+// Default db-path: ./server/foundry.db
 //
 // Reads the encryption key from FOUNDRY_ENCRYPTION_KEY and uses the same
-// AES-256-GCM format as service/src/crypto/secrets.ts.
+// AES-256-GCM format as packages/crud/src/secrets.ts.
 
 const Database = require('better-sqlite3')
 const { createCipheriv, randomBytes } = require('crypto')
@@ -47,7 +47,7 @@ function encryptSecret(plain, key) {
   return ENC_PREFIX + Buffer.concat([nonce, ct, tag]).toString('base64')
 }
 
-const dbPath = process.argv[2] ?? './service/foundry.db'
+const dbPath = process.argv[2] ?? './server/foundry.db'
 const key    = loadKey()
 const db     = new Database(dbPath)
 

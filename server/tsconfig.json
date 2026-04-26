@@ -1,0 +1,23 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src"
+  },
+  "include": [
+    "src"
+  ],
+  "references": [
+    { "path": "../packages/model" },
+    { "path": "../packages/client" },
+    { "path": "../packages/db" },
+    { "path": "../packages/auth" },
+    { "path": "../packages/billing" },
+    { "path": "../packages/crud" },
+    { "path": "../packages/analytics" },
+    { "path": "../packages/sandbox" },
+    { "path": "../packages/mcp" },
+    { "path": "../packages/engine" },
+    { "path": "../packages/reconciler" }
+  ]
+}

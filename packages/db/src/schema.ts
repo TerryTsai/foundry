@@ -244,8 +244,7 @@ export const execution = sqliteTable('execution', {
   // Removing this column was attempted once (schema simplification in
   // 86f7761) and replaced with a backfill UPDATE from the execution
   // side — which silently failed under the race, leaving activity rows
-  // with execution_id=NULL permanently. See service/src/core/db.ts
-  // migration block 6 for the restore.
+  // with execution_id=NULL permanently.
   tool_use_id:     text('tool_use_id'),
   tool_name:       text('tool_name'),
   tool_input:      text('tool_input'),

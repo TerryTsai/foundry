@@ -194,11 +194,10 @@ These exceptions are tightly scoped. Logic modules cannot smuggle in classes or 
 ## Module layout
 
 ```
-packages/
+packages/                ← standalone library packages, no wiring
 ├── model           shared types (entities, error unions, Ctx, Result, primitives)
 ├── client          typed cross-module surface + bind() + adapters
 │
-├── server          HTTP entry + composition root
 ├── site            customer-facing React SPA
 ├── admin           admin-facing React SPA
 │
@@ -211,7 +210,15 @@ packages/
 ├── sandbox         podman lifecycle + exec (incl. execution metering for v1)
 ├── mcp             MCP servers (stdio child processes for v1)
 └── billing         quota/cost (stubbed v1; real impl later)
+
+server/                  ← composition root + HTTP entrypoint (binary)
+                          systemd unit, deploy.sh, env, sqlite db all live here
 ```
+
+`server/` deliberately sits outside `packages/`: the directory's job is
+wiring (composition root) plus on-disk artifacts (env file, PEM,
+SQLite db, sandbox Dockerfile). Pulling it out of `packages/` keeps
+the libraries forkable and makes the wiring location obvious.
 
 ### Borderline decisions, named so future-you knows where the seam will go
 

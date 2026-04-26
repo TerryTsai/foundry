@@ -1,14 +1,12 @@
 {
   "name": "@foundry/server",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
-  "main": "./src/index.ts",
-  "types": "./src/index.ts",
   "scripts": {
-    "dev": "tsx watch src/main.ts",
+    "dev": "tsx watch src/server.ts",
+    "start": "tsx src/server.ts",
     "build": "tsc -b",
-    "start": "node dist/main.js",
     "test": "vitest run",
     "db:push": "drizzle-kit push"
   },
