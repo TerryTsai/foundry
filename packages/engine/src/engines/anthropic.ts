@@ -12,27 +12,27 @@ import { join } from 'path'
 import { homedir } from 'os'
 import type { ZodObject, ZodRawShape } from 'zod'
 
-// SDK's binary resolver tries `@anthropic-ai/claude-agent-sdk-linux-x64-musl`
-// before the glibc variant. The musl package's lockfile entry is missing
-// the libc constraint, so npm installs both on any Linux x64 host — and
-// the SDK happily picks the musl one, which can't be spawned on glibc
-// (no /lib/ld-musl-x86_64.so.1). Pin the gnu binary explicitly here.
-// Drop this once the upstream lockfile carries libc.
-const claudeBinary: string | undefined = (() => {
-  if (process.platform !== 'linux' || process.arch !== 'x64') return undefined
-  try { return createRequire(import.meta.url).resolve('@anthropic-ai/claude-agent-sdk-linux-x64/claude') }
-  catch { return undefined }
-})()
 import { type Db } from '@foundry/db'
 import type { Connection } from '@foundry/db'
 import { now } from '@foundry/model'
 
 import type {
   EngineDeps, SessionContext, LoopResult, ToolDef, ExecutionCreate,
-  McpFoundryCtx, McpGithubCtx, McpSandboxCtx, McpConnCtx,
+  McpConnCtx,
+  SdkMcpServer, Block, UpsertParams, ToolCtxs, TurnAccumulator, UsageShape,
 } from '../types.js'
 
-type Block = { type: string; id?: string; text?: string; thinking?: string; name?: string; input?: unknown; signature?: string }
+// SDK's binary resolver tries `@anthropic-ai/claude-agent-sdk-linux-x64-musl`
+// before the glibc variant. The musl package's lockfile entry is missing
+// the libc constraint, so npm installs both on any Linux x64 host — and
+// the SDK happily picks the musl one, which can't be spawned on glibc
+// (no /lib/ld-musl-x86_64.so.1). Pin the gnu binary explicitly here.
+// Drop this once the upstream lockfile carries libc.
+function resolveClaudeBinary(): string | undefined {
+  if (process.platform !== 'linux' || process.arch !== 'x64') return undefined
+  try { return createRequire(import.meta.url).resolve('@anthropic-ai/claude-agent-sdk-linux-x64/claude') }
+  catch { return undefined }
+}
 
 // Read SDK on-disk credentials first (Claude Code refreshes them); fall
 // back to stored connection secret. Keep DB in sync when file is newer.
@@ -117,12 +117,6 @@ function blockToActivity(b: Block): { kind: string; payload: unknown; tool_use_i
   return { kind: 'said', payload: { unknown_block: b } }
 }
 
-interface UpsertParams {
-  sessionId: string; turnId: string; orderIndex: number
-  kind: string; payload: unknown; tool_use_id?: string
-  tokens_in?: number | null; tokens?: number | null
-}
-
 // Upsert a single activity row keyed by (session_id, turn_id, order_index).
 function upsertActivity(db: Db, deps: EngineDeps, params: UpsertParams) {
   const existing = deps.crud.activityByTurnOrder(db, params.sessionId, params.turnId, params.orderIndex)
@@ -150,8 +144,6 @@ function activityCreatePayload(params: UpsertParams, baseData: Record<string, un
     created_at: now(), ...baseData,
   }
 }
-
-type SdkMcpServer = ReturnType<typeof createSdkMcpServer>
 
 function toSdkServer<TCtx>(
   deps: EngineDeps, name: string, defs: ToolDef<TCtx>[],
@@ -202,12 +194,6 @@ function buildCancelCheck(deps: EngineDeps, db: Db, sessionId: string, ticketId:
   }
 }
 
-interface ToolCtxs {
-  foundry: McpFoundryCtx
-  github:  McpGithubCtx
-  sandbox: McpSandboxCtx
-}
-
 function buildToolCtxs(ctx: SessionContext, executionCreate: ExecutionCreate): ToolCtxs {
   const { db, config, workDir } = ctx
   const sessionId = ctx.session.id, agentDef = ctx.agent, ticketData = ctx.ticket
@@ -256,15 +242,6 @@ function attachConnectionServers(
   }
 }
 
-interface TurnAccumulator {
-  inputTokens: number; outputTokens: number; toolCallTotal: number
-  costUsd: number; numTurns: number
-  stopReason: string | null
-  cancelled: boolean
-  turnBlocks: Map<string, Block[]>
-  turnMaxIn: Map<string, number>; turnMaxOut: Map<string, number>
-}
-
 function newAccumulator(): TurnAccumulator {
   return {
     inputTokens: 0, outputTokens: 0, toolCallTotal: 0,
@@ -307,7 +284,7 @@ async function drainQuery(
   const { systemPrompt, userPrompt, workDir, shouldStop, agent } = ctx
   for await (const message of query({
     prompt: userPrompt,
-    options: { systemPrompt, cwd: workDir, tools: [], mcpServers, permissionMode: 'bypassPermissions', maxTurns: agent.max_steps, model: agent.model, pathToClaudeCodeExecutable: claudeBinary },
+    options: { systemPrompt, cwd: workDir, tools: [], mcpServers, permissionMode: 'bypassPermissions', maxTurns: agent.max_steps, model: agent.model, pathToClaudeCodeExecutable: resolveClaudeBinary() },
   })) {
     if (shouldStop()) { acc.cancelled = true; break }
     handleQueryMessage(ctx, message, acc)
@@ -329,24 +306,6 @@ function handleAssistant(ctx: SessionContext, message: SDKAssistantMessage, acc:
   applyTurnUsageDelta(turnId, message.message.usage, acc)
   writeMergedActivities(ctx, turnId, merged, acc)
   acc.toolCallTotal += merged.filter(b => b.type === 'tool_use').length - prior.filter(b => b.type === 'tool_use').length
-}
-
-// Subset of the SDK BetaMessage usage / iterations shape we read. Typed as
-// optional everywhere because the SDK has historically reshaped these
-// fields; we treat anything unrecognized as zero rather than a hard error.
-interface UsageIteration {
-  type?:                          string
-  input_tokens?:                  number       | null
-  output_tokens?:                 number       | null
-  cache_read_input_tokens?:       number       | null
-  cache_creation_input_tokens?:   number       | null
-}
-interface UsageShape {
-  iterations?:                    UsageIteration[] | null
-  input_tokens?:                  number       | null
-  output_tokens?:                 number       | null
-  cache_read_input_tokens?:       number       | null
-  cache_creation_input_tokens?:   number       | null
 }
 
 function applyTurnUsageDelta(turnId: string, u: UsageShape | undefined, acc: TurnAccumulator): void {

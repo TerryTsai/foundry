@@ -1,8 +1,8 @@
-import { type Policy, transition, dispatchSession } from './shared.js'
+import { type PolicyCtx, transition, dispatchSession } from './shared.js'
 
 // Newly-created ticket → dispatch its assigned producer agent if a slot
 // is available and any depends_on prerequisite is finished.
-export const dispatchProducer: Policy = (ctx) => {
+export function dispatchProducer(ctx: PolicyCtx): 'acted' | 'pass' {
   const { db, deps, ticket, agents, slots } = ctx
   if (ticket.status !== 'created') return 'pass'
   if (slots.remaining <= 0)        return 'pass'

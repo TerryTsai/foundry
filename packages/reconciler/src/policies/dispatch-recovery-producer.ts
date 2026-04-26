@@ -1,9 +1,9 @@
-import { type Policy, transition, dispatchSession } from './shared.js'
+import { type PolicyCtx, transition, dispatchSession } from './shared.js'
 
 // Ticket is in waiting but no producer session has ever run for it
 // (rare — usually means the dispatch landed during a crash or a manual
 // status edit dropped it into waiting). Send a fresh producer.
-export const dispatchRecoveryProducer: Policy = (ctx) => {
+export function dispatchRecoveryProducer(ctx: PolicyCtx): 'acted' | 'pass' {
   const { db, deps, ticket, agents, slots } = ctx
   if (ticket.status !== 'waiting') return 'pass'
 

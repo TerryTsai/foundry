@@ -7,8 +7,7 @@
 import type { Db } from '@foundry/db'
 import { now } from '@foundry/model'
 import type { Ticket } from '@foundry/db'
-import type { EngineDeps } from '../types.js'
-import type { Middleware } from './compose.js'
+import type { EngineDeps, SessionStep } from '../types.js'
 
 function triggerPrompt(db: Db, ticket: Ticket, deps: EngineDeps): string {
   const title = ticket.title.trim() || '(untitled)'
@@ -28,19 +27,21 @@ function triggerPrompt(db: Db, ticket: Ticket, deps: EngineDeps): string {
   return lines.join('\n')
 }
 
-export const buildOpeningPrompt: Middleware = (next) => async (ctx) => {
-  ctx.userPrompt = triggerPrompt(ctx.db, ctx.ticket, ctx.deps)
-  ctx.deps.crud.activityCreate(ctx.db, {
-    session_id:   ctx.session.id,
-    turn_id:      null,
-    kind:         'prompt',
-    order_index:  0,
-    payload:      JSON.stringify({ text: ctx.userPrompt }),
-    tool_use_id:  null,
-    execution_id: null,
-    tokens_in:    null,
-    tokens:       null,
-    created_at:   now(),
-  })
-  return next(ctx)
+export function buildOpeningPrompt(next: SessionStep): SessionStep {
+  return async (ctx) => {
+    ctx.userPrompt = triggerPrompt(ctx.db, ctx.ticket, ctx.deps)
+    ctx.deps.crud.activityCreate(ctx.db, {
+      session_id:   ctx.session.id,
+      turn_id:      null,
+      kind:         'prompt',
+      order_index:  0,
+      payload:      JSON.stringify({ text: ctx.userPrompt }),
+      tool_use_id:  null,
+      execution_id: null,
+      tokens_in:    null,
+      tokens:       null,
+      created_at:   now(),
+    })
+    return next(ctx)
+  }
 }

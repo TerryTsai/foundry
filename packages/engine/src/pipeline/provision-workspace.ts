@@ -3,14 +3,16 @@
 // the execution service so the persistent session container can
 // bind-mount it at /home/foundry on first tool use.
 
-import type { Middleware } from './compose.js'
+import type { SessionStep } from '../types.js'
 
-export const provisionWorkspace: Middleware = (next) => async (ctx) => {
-  ctx.workDir = await ctx.deps.mcp.workspaceEmpty()
-  ctx.deps.sandbox.registerSessionWorkspace(ctx.session.id, ctx.workDir)
-  try { return await next(ctx) }
-  finally {
-    ctx.deps.sandbox.unregisterSessionWorkspace(ctx.session.id)
-    await ctx.deps.mcp.workspaceDestroy(ctx.workDir)
+export function provisionWorkspace(next: SessionStep): SessionStep {
+  return async (ctx) => {
+    ctx.workDir = await ctx.deps.mcp.workspaceEmpty()
+    ctx.deps.sandbox.registerSessionWorkspace(ctx.session.id, ctx.workDir)
+    try { return await next(ctx) }
+    finally {
+      ctx.deps.sandbox.unregisterSessionWorkspace(ctx.session.id)
+      await ctx.deps.mcp.workspaceDestroy(ctx.workDir)
+    }
   }
 }

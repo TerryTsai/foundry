@@ -2,20 +2,7 @@
 // → comments → prior verdicts). Verifier sessions get an extra rubric.
 
 import type { Db, Ticket, Agent } from '@foundry/db'
-import type { EngineDeps } from '../types.js'
-import type { Middleware } from './compose.js'
-
-type Role = 'producer' | 'verifier'
-
-const VERIFIER_RUBRIC = `## Verification task
-
-You are verifying the producer's work on the ticket above — you are NOT completing the task yourself. Review what the producer did: read their comments on this ticket, inspect any files they left in the workspace, and check the Prior verdicts section below if present.
-
-Then call the \`verdictReport\` tool exactly once with:
-- \`pass: true\` if the producer's output satisfies the ticket, or
-- \`pass: false\` with a specific \`reason\` describing what is missing or wrong.
-
-You MUST call verdictReport before ending your session. A silent verifier is treated as a failed review.`
+import type { EngineDeps, Middleware, Role } from '../types.js'
 
 function assemble(db: Db, deps: EngineDeps, ticket: Ticket, agent: Agent, role: Role): string {
   const parts: string[] = []
@@ -34,7 +21,15 @@ function appendCoreSections(
   pushSection(parts, 'Project', project?.description)
   pushSection(parts, 'Your role', agent.description)
   pushSection(parts, 'Ticket', ticket.description)
-  if (role === 'verifier') parts.push(VERIFIER_RUBRIC)
+  if (role === 'verifier') parts.push(`## Verification task
+
+You are verifying the producer's work on the ticket above — you are NOT completing the task yourself. Review what the producer did: read their comments on this ticket, inspect any files they left in the workspace, and check the Prior verdicts section below if present.
+
+Then call the \`verdictReport\` tool exactly once with:
+- \`pass: true\` if the producer's output satisfies the ticket, or
+- \`pass: false\` with a specific \`reason\` describing what is missing or wrong.
+
+You MUST call verdictReport before ending your session. A silent verifier is treated as a failed review.`)
 }
 
 function pushSection(parts: string[], heading: string, body: string | null | undefined): void {
@@ -60,7 +55,9 @@ function formatVerdict(db: Db, deps: EngineDeps, v: { agent_id: string; pass: bo
   return `[${name}] ${tag} — ${v.reason}`
 }
 
-export const buildSystemPrompt = (role: Role): Middleware => (next) => async (ctx) => {
-  ctx.systemPrompt = assemble(ctx.db, ctx.deps, ctx.ticket, ctx.agent, role)
-  return next(ctx)
+export function buildSystemPrompt(role: Role): Middleware {
+  return (next) => async (ctx) => {
+    ctx.systemPrompt = assemble(ctx.db, ctx.deps, ctx.ticket, ctx.agent, role)
+    return next(ctx)
+  }
 }

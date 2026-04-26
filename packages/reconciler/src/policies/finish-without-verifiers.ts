@@ -1,9 +1,9 @@
-import { type Policy, transition, parseVerifierIds } from './shared.js'
+import { type PolicyCtx, transition, parseVerifierIds } from './shared.js'
 
 // Ticket is in waiting and the assigned agent declares no verifiers.
 // Settle the ticket from the latest producer session's outcome —
 // finished if the producer succeeded, failed if it crashed.
-export const finishWithoutVerifiers: Policy = (ctx) => {
+export function finishWithoutVerifiers(ctx: PolicyCtx): 'acted' | 'pass' {
   const { db, deps, ticket, agents } = ctx
   if (ticket.status !== 'waiting') return 'pass'
 

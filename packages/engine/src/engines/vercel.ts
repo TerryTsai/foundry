@@ -11,23 +11,8 @@ import { resolveModelWithDefaults } from './model-factory.js'
 import type {
   EngineDeps, SessionContext, LoopResult, ToolDef, ExecutionCreate,
   McpFoundryCtx, McpGithubCtx, McpSandboxCtx, McpConnCtx,
+  AiToolInputSchema, StepResult, ContentPart, PartActivity, EngineState,
 } from '../types.js'
-
-// `ai`'s tool schema slot. The ai SDK pulls in its own zod typing that
-// drifts vs the workspace zod version; the option type is the safe
-// shared shape between them.
-type AiToolOptions = Parameters<typeof tool>[0]
-type AiToolInputSchema = AiToolOptions['inputSchema']
-
-type StepResult = Awaited<ReturnType<typeof generateText<ToolSet>>>
-
-type ContentPart =
-  | { type: 'text'; text: string }
-  | { type: 'reasoning'; text: string; signature?: string }
-  | { type: 'tool-call'; toolCallId: string; toolName: string; args?: unknown; input?: unknown }
-  | { type: 'tool-result'; toolCallId: string; toolName: string; result?: unknown; output?: unknown }
-  | { type: string; [k: string]: unknown }
-
 
 function toAiTools<TCtx>(defs: ToolDef<TCtx>[], ctx: TCtx, prefix?: string): ToolSet {
   const out: ToolSet = {}
@@ -91,8 +76,6 @@ function contentPartsOf(result: StepResult): ContentPart[] {
   return Array.isArray(c) ? c : []
 }
 
-interface PartActivity { kind: 'said' | 'thought' | 'tool_call'; payload: unknown; tool_use_id: string | null; isToolCall: boolean }
-
 function partToActivity(b: ContentPart): PartActivity | null {
   if (b.type === 'text' && typeof b.text === 'string') return { kind: 'said', payload: { text: b.text }, tool_use_id: null, isToolCall: false }
   if (b.type === 'reasoning' && typeof b.text === 'string') return { kind: 'thought', payload: { text: b.text, char_count: b.text.length, signature: b.signature ?? null }, tool_use_id: null, isToolCall: false }
@@ -122,11 +105,6 @@ function activityFromPart(sessionId: string, turnId: string, idx: number, act: P
     tokens:    idx === 0 ? (outputTokens ?? null) : null,
     created_at: now(),
   }
-}
-
-interface EngineState {
-  finishReason: string | null
-  tokensIn: number; tokensOut: number; toolCalls: number; cancelled: boolean
 }
 
 function newState(): EngineState {

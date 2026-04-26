@@ -289,6 +289,129 @@ export interface SessionContext {
   startedAt:    number
 }
 
+// ── Pipeline (Koa-style middleware) ─────────────────────────────────
+// SessionStep is one rung of the pipeline; Middleware wraps it. compose
+// in pipeline/compose.ts is the only consumer of these types.
+
+export type SessionStep = (ctx: SessionContext) => Promise<SessionContext>
+export type Middleware  = (next: SessionStep) => SessionStep
+
+// Role passed to buildSystemPrompt to pick producer-vs-verifier prompt.
+export type Role = 'producer' | 'verifier'
+
+// ── Anthropic engine internals ──────────────────────────────────────
+
+import type { createSdkMcpServer } from '@anthropic-ai/claude-agent-sdk'
+
+export type SdkMcpServer = ReturnType<typeof createSdkMcpServer>
+
+// One content block in an SDK BetaMessage. Open type because the SDK has
+// historically added new block kinds; we treat unknown shapes as 'said'.
+export type Block = {
+  type: string
+  id?: string
+  text?: string
+  thinking?: string
+  name?: string
+  input?: unknown
+  signature?: string
+}
+
+export interface UpsertParams {
+  sessionId:  string
+  turnId:     string
+  orderIndex: number
+  kind:       string
+  payload:    unknown
+  tool_use_id?: string
+  tokens_in?: number | null
+  tokens?:    number | null
+}
+
+export interface ToolCtxs {
+  foundry: McpFoundryCtx
+  github:  McpGithubCtx
+  sandbox: McpSandboxCtx
+}
+
+export interface TurnAccumulator {
+  inputTokens: number
+  outputTokens: number
+  toolCallTotal: number
+  costUsd: number
+  numTurns: number
+  stopReason: string | null
+  cancelled: boolean
+  turnBlocks: Map<string, Block[]>
+  turnMaxIn:  Map<string, number>
+  turnMaxOut: Map<string, number>
+}
+
+// Subset of the SDK BetaMessage usage / iterations shape we read.
+// Typed loose because the SDK has reshaped these fields historically;
+// we treat anything unrecognized as zero rather than a hard error.
+export interface UsageIteration {
+  type?:                        string
+  input_tokens?:                number | null
+  output_tokens?:               number | null
+  cache_read_input_tokens?:     number | null
+  cache_creation_input_tokens?: number | null
+}
+
+export interface UsageShape {
+  iterations?:                  UsageIteration[] | null
+  input_tokens?:                number | null
+  output_tokens?:               number | null
+  cache_read_input_tokens?:     number | null
+  cache_creation_input_tokens?: number | null
+}
+
+// ── Vercel AI engine internals ──────────────────────────────────────
+
+import type { generateText, tool, ToolSet } from 'ai'
+
+export type StepResult = Awaited<ReturnType<typeof generateText<ToolSet>>>
+
+// `ai`'s tool schema slot. The ai SDK pulls in its own zod typing that
+// drifts vs the workspace zod version; the option type is the safe
+// shared shape between them.
+export type AiToolOptions = Parameters<typeof tool>[0]
+export type AiToolInputSchema = AiToolOptions['inputSchema']
+
+export type ContentPart =
+  | { type: 'text'; text: string }
+  | { type: 'reasoning'; text: string; signature?: string }
+  | { type: 'tool-call'; toolCallId: string; toolName: string; args?: unknown; input?: unknown }
+  | { type: 'tool-result'; toolCallId: string; toolName: string; result?: unknown; output?: unknown }
+  | { type: string; [k: string]: unknown }
+
+export interface PartActivity {
+  kind: 'said' | 'thought' | 'tool_call'
+  payload: unknown
+  tool_use_id: string | null
+  isToolCall: boolean
+}
+
+export interface EngineState {
+  finishReason: string | null
+  tokensIn:  number
+  tokensOut: number
+  toolCalls: number
+  cancelled: boolean
+}
+
+// ── Model factory ───────────────────────────────────────────────────
+
+import type { wrapLanguageModel } from 'ai'
+
+// `wrapLanguageModel` accepts whatever provider-specific LanguageModel
+// the AI SDK currently exports. The AI SDK and the per-provider adapters
+// each publish their own LanguageModel type alias; pinning to a literal
+// one breaks every minor bump. Extracting via Parameters<> keeps us
+// aligned to whatever shape `wrapLanguageModel` wants today.
+export type WrapModelArgs = Parameters<typeof wrapLanguageModel>[0]
+export type WrappedModel = WrapModelArgs['model']
+
 // Re-export Connection so engines can type their locals without
 // reaching across module boundaries themselves.
 export type { Connection }

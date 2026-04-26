@@ -198,18 +198,35 @@ module.exports = {
           // eslint replaces (rather than merges) rule values across overrides.
           { selector: 'ClassDeclaration', message: 'Use top-level functions, not classes (see ARCHITECTURE.md).' },
           { selector: 'ClassExpression',  message: 'Use top-level functions, not classes (see ARCHITECTURE.md).' },
-          // The strict feature-file additions:
+          // The strict feature-file additions. Each selector pair covers
+          // both the bare and the export-prefixed form: `const X = …` is
+          // a direct Program child; `export const X = …` puts the
+          // VariableDeclaration under ExportNamedDeclaration. Same for
+          // interface/type — without both selectors, exported declarations
+          // slip through.
           {
             selector: 'Program > VariableDeclaration',
             message: 'No module-level variables in feature files. Use `function name(...) {…}` for behavior; inline literals at use sites; thread shared values through parameters; registries belong in @foundry/server. See ARCHITECTURE.md.',
+          },
+          {
+            selector: 'Program > ExportNamedDeclaration > VariableDeclaration',
+            message: 'No module-level variables in feature files (including exported ones). Use `export function name(...) {…}` instead of `export const name = (...) => …`. See ARCHITECTURE.md.',
           },
           {
             selector: 'Program > TSInterfaceDeclaration',
             message: 'Interface declarations belong in schema.ts (one shape file per module).',
           },
           {
+            selector: 'Program > ExportNamedDeclaration > TSInterfaceDeclaration',
+            message: 'Interface declarations (including exported ones) belong in schema.ts.',
+          },
+          {
             selector: 'Program > TSTypeAliasDeclaration',
             message: 'Type aliases belong in schema.ts (one shape file per module).',
+          },
+          {
+            selector: 'Program > ExportNamedDeclaration > TSTypeAliasDeclaration',
+            message: 'Type aliases (including exported ones) belong in schema.ts.',
           },
         ],
         // Zod restriction is merged into the per-module

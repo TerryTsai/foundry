@@ -1,10 +1,10 @@
-import { type Policy, type PolicyCtx, transition, dispatchSession, parseVerifierIds, currentRoundVerifierSessions } from './shared.js'
+import { type PolicyCtx, transition, dispatchSession, parseVerifierIds, currentRoundVerifierSessions } from './shared.js'
 import type { Agent } from '@foundry/db'
 
 // Ticket is in waiting, verifiers are configured, and at least one
 // declared verifier hasn't been dispatched for the current round
 // (post the latest producer session). Send the next missing one.
-export const dispatchVerifier: Policy = (ctx) => {
+export function dispatchVerifier(ctx: PolicyCtx): 'acted' | 'pass' {
   if (ctx.ticket.status !== 'waiting') return 'pass'
   const agent = ctx.agents.find(a => a.id === ctx.ticket.agent_id)
   if (!agent) return 'pass'

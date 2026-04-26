@@ -2,19 +2,21 @@
 // session row's terminal state and emits an event.
 
 import { now } from '@foundry/model'
-import type { Middleware, SessionContext } from './compose.js'
+import type { SessionStep, SessionContext } from '../types.js'
 
-export const recordSession: Middleware = (next) => async (ctx) => {
-  emitStartEvent(ctx)
-  try {
-    await next(ctx)
-    finalizeSession(ctx)
-    return ctx
-  } catch (errVal) {
-    finalizeFailedSession(ctx, errVal)
-    throw errVal
-  } finally {
-    await ctx.deps.sandbox.stopSessionContainer(ctx.session.id).catch(() => {})
+export function recordSession(next: SessionStep): SessionStep {
+  return async (ctx) => {
+    emitStartEvent(ctx)
+    try {
+      await next(ctx)
+      finalizeSession(ctx)
+      return ctx
+    } catch (errVal) {
+      finalizeFailedSession(ctx, errVal)
+      throw errVal
+    } finally {
+      await ctx.deps.sandbox.stopSessionContainer(ctx.session.id).catch(() => {})
+    }
   }
 }
 

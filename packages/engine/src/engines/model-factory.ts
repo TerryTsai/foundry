@@ -5,24 +5,13 @@ import { wrapLanguageModel, defaultSettingsMiddleware } from 'ai'
 import { type Db } from '@foundry/db'
 import type { Agent } from '@foundry/db'
 
-import type { EngineDeps } from '../types.js'
+import type { EngineDeps, WrappedModel } from '../types.js'
 
-// Model factory table — one entry per provider kind that can serve as an
-// LLM. The Claude Agent SDK path (kind 'anthropic-subscription') bypasses
-// this entirely; its token is consumed by the anthropic loop directly.
-
-type ModelFactory = (apiKey: string) => { languageModel: (id: string) => unknown }
-
-const anthropicModel: ModelFactory = (apiKey) =>
-  createAnthropic({ apiKey }) as unknown as { languageModel: (id: string) => unknown }
-
-const openaiModel: ModelFactory = (apiKey) =>
-  createOpenAI({ apiKey }) as unknown as { languageModel: (id: string) => unknown }
-
-export const modelFactoryByKind: Record<string, ModelFactory | undefined> = {
-  anthropic: anthropicModel,
-  openai:    openaiModel,
-}
+// Resolve a connection-bound LLM client. The Claude Agent SDK path
+// (kind 'anthropic-subscription') bypasses this entirely; its token is
+// consumed by the anthropic loop directly. New providers add a branch
+// in resolveModel below — registering a factory map at module scope is
+// forbidden (no module-level state in feature files).
 
 function secretFor(conn: { secrets: string }, field: string, deps: EngineDeps): string {
   const parsed = parseSecrets(conn.secrets, deps)
@@ -39,21 +28,14 @@ function parseSecrets(blob: string, deps: EngineDeps): Record<string, unknown> {
   }
 }
 
-export function resolveModel(db: Db, deps: EngineDeps, connectionId: string, modelId: string) {
+export function resolveModel(db: Db, deps: EngineDeps, connectionId: string, modelId: string): unknown {
   const row = deps.crud.connectionGetById(db, connectionId)
   if (!row) throw new Error(`connection '${connectionId}' not found`)
-  const factory = modelFactoryByKind[row.kind]
-  if (!factory) throw new Error(`connection kind '${row.kind}' has no model factory — cannot serve as an LLM provider`)
-  return factory(secretFor(row, 'api_key', deps)).languageModel(modelId)
+  const apiKey = secretFor(row, 'api_key', deps)
+  if (row.kind === 'anthropic') return createAnthropic({ apiKey }).languageModel(modelId)
+  if (row.kind === 'openai')    return createOpenAI({ apiKey }).languageModel(modelId)
+  throw new Error(`connection kind '${row.kind}' has no model factory — cannot serve as an LLM provider`)
 }
-
-// `wrapLanguageModel` accepts whatever provider-specific LanguageModel the
-// AI SDK currently exports. The AI SDK and the per-provider adapters each
-// publish their own LanguageModel type alias; pinning to a literal one
-// breaks every minor bump. Extracting the slot type via `Parameters<>`
-// keeps us aligned to whatever shape `wrapLanguageModel` wants today.
-type WrapModelArgs = Parameters<typeof wrapLanguageModel>[0]
-type WrappedModel = WrapModelArgs['model']
 
 export function resolveModelWithDefaults(db: Db, deps: EngineDeps, agentDef: Agent) {
   const settings = buildSettings(agentDef)

@@ -1,9 +1,9 @@
-import { type Policy, type PolicyCtx, transition, parseVerifierIds, currentRoundVerifierSessions } from './shared.js'
+import { type PolicyCtx, transition, parseVerifierIds, currentRoundVerifierSessions } from './shared.js'
 import type { Session } from '@foundry/db'
 
 // Ticket in waiting, every configured verifier has run for the current
 // round, and every verdict came back pass. Settle as finished.
-export const finishOnAllPass: Policy = (ctx) => {
+export function finishOnAllPass(ctx: PolicyCtx): 'acted' | 'pass' {
   if (ctx.ticket.status !== 'waiting') return 'pass'
   const agent = ctx.agents.find(a => a.id === ctx.ticket.agent_id)
   if (!agent) return 'pass'
