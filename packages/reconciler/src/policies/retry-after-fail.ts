@@ -1,4 +1,4 @@
-import { type Policy, type PolicyCtx, transition, dispatchSession, parseVerifierIds } from './shared.js'
+import { type Policy, type PolicyCtx, transition, dispatchSession, parseVerifierIds, currentRoundVerifierSessions } from './shared.js'
 import type { Agent, Session } from '@foundry/db'
 
 // Ticket in waiting, all verifiers in the current round have run, and
@@ -13,14 +13,6 @@ export const retryAfterFail: Policy = (ctx) => {
   const verifierSessions = currentRoundVerifierSessions(ctx)
   if (!verifierSessions || verifierSessions.length < verifierIds.length) return 'pass'
   return processVerdicts(ctx, verifierSessions, agent)
-}
-
-function currentRoundVerifierSessions(ctx: PolicyCtx): Session[] | null {
-  const sessions = ctx.deps.crud.sessionsByTicketRaw(ctx.db, ctx.ticket.id)
-  const producers = sessions.filter(s => s.agent_id === ctx.ticket.agent_id)
-  const latestProducer = producers[producers.length - 1]
-  if (!latestProducer) return null
-  return sessions.filter(s => s.agent_id !== ctx.ticket.agent_id && s.started_at >= latestProducer.started_at)
 }
 
 function processVerdicts(ctx: PolicyCtx, verifierSessions: Session[], agent: Agent): 'acted' | 'pass' {

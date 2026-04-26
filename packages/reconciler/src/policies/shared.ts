@@ -1,5 +1,5 @@
 import { type Db } from '@foundry/db'
-import type { Agent, Project, Ticket } from '@foundry/db'
+import type { Agent, Project, Session, Ticket } from '@foundry/db'
 import { now } from '@foundry/model'
 
 import type { ReconcilerDeps } from '../types.js'
@@ -82,4 +82,20 @@ export function parseVerifierIds(raw: string | null): string[] {
     const v = JSON.parse(raw)
     return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []
   } catch { return [] }
+}
+
+// Verifier sessions for the current round — i.e. since the latest
+// producer session started. Returns null if no producer has run for
+// this ticket yet (callers treat that as "not applicable, pass").
+//
+// Multiple policies (dispatchVerifier, finishOnAllPass, retryAfterFail)
+// need this same window when deciding whether to dispatch the next
+// missing verifier or settle the round. Single source of truth here so
+// the round semantics can't drift between policies.
+export function currentRoundVerifierSessions(ctx: PolicyCtx): Session[] | null {
+  const sessions = ctx.deps.crud.sessionsByTicketRaw(ctx.db, ctx.ticket.id)
+  const producers = sessions.filter(s => s.agent_id === ctx.ticket.agent_id)
+  const latestProducer = producers[producers.length - 1]
+  if (!latestProducer) return null
+  return sessions.filter(s => s.agent_id !== ctx.ticket.agent_id && s.started_at >= latestProducer.started_at)
 }

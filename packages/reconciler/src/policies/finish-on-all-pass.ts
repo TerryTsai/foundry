@@ -1,4 +1,4 @@
-import { type Policy, type PolicyCtx, transition, parseVerifierIds } from './shared.js'
+import { type Policy, type PolicyCtx, transition, parseVerifierIds, currentRoundVerifierSessions } from './shared.js'
 import type { Session } from '@foundry/db'
 
 // Ticket in waiting, every configured verifier has run for the current
@@ -12,14 +12,6 @@ export const finishOnAllPass: Policy = (ctx) => {
   const verifierSessions = currentRoundVerifierSessions(ctx)
   if (!verifierSessions || verifierSessions.length < verifierIds.length) return 'pass'
   return checkAndFinish(ctx, verifierSessions)
-}
-
-function currentRoundVerifierSessions(ctx: PolicyCtx): Session[] | null {
-  const sessions = ctx.deps.crud.sessionsByTicketRaw(ctx.db, ctx.ticket.id)
-  const producers = sessions.filter(s => s.agent_id === ctx.ticket.agent_id)
-  const latestProducer = producers[producers.length - 1]
-  if (!latestProducer) return null
-  return sessions.filter(s => s.agent_id !== ctx.ticket.agent_id && s.started_at >= latestProducer.started_at)
 }
 
 function checkAndFinish(ctx: PolicyCtx, verifierSessions: Session[]): 'acted' | 'pass' {
