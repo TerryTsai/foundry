@@ -8,6 +8,9 @@ export type { Result } from './result.js'
 export { makeCtx } from './ctx.js'
 export type { Ctx } from './ctx.js'
 
+export { bind } from './bind.js'
+export type { Bound } from './bind.js'
+
 export type {
   Ulid, Timestamp,
   AccountId, ProjectId, TicketId, SessionId, AgentId,
