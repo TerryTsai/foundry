@@ -11,7 +11,7 @@ import type { Ctx, Result, CrudError } from '@foundry/model'
 // functions actually return today. The model entity types narrow status
 // fields to literal unions; the DB select types keep them as plain
 // strings. Use db types here to match the underlying functions exactly.
-import type { Project, Ticket, Comment, Agent, Activity, Attachment } from '@foundry/db'
+import type { Project, Ticket, Comment, Agent, Activity, Attachment, Connection } from '@foundry/db'
 
 // Re-typed to keep the slice dependency-free. Concrete shapes mirror the
 // validators in @foundry/crud — the adapter coerces between them.
@@ -45,7 +45,7 @@ export type AgentUpdateArgs    = {
 export type ConnectionCreateArgs = { kind: string; name: string; config?: Record<string, unknown>; secrets?: Record<string, unknown> }
 export type ConnectionUpdateArgs = { name?: string; config?: Record<string, unknown>; secrets?: Record<string, unknown> }
 
-export type MaskedConnection   = Omit<import('@foundry/db').Connection, 'secrets'> & { api_key_preview: string | null }
+export type MaskedConnection   = Omit<Connection, 'secrets'> & { api_key_preview: string | null }
 
 export type DependencyChainEntry = {
   id: string; title: string; description: string

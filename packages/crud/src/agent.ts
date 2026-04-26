@@ -6,7 +6,7 @@ import * as schema from '@foundry/db'
 import type { Agent } from '@foundry/db'
 import type { Result, CrudError } from '@foundry/model'
 import { ok, err, now } from '@foundry/model'
-import { agent as validate } from './validators.js'
+import type { agent as validate } from './validators.js'
 import * as database from './repo.js'
 
 export function agentList(db: Db, filters: z.infer<typeof validate.list>): Result<Agent[], CrudError> {

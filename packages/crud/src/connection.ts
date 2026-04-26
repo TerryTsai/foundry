@@ -6,7 +6,7 @@ import * as schema from '@foundry/db'
 import type { Connection } from '@foundry/db'
 import type { Result, CrudError } from '@foundry/model'
 import { ok, err, now, timestamps } from '@foundry/model'
-import { connection as validate } from './validators.js'
+import type { connection as validate } from './validators.js'
 import { encryptSecret, decryptSecret } from './secrets-crypto.js'
 import * as database from './repo.js'
 

@@ -5,7 +5,7 @@ import { type Db } from '@foundry/db'
 import type { Account } from '@foundry/db'
 import type { Result, AuthError } from '@foundry/model'
 import { ok, err } from '@foundry/model'
-import * as validate from './validators.js'
+import type * as validate from './validators.js'
 import type { AuthConfig, AuthCrudOps, GithubOAuthDeps, GithubOAuthUser } from './types.js'
 
 export const AUTH_STATE_TTL_SEC = 60 * 10

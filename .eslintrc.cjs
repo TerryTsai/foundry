@@ -70,7 +70,15 @@ const cardinalRuleOverrides = LOGIC_MODULES.map(self => {
 module.exports = {
   root: true,
   parser: '@typescript-eslint/parser',
-  parserOptions: { ecmaVersion: 2022, sourceType: 'module' },
+  parserOptions: {
+    ecmaVersion: 2022,
+    sourceType: 'module',
+    // Type-aware linting (no-floating-promises, consistent-type-imports).
+    // `project: true` makes the parser find each file's closest
+    // tsconfig.json, so each package's project references resolve.
+    project: true,
+    tsconfigRootDir: __dirname,
+  },
   plugins: ['@typescript-eslint'],
   ignorePatterns: [
     'dist/', 'node_modules/', '*.config.*', '*.cjs',
@@ -99,6 +107,28 @@ module.exports = {
         'max-lines-per-function': ['error', { max: 20, skipBlankLines: true, skipComments: true, IIFEs: false }],
         'max-depth': ['error', 2],
         'no-inner-declarations': ['error', 'both'],
+
+        // Type safety. Locks in the type-tightening sweep — covers `: any`,
+        // `as any`, `<any>`, `Array<any>`, etc. The next regression fails
+        // lint instead of slipping in.
+        '@typescript-eslint/no-explicit-any': 'error',
+
+        // Make type-vs-value imports explicit. The cardinal rule's
+        // db-restriction depends on this distinction (allowTypeImports);
+        // forcing every type-only import to use `import type { … }` keeps
+        // the rule's behavior unambiguous.
+        '@typescript-eslint/consistent-type-imports': ['error', { prefer: 'type-imports', fixStyle: 'separate-type-imports' }],
+
+        // Async-always at the client boundary. Floating promises silently
+        // swallow errors and break that contract.
+        '@typescript-eslint/no-floating-promises': 'error',
+
+        // Cheap correctness wins. `eqeqeq` keeps the `== null` / `!= null`
+        // idiom (catches both null AND undefined in one comparison) — the
+        // alternative is `=== null || === undefined` everywhere, which
+        // hurts readability without changing semantics.
+        'eqeqeq': ['error', 'always', { null: 'ignore' }],
+        'no-throw-literal': 'error',
       },
     },
 
@@ -106,12 +136,19 @@ module.exports = {
 
     {
       files: TEST_GLOBS,
+      // Tests live outside each package's tsconfig `include` (which is
+      // just src/), so type-aware parsing fails on them. Disable the
+      // project lookup for tests; we keep syntactic lint, drop the
+      // shape rules that hurt test readability.
+      parserOptions: { project: false },
       rules: {
         'max-lines-per-function': 'off',
         'max-depth': 'off',
         'no-restricted-syntax': 'off',
         'no-restricted-imports': 'off',
         '@typescript-eslint/no-restricted-imports': 'off',
+        '@typescript-eslint/no-floating-promises': 'off',
+        '@typescript-eslint/consistent-type-imports': 'off',
       },
     },
   ],
