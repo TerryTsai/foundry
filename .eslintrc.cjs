@@ -194,6 +194,23 @@ module.exports = {
 
     ...cardinalRuleOverrides,
 
+    // ── client.ts is types-only ─────────────────────────────────────
+    // Per-service client.ts is the cross-service contract. It must not
+    // export runtime values — that would drag the implementation across
+    // the seam when another service imports `@foundry/<svc>/client`.
+    // Allowed: type aliases, interfaces, type re-exports. Forbidden:
+    // const/let/var, function declarations, default exports.
+    {
+      files: ['service/*/src/client.ts', '*/src/client.ts'],
+      rules: {
+        'no-restricted-syntax': ['error',
+          { selector: 'ExportNamedDeclaration > VariableDeclaration', message: 'client.ts is types-only — no runtime exports. Move runtime to service.ts.' },
+          { selector: 'ExportNamedDeclaration > FunctionDeclaration', message: 'client.ts is types-only — no functions. Move to service.ts.' },
+          { selector: 'ExportDefaultDeclaration',                     message: 'client.ts is types-only — no default export.' },
+        ],
+      },
+    },
+
     // ── Strict feature-file rules (logic modules only) ──────────────
     // Feature files in logic modules are a single shape: imports +
     // function declarations. No module-level variables, no top-level

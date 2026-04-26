@@ -55,11 +55,11 @@ cd server && npm run build
 
 ## Conventions in one breath
 
-- Cross-module imports go through `@foundry/client` and `@foundry/model`. Logic modules cannot import each other directly.
+- Cross-service value imports are forbidden — type-only imports of peer services are allowed. Each service exposes its contract via `<service>/client.ts` (types only) and its wiring via `<service>/service.ts` (the `createXxxService(deps): XxxClient` factory).
 - Domain outcomes return `Result<T, E>`. Cancellation, transport, and programmer errors throw.
-- Top-level pure functions only in module code. No classes, no closure factories.
+- Top-level pure functions in feature files. Closure factories only in `service.ts`. No classes.
 - Functions under 10 lines and depth 2 in new packages; legacy migrated code carries grandfathered exemptions.
-- Every package has the same shape: `package.json`, `tsconfig.json`, `README.md`, `src/index.ts` (or Vite SPA equivalent).
+- Every service has the same five-file shape: `index.ts`, `schema.ts`, `validate.ts` (when zod is needed), `client.ts`, `service.ts`, plus per-feature files. Per-service error unions live in `schema.ts`.
 
 ## License
 

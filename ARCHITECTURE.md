@@ -305,40 +305,68 @@ shape is reworked.
 - **`engine` is split from `reconciler`.** Their dependency trees are very different (engine pulls in heavy LLM SDKs; reconciler stays light). Keeping reconciler forkable later requires this split now.
 - **`billing` is stubbed.** Empty interface in `client` so wiring is in place; real impl when quota work begins.
 
-## The cardinal rule: no cross-module imports
+## The cardinal rule: cross-service value imports forbidden
 
-> A logic module may import only from `@foundry/model`, `@foundry/client`, `@foundry/db`, and its own external dependencies. It may not import from any other logic module's package.
+> A logic module may import VALUES only from `@foundry/model`, `@foundry/db`, and its own external dependencies. Cross-service imports of peer logic modules are TYPE-ONLY (the typed contract from `@foundry/<peer>/client` or its index), never runtime.
 
 The eight logic modules: `auth`, `billing`, `crud`, `analytics`, `sandbox`, `mcp`, `engine`, `reconciler`.
 
-The three infrastructure modules — `model`, `client`, `db` — are freely importable by any module. They are foundations: shared types, transport plumbing, persistence handles. None of them contain domain logic.
+The two infrastructure foundations — `model` and `db` — are freely importable. There is no aggregate `@foundry/client` package; per-service contracts live with each service.
+
+### The per-service shape
+
+Every service follows the same five-file pattern:
+
+```
+service/<name>/src/
+├── index.ts      re-exports the public surface
+├── schema.ts     types, error union, internal interfaces (no zod runtime)
+├── validate.ts   zod schemas + zod-inferred types (only home for zod runtime)
+├── client.ts     XxxClient interface — TYPES ONLY, no runtime exports
+├── service.ts    createXxxService(deps): XxxClient — wiring
+└── <feature>.ts  pure functions; take typed args
+```
+
+`package.json` publishes subpath exports so consumers can import the contract narrowly:
+
+```json
+"exports": {
+  ".":          "./src/index.ts",
+  "./client":   "./src/client.ts",
+  "./service":  "./src/service.ts",
+  "./validate": "./src/validate.ts"
+}
+```
+
+`mcp` is currently a borderline case (top-level placement, internal layout differs). It exposes the same shape but its internal restructure is pending.
 
 ### Persistence boundary: only `crud` and `analytics` may import `@foundry/db`
 
-`@foundry/db` exposes drizzle schema, the `Db` connection handle, `createDatabase`, and entity row types. The per-entity query helpers (ticketGet, sessionInsert, eventInsert, executionUpdate, …) live in `@foundry/crud`. Logic modules other than crud and analytics MUST NOT import `@foundry/db` — they get persistence through callback bundles the composition root injects (e.g. `EngineDeps.crud`, `ReconcilerCrudOps`, `SandboxCrudOps`, `AuthCrudOps`).
+`@foundry/db` exposes drizzle schema, the `Db` connection handle, `createDatabase`, and entity row types. The per-entity query helpers (ticketGet, sessionInsert, eventInsert, executionUpdate, …) live in `@foundry/crud`. Logic modules other than crud and analytics MUST NOT runtime-import `@foundry/db` — they receive persistence through `CrudClient` (the typed cross-service surface) or, for engine/reconciler internals that haven't migrated yet, through legacy `*CrudOps` callback bags the composition root constructs.
 
-`analytics` is a deliberate, bounded exception. Its dashboards run hand-written SQL aggregates that don't fit the per-entity helper surface; threading those through crud callbacks would invert the shape and cost legibility. The rule for analytics is **read queries only**: any analytics writes must go through crud. The manifest check enforces "non-{crud,analytics} logic modules cannot import @foundry/db" mechanically.
+`analytics` is a deliberate, bounded exception. Its dashboards run hand-written SQL aggregates that don't fit the per-entity helper surface; threading those through crud callbacks would invert the shape and cost legibility. The rule for analytics is **read queries only**: any analytics writes must go through crud. The manifest check enforces "non-{crud,analytics} logic modules cannot value-import @foundry/db" mechanically.
 
 Exceptions:
-- `server` is the composition root. It imports logic-module implementations directly to wire them and build the in-process `Client`. No other module gets this exemption.
+- `server` is the composition root. It imports logic-module implementations directly to call each `createXxxService(deps)`. No other module gets this exemption.
 
-This rule is what makes "fork out on demand" possible. The moment you let `crud` import from `analytics` directly, you've tied their lifecycles together and the seam is gone. Cross-module work flows through `client` (typed function calls) or via callback parameters supplied by the composition root — never through direct imports.
+This rule is what makes "fork out on demand" possible. Cross-service work flows through the typed `XxxClient` (passed in via `createXxxService` deps) — never through direct imports of peer implementations.
 
 ### Enforcement (mechanical, not discipline-based)
 
-1. **TypeScript project references** — module A's `tsconfig.json` `references` does not include module B unless A actually depends on B. In practice: only `model` and `client` appear in cross-module references.
-2. **ESLint `no-restricted-imports`** — error on any import from another module's package name except `@foundry/model` and `@foundry/client`.
-3. **CI manifest check** — a script parses imports and confirms they match `package.json` declared dependencies. Build fails on mismatch.
+1. **TypeScript project references** — module A's `tsconfig.json` `references` does not include module B unless A actually depends on B. In practice: only `model` and `db` appear in cross-module references.
+2. **ESLint `no-restricted-imports`** — peer-package value imports are blocked; type-only imports are allowed (`allowTypeImports: true`).
+3. **ESLint `client.ts` enforcement** — runtime exports (functions, consts, default exports) blocked in any `client.ts` file. Drives the contract to types only.
+4. **CI manifest check** — a script parses imports and confirms they match `package.json` declared dependencies. Build fails on mismatch.
 
 If these aren't in place, the rule isn't enforced. Discipline alone won't hold past the third time someone is in a hurry.
 
-## The `client` abstraction
+## The per-service `XxxClient` abstraction
 
-Every cross-module call goes through `client`. This is the single seam that makes everything else work.
+Every cross-service call goes through a typed `XxxClient`. There is no aggregate `Client` — boundaries import the per-service clients they need.
 
 ### Async always
 
-Every client method returns a `Promise<Result<T, E>>` or an `AsyncIterable<Result<T, E>>`. Even when the in-process adapter calls a synchronous function. **No exceptions** — synchronous methods break the in-process-to-remote flip.
+Every client method returns a `Promise<Result<T, E>>` or an `AsyncIterable<Result<T, E>>`. Even when the in-process service calls a synchronous function. **No exceptions** — synchronous methods break the in-process-to-remote flip.
 
 ### Bound clients (the ctx pattern)
 
@@ -354,22 +382,24 @@ type Ctx = {
   now:        () => number      // injectable time source
 }
 
-// client
-type Client       = { crud: { ticketCreate(ctx: Ctx, args: TicketCreateArgs): Promise<Result<Ticket, CrudError>>; ... }, ... }
-type BoundClient  = { crud: { ticketCreate(args: TicketCreateArgs): Promise<Result<Ticket, CrudError>>; ... }, ... }
+// per-service client
+type CrudClient = {
+  ticketCreate: (ctx: Ctx, args: TicketCreateArgs) => Promise<Result<Ticket, CrudError>>
+  // ...
+}
 
-function bind(client: Client, ctx: Ctx): BoundClient
+// bind() in @foundry/model — generic over any service client shape
+function bind<T>(client: T, ctx: Ctx): Bound<T>
 ```
 
 ```typescript
-// boundary — bind once
+// boundary — bind once per service you need
 async function handleCreateTicket(req: Request) {
-  const ctx = ctxFromRequest(req)
-  const c   = bind(client, ctx)
+  const ctx  = ctxFromRequest(req)
+  const crud = bind(crudClient, ctx)
 
-  const r = await c.crud.ticketCreate({ title: req.body.title })
+  const r = await crud.ticketCreate({ title: req.body.title })
   if (!r.ok) return errorResponse(r.error)
-  await c.analytics.recordEvent('ticket.created', { id: r.value.id })
   return ok(r.value)
 }
 ```
@@ -381,7 +411,7 @@ Boundaries (the only places `bind` is called):
 - Background job start
 - Test setup
 
-Greppable: `bind(client,` finds every "unit of work starts here" marker.
+Greppable: `bind(` finds every "unit of work starts here" marker.
 
 ### Ctx contents — locked
 
@@ -491,9 +521,9 @@ Client method names follow shape:
 
 Discipline on naming keeps the surface scannable as it grows.
 
-## One client slice per module
+## One client per service
 
-`client.crud.X` — that is the entire public surface of `crud`. There is no `client.crudInternal`, no `client.crudV2`, no escape hatch. If a method shouldn't be on the client, it doesn't exist on the client; it's a private function inside the module's source.
+`crudClient.X` — that is the entire public surface of `crud`. There is no `crudClientInternal`, no `crudClientV2`, no escape hatch. If a method shouldn't be on the client, it doesn't exist on the client; it's a private function inside the module's source.
 
 The client is the entire public surface; nothing leaks past it.
 
@@ -502,19 +532,19 @@ The client is the entire public surface; nothing leaks past it.
 `server` is the only module that imports logic-module implementations directly. It:
 
 1. Reads config from env.
-2. Constructs each module's implementation, injecting direct dependencies (`db`, secrets, etc.).
-3. Wires the in-process `client` adapters per module.
+2. Calls each service's `createXxxService(deps)`, injecting direct dependencies (`db`, config, peer typed clients, etc.).
+3. Mounts route handlers (which today still call raw module functions; future migration moves them behind `bind(client, ctx)`).
 4. Starts the HTTP server (web UI, API, callback API for MCP servers).
 
-Adapter choice is config-driven:
+Transport choice is per-service, config-driven (future):
 
 ```
-FOUNDRY_CRUD_TRANSPORT=in-process       # default
-FOUNDRY_CRUD_TRANSPORT=http
+FOUNDRY_CRUD_TRANSPORT=in-process       # default — createCrudService
+FOUNDRY_CRUD_TRANSPORT=http             # createCrudHttpClient(url)
 FOUNDRY_CRUD_URL=http://crud-service.internal:7011
 ```
 
-When a module is forked out, the only change in `server` is flipping its env vars. No other module touches anything.
+When a service is forked out, server swaps `createCrudService` for `createCrudHttpClient`. No other service touches anything — the `CrudClient` interface is the inter-service contract.
 
 ## `model` — bottom of the dependency graph
 
@@ -522,10 +552,11 @@ When a module is forked out, the only change in `server` is flipping its env var
 
 Contents:
 - **Entity types**: `Ticket`, `Session`, `Agent`, `Project`, `Account`, `Connection`, `Comment`, `Verdict`, `Activity`, `Attachment`. Domain shapes — *not* DB row shapes.
-- **Error unions per module**: `CrudError`, `AnalyticsError`, etc.
-- **`Ctx`, `Result<T,E>`, `ok`, `err`, `unwrap`**.
+- **`Ctx`, `Result<T,E>`, `ok`, `err`, `unwrap`, `bind`**.
 - **Primitive aliases**: `Ulid`, `Timestamp` (ISO string), branded ID types.
 - **Zod schemas** (optional, for boundary validation).
+
+Per-service error unions (`CrudError`, `AuthError`, etc.) live in each service's `schema.ts` and are re-exported by its `index.ts`. Cross-service consumers type-import them from the peer service.
 
 Promotion rule: a type goes in `model` only when at least two modules need it. Single-module types stay internal.
 
@@ -542,34 +573,37 @@ Don't pay this cost until you actually fork something out.
 
 Some logic modules need functions that live in other logic modules — for example, `auth` needs the github OAuth helpers in `mcp`, `sandbox` needs ownership checks from `crud`, `engine` needs many things from `mcp`/`sandbox`/`crud`. The cardinal rule forbids the direct import.
 
-The pattern: each module declares a callback-interface type for what it needs (`GithubOAuthDeps`, `IsExecutionOwned`, `EngineDeps`), takes that interface as a parameter on its functions or a deps bundle on init, and the composition root in `@foundry/server` injects the actual function references at boot.
+The dominant pattern is the typed peer client: a service that needs another service receives the peer's `XxxClient` (async/Result, the canonical contract) via its `createXxxService(deps)` call. The composition root constructs each peer service first and threads the resulting client in.
 
-Example: `engine.runSession(db, config, deps, ...)` where `deps: EngineDeps` carries `auth.sessionJwtMint`, `mcp.foundryServer`, `sandbox.executionCreate`, `crud.encryptSecret`, etc. Engine doesn't know which logic module those came from; it sees only the function shapes it declares.
+Some cross-service surfaces aren't shaped like a typed client — runtime helpers (sandbox container lifecycle, mcp tool servers, mcp utility helpers) don't fit the `(ctx, args) => Promise<Result>` mold. For those, the consumer still declares a small callback interface and the composition root injects the function references. The legacy `*CrudOps` callback bags inside `engine` and `reconciler` are a residual case of this — they predate the typed `CrudClient` and will collapse into it as those services migrate their internals to async-Result.
+
+Example: `engine`'s `createEngineService(deps)` accepts a `CrudClient` plus the runtime-only `mcp` and `sandbox` helpers it needs. Engine never knows which logic module supplied them; it sees only the function shapes it declares.
 
 ## Code-style enforcement
 
 Module code (every package's `src/`) is held to a single rule set: top-level pure functions, depth ≤ 2, function length ≤ 20 lines after the strict-10-line target plus a small overhead for signatures and the closing brace. The 5-second-gist bar is what reviewers actually enforce; the lint cap catches drift past it.
 
-`Result<T, E>` is the only domain-error mechanism. Modules return `Result` natively; adapters in `@foundry/client/src/adapters/` are pass-throughs. Throws are reserved for transport, cancellation, and programmer error per the rules above.
+`Result<T, E>` is the only domain-error mechanism. Modules return `Result` natively; each service's `service.ts` is a pass-through wrapper that adapts ctx-shape and exposes the typed client. Throws are reserved for transport, cancellation, and programmer error per the rules above.
 
 Adding an `eslint-disable` to module code is a code-review red flag. The few that exist today are non-legacy (SDK boundary types, single-aggregate SQL, composition-root callback bags, db migrations) and carry rationales that explain why the rule legitimately doesn't fit.
 
 ## Ground rules summary
 
-1. Cross-module imports (logic modules) go through `client` and `model`. Enforced mechanically.
-2. Infrastructure modules (`model`, `client`, `db`) are freely importable.
-3. Async-always at the client boundary.
+1. Cross-service value imports forbidden; type-only imports of peer services are fine. Enforced by ESLint `allowTypeImports`.
+2. Infrastructure foundations (`model`, `db`) are freely importable.
+3. Async-always at the cross-service client boundary.
 4. `Result<T,E>` for domain outcomes; throws for transport, cancellation, programmer error.
-5. Per-module discriminated error unions, fully serializable, no `Error` objects.
+5. Per-service discriminated error unions in each `schema.ts`, fully serializable, no `Error` objects.
 6. Streams as `AsyncIterable<Result<T,E>>` — same rules, no outer Result.
 7. `bind(client, ctx)` once per unit of work; no AsyncLocalStorage.
-8. `server` is the only composition root. All other modules are agnostic to wiring.
+8. `server` is the only composition root — calls each `createXxxService(deps)`. All other modules are agnostic to wiring.
 9. `model` depends on nothing (except optionally zod). Promotion to `model` requires multiple consumers.
 10. No `.map`, `.andThen`, `.match` on Result. Verbosity is the point.
 11. No HTTP-mapped domain errors. HTTP 200 carries Result; non-200 is transport-only.
-12. Top-level pure functions in module code. No classes, no closure-based factories. Closures allowed only in infrastructure (adapters, bind, compose).
+12. Top-level pure functions in feature files. No classes; closure-based factories permitted only in `service.ts` (the wiring file).
 13. Functions under 10 lines as default. Two levels of nesting max.
-14. Predictable file layout in every module. Predictable file structure in every file. 5-second gist is the bar.
+14. Every service has the same five-file shape: `index.ts`, `schema.ts`, `validate.ts` (when zod is needed), `client.ts` (types only), `service.ts` (wiring), plus feature files.
+15. `client.ts` is types only — runtime exports blocked by ESLint.
 
 When in doubt, ask: "if I forked this module out tomorrow, would this code still work?" If the answer is "I'd need to refactor first," the rule is being violated.
 
