@@ -13,13 +13,13 @@ foundry-app.env
 # Build output
 dist/
 */dist/
-web/dist/
-packages/*/dist/
+service/*/dist/
 *.tsbuildinfo
 
 # Dependencies
 node_modules/
 */node_modules/
+service/*/node_modules/
 
 # macOS
 .DS_Store

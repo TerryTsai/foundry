@@ -14,24 +14,28 @@ const LOGIC_MODULES = [
   'sandbox', 'mcp', 'engine', 'reconciler',
 ]
 
+// Logic modules live under service/ except mcp, which sits at the top
+// level (its layout differs and is being reworked separately).
+const modulePath = (m) => (m === 'mcp' ? 'mcp' : `service/${m}`)
+
 // Modules permitted to value-import @foundry/db. Everyone else gets type
 // access only — runtime persistence flows through composition-root
 // callbacks (EngineDeps, ReconcilerCrudOps, AuthCrudOps, etc.).
 const DB_VALUE_ALLOWED = new Set(['crud', 'analytics'])
 
 const MODULE_GLOBS = [
-  ...LOGIC_MODULES.map(m => `packages/${m}/src/**/*.ts`),
+  ...LOGIC_MODULES.map(m => `${modulePath(m)}/src/**/*.ts`),
   // Infrastructure modules — same shape rules, no cardinal rule (they're
   // the freely-importable foundation everything else sits on).
-  'packages/model/src/**/*.ts',
-  'packages/client/src/**/*.ts',
-  'packages/db/src/**/*.ts',
+  'model/src/**/*.ts',
+  'client/src/**/*.ts',
+  'db/src/**/*.ts',
   // Composition root — same shape rules apply, but it's the one place
   // allowed to import every logic module directly.
   'server/src/**/*.ts',
 ]
 
-const LOGIC_FEATURE_GLOBS = LOGIC_MODULES.map(m => `packages/${m}/src/**/*.ts`)
+const LOGIC_FEATURE_GLOBS = LOGIC_MODULES.map(m => `${modulePath(m)}/src/**/*.ts`)
 
 // Files where shape declarations live: zod schemas, type aliases,
 // interfaces, error unions, module-wide constants. Strict feature-file
@@ -88,7 +92,7 @@ const cardinalRuleOverrides = LOGIC_MODULES.flatMap(self => {
     // All files in this module: cardinal restrictions only. Schema files
     // need to import zod values; feature files use the override below.
     {
-      files: [`packages/${self}/src/**/*.ts`],
+      files: [`${modulePath(self)}/src/**/*.ts`],
       rules: {
         'no-restricted-imports': 'off',
         '@typescript-eslint/no-restricted-imports': ['error', { paths: cardinalPaths }],
@@ -98,7 +102,7 @@ const cardinalRuleOverrides = LOGIC_MODULES.flatMap(self => {
     // forbidden, type imports allowed). Last-write-wins replaces the
     // override above for feature files.
     {
-      files: [`packages/${self}/src/**/*.ts`],
+      files: [`${modulePath(self)}/src/**/*.ts`],
       excludedFiles: SCHEMA_FILES,
       rules: {
         'no-restricted-imports': 'off',
@@ -126,7 +130,7 @@ module.exports = {
   plugins: ['@typescript-eslint'],
   ignorePatterns: [
     'dist/', 'node_modules/', '*.config.*', '*.cjs',
-    'packages/site/**', 'packages/admin/**',     // SPAs not under these rules; Vite handles them
+    'site/**',     // SPA not under these rules; Vite handles it
   ],
   rules: {},
 

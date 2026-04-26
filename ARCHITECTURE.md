@@ -27,6 +27,32 @@ Concretely:
 - **Hardcode at the use site or thread through a parameter.** Both options are explicit. A named module-level const is neither — it's a hidden indirection that varies session-to-session.
 - **Enforced by ESLint** in logic-module feature files: `no-restricted-syntax` blocks `Program > VariableDeclaration` (no module-level `let`/`const`/`var`). Schema files (`schema.ts`, mcp `tools.ts`) and the composition root (`server`) are exempt.
 
+## Repository layout
+
+```
+foundry/
+├── model/         shared types — entities, error unions, Ctx, Result
+├── client/        typed cross-module surface + bind() + adapters
+├── db/            drizzle schema + per-entity query helpers
+├── mcp/           MCP servers (top-level today; layout is being reworked)
+├── site/          customer-facing React SPA
+├── service/       logic modules — each forkable on demand
+│   ├── auth/        OAuth, session JWTs, requireAuth middleware
+│   ├── billing/     quota / cost (stubbed in v1)
+│   ├── crud/        entity CRUD
+│   ├── analytics/   aggregate queries / dashboards
+│   ├── sandbox/     podman lifecycle + execution metering
+│   ├── engine/      agent SDK loop (Anthropic + Vercel SDKs)
+│   └── reconciler/  tick loop + policies
+└── server/        composition root + HTTP entrypoint (binary)
+                   systemd unit, deploy.sh, env, sqlite db live here
+```
+
+`server/` owns wiring; everything else is library code. `mcp` sits at
+the top level alongside the infrastructure libs because its internal
+shape differs from the other logic modules — it's being reworked
+separately and will likely move once that's settled.
+
 ## Files come in two shapes
 
 Every logic-module file is one of two shapes — declarations or behavior, never both:
@@ -39,6 +65,9 @@ Every logic-module file is one of two shapes — declarations or behavior, never
 ├── feature2.ts    ← functions only
 └── ...
 ```
+
+(`<module>` here means a service/logic-module directory under `service/`,
+or one of the top-level libs `model/`, `client/`, `db/`, `mcp/`.)
 
 `schema.ts` holds:
 - Zod schemas (`export const ticketCreate = z.object(...)`)
@@ -168,7 +197,7 @@ No surprises. Imports tell you what's in scope. Types tell you the shape. Functi
 ## File layout per module
 
 ```
-packages/<module>/
+<module>/
 ├── package.json
 ├── tsconfig.json
 ├── README.md           # one paragraph: what this module owns, what it does NOT own
@@ -190,7 +219,7 @@ packages/<module>/
 ### Example: the `crud` module
 
 ```
-packages/crud/
+service/crud/
 ├── package.json
 ├── tsconfig.json
 ├── README.md
@@ -212,12 +241,12 @@ Every other module follows the same shape. Predictable.
 
 ## Exceptions for infrastructure code
 
-The following patterns are allowed *only* in infrastructure code (`packages/client`, transport wrappers, middleware compose). Module logic still follows the rules above.
+The following patterns are allowed *only* in infrastructure code (`client/`, transport wrappers, middleware compose). Module logic still follows the rules above.
 
 - **Closures binding deps in adapters**: the in-process client adapter binds module functions with their deps. This is the only place closure-based-factories are allowed; it's literally an adapter's job.
 
   ```typescript
-  // packages/client/src/adapters/crud-inprocess.ts — ALLOWED
+  // client/src/adapters/crud-inprocess.ts — ALLOWED
   export function createCrudInProcessAdapter(deps: { db: Db }): Client['crud'] {
     return {
       ticketCreate: (ctx, args) => ticketCreate(deps.db, ctx, args),
@@ -238,31 +267,35 @@ These exceptions are tightly scoped. Logic modules cannot smuggle in classes or 
 ## Module layout
 
 ```
-packages/                ← standalone library packages, no wiring
-├── model           shared types (entities, error unions, Ctx, Result, primitives)
-├── client          typed cross-module surface + bind() + adapters
+foundry/
+├── model/         shared types (entities, error unions, Ctx, Result, primitives)
+├── client/        typed cross-module surface + bind() + adapters
+├── db/            drizzle, schema, query helpers
+├── mcp/           MCP servers (stdio child processes for v1)
+├── site/          customer-facing React SPA
 │
-├── site            customer-facing React SPA
-├── admin           admin-facing React SPA
+├── service/       logic modules
+│   ├── auth/        session JWTs, OAuth flows, account/user resolution
+│   ├── crud/        entity CRUD (incl. attachments storage for v1)
+│   ├── analytics/   derived queries, aggregates, dashboards
+│   ├── reconciler/  tick loop + policies (no LLM deps)
+│   ├── engine/      agent SDK loop (Anthropic + Vercel SDKs live here)
+│   ├── sandbox/     podman lifecycle + exec (incl. execution metering for v1)
+│   └── billing/     quota/cost (stubbed v1; real impl later)
 │
-├── db              drizzle, schema, query helpers
-├── auth            session JWTs, OAuth flows, account/user resolution
-├── crud            entity CRUD (incl. attachments storage for v1)
-├── analytics       derived queries, aggregates, dashboards
-├── reconciler      tick loop + policies (no LLM deps)
-├── engine          agent SDK loop (Anthropic + Vercel SDKs live here)
-├── sandbox         podman lifecycle + exec (incl. execution metering for v1)
-├── mcp             MCP servers (stdio child processes for v1)
-└── billing         quota/cost (stubbed v1; real impl later)
-
-server/                  ← composition root + HTTP entrypoint (binary)
-                          systemd unit, deploy.sh, env, sqlite db all live here
+└── server/        composition root + HTTP entrypoint (binary)
+                   systemd unit, deploy.sh, env, sqlite db all live here
 ```
 
-`server/` deliberately sits outside `packages/`: the directory's job is
-wiring (composition root) plus on-disk artifacts (env file, PEM,
-SQLite db, sandbox Dockerfile). Pulling it out of `packages/` keeps
-the libraries forkable and makes the wiring location obvious.
+`server/` is the only directory that wires logic modules together; it
+also owns on-disk artifacts (env file, PEM, SQLite db, sandbox
+Dockerfile). Logic modules live under `service/` so the boundary is
+visually obvious — every `service/<name>` is forkable on demand.
+
+`mcp/` sits at the top level today rather than under `service/` because
+its internal layout differs from the other logic modules (per-provider
+subtrees, hand-rolled tool registration). It will likely move once that
+shape is reworked.
 
 ### Borderline decisions, named so future-you knows where the seam will go
 

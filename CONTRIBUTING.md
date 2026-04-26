@@ -13,12 +13,12 @@ npx tsc -b         # type-check the workspace
 If a change touches a logic module, also run that module's tests:
 
 ```sh
-cd packages/<module> && npx vitest run
+cd service/<module> && npx vitest run
 ```
 
 ## Adding a new module
 
-Copy an existing package as a skeleton (e.g. `cp -r packages/billing packages/<name>`), rename it inside `package.json`, update `src/index.ts`, then:
+Copy an existing logic module as a skeleton (e.g. `cp -r service/billing service/<name>`), rename it inside `package.json`, update `src/index.ts`, then:
 
 1. Add the package's tsconfig reference to the root `tsconfig.json`.
 2. Declare its dependencies in `package.json`.

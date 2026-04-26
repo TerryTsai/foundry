@@ -7,30 +7,28 @@ This repository is a TypeScript monorepo. See [`ARCHITECTURE.md`](./ARCHITECTURE
 ## Layout
 
 ```
-packages/                ← standalone library packages, no wiring
-├── model         shared types: entities, error unions, Result, Ctx
-├── client        typed cross-module surface + bind() + adapters
-├── db            drizzle schema + per-entity query helpers
-│
+model/         shared types: entities, error unions, Result, Ctx
+client/        typed cross-module surface + bind() + adapters
+db/            drizzle schema + per-entity query helpers
+mcp/           MCP servers (foundry, sandbox, browser, github + 13 vendor providers)
+site/          customer-facing React SPA — day-to-day project work
+
+service/       logic modules — each forkable on demand
 ├── auth          OAuth login, session JWTs, requireAuth middleware
 ├── billing       quota / cost (stubbed in v1)
 ├── crud          entity CRUD: project, ticket, session, agent, connection, attachment
 ├── analytics     aggregate queries, time-series rollups, usage breakdowns
 ├── sandbox       podman lifecycle + execution metering
-├── mcp           MCP servers (foundry, sandbox, browser, github + 13 vendor providers)
 ├── engine        agent SDK loop: pipeline middleware, anthropic + vercel engines
-├── reconciler    tick loop + policies (dispatch / settle / verdict / retry)
-│
-├── site          customer-facing React SPA — day-to-day project work
-└── admin         admin React SPA — system observability (stubbed in v1)
+└── reconciler    tick loop + policies (dispatch / settle / verdict / retry)
 
-server/                  ← composition root + HTTP entrypoint (binary)
-                          systemd unit, deploy.sh, env, sqlite db all live here
+server/        composition root + HTTP entrypoint (binary)
+               systemd unit, deploy.sh, env, sqlite db all live here
 ```
 
-The `server/` directory sits outside `packages/` deliberately: it owns
-the wiring (composition root, env, on-disk state, deploy artifacts).
-Packages stay decoupled and independently forkable.
+The `server/` directory owns the wiring (composition root, env, on-disk
+state, deploy artifacts). Logic modules stay decoupled and independently
+forkable.
 
 ## Quick start
 
@@ -48,10 +46,10 @@ npm run check
 cd server && npm run dev
 
 # Run the customer SPA (dev, vite)
-cd packages/site && npm run dev
+cd site && npm run dev
 
 # Build everything for production
-cd packages/site && npm run build
+cd site && npm run build
 cd server && npm run build
 ```
 

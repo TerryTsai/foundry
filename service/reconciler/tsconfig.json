@@ -8,6 +8,7 @@
     "src"
   ],
   "references": [
-    { "path": "../model" }
+    { "path": "../../model" },
+    { "path": "../../db" }
   ]
 }

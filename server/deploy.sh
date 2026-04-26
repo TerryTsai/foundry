@@ -29,12 +29,13 @@ fi
 echo "$LOG_PREFIX $(date '+%Y-%m-%d %H:%M:%S') deploying ${DEPLOYED_SHA:-<none>} → $HEAD_SHA"
 
 # Install workspace deps from the repo root so every package under
-# packages/* and server/ is wired up in one pass.
+# service/*, the top-level libs (model/db/client/mcp/site), and server/
+# is wired up in one pass.
 echo "$LOG_PREFIX installing deps..."
 npm install --prefer-offline --no-audit --no-fund --silent
 
 # Build the SPA. The server (run via tsx) statically serves
-# packages/site/dist when it exists.
+# site/dist when it exists.
 echo "$LOG_PREFIX building site..."
 npm run build --workspace=@foundry/site --silent
 

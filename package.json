@@ -2,7 +2,12 @@
   "name": "foundry",
   "private": true,
   "workspaces": [
-    "packages/*",
+    "model",
+    "client",
+    "db",
+    "mcp",
+    "site",
+    "service/*",
     "server"
   ],
   "scripts": {

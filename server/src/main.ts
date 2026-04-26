@@ -149,15 +149,15 @@ export function buildApp() {
   app.use('/auth', authRoutes(db, config, authCrud, encryptionKey))
 
   // ── Static web app (production) ──
-  // Serve the built site SPA from packages/site/dist. In dev (tsx watch)
+  // Serve the built site SPA from site/dist. In dev (tsx watch)
   // this is a no-op because dist doesn't exist; Vite serves the app on
   // :3006. Must be ABOVE requireAuth so the login page and its assets can
   // load without a session cookie.
   //
   // Path resolution: this file is server/{src,dist}/main.{ts,js}; the
-  // site app lives at packages/site/dist one level up.
+  // site app lives at site/dist one level up.
   const __dirname = dirname(fileURLToPath(import.meta.url))
-  const webDist   = join(__dirname, '../../packages/site/dist')
+  const webDist   = join(__dirname, '../../site/dist')
   if (existsSync(webDist)) {
     app.use(express.static(webDist))
     // SPA fallback: serve index.html for client-side routing. API paths pass

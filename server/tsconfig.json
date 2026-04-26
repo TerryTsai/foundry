@@ -8,16 +8,16 @@
     "src"
   ],
   "references": [
-    { "path": "../packages/model" },
-    { "path": "../packages/client" },
-    { "path": "../packages/db" },
-    { "path": "../packages/auth" },
-    { "path": "../packages/billing" },
-    { "path": "../packages/crud" },
-    { "path": "../packages/analytics" },
-    { "path": "../packages/sandbox" },
-    { "path": "../packages/mcp" },
-    { "path": "../packages/engine" },
-    { "path": "../packages/reconciler" }
+    { "path": "../model" },
+    { "path": "../client" },
+    { "path": "../db" },
+    { "path": "../mcp" },
+    { "path": "../service/auth" },
+    { "path": "../service/billing" },
+    { "path": "../service/crud" },
+    { "path": "../service/analytics" },
+    { "path": "../service/sandbox" },
+    { "path": "../service/engine" },
+    { "path": "../service/reconciler" }
   ]
 }
