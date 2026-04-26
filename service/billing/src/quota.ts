@@ -1,7 +1,7 @@
-import type { Ctx, Result, BillingError } from '@foundry/model'
+import type { Ctx, Result } from '@foundry/model'
 import { ok } from '@foundry/model'
 
-import type { QuotaCheck, QuotaResource } from './schema.js'
+import type { QuotaCheck, QuotaResource, BillingError } from './schema.js'
 
 // Quota is unlimited until real billing work begins. The shape is here
 // so reconciler / engine / crud can call it now and silently get green

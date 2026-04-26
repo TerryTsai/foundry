@@ -3,9 +3,9 @@
 // is gone; consumers (engine, reconciler, crud) import this BillingClient
 // directly when they need to call billing.
 
-import type { Ctx, Result, BillingError } from '@foundry/model'
+import type { Ctx, Result } from '@foundry/model'
 
-import type { QuotaCheck, QuotaResource } from './schema.js'
+import type { QuotaCheck, QuotaResource, BillingError } from './schema.js'
 
 export type BillingClient = {
   quotaCheck:   (ctx: Ctx, resource: QuotaResource)                  => Promise<Result<QuotaCheck, BillingError>>

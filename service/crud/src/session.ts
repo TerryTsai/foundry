@@ -3,11 +3,11 @@ import { eq } from 'drizzle-orm'
 import { type Db } from '@foundry/db'
 import * as schema from '@foundry/db'
 import type { Activity } from '@foundry/db'
-import type { Result, CrudError } from '@foundry/model'
+import type { Result } from '@foundry/model'
 import { ok, err, now } from '@foundry/model'
 import { sessionOwned, ticketOwned } from './project.js'
 import * as database from './repo.js'
-import type { ActivityCreateInput } from './schema.js'
+import type { ActivityCreateInput, CrudError } from './schema.js'
 
 export function sessionGet(db: Db, accountId: string, id: string): Result<unknown, CrudError> {
   const owned = sessionOwned(db, id, accountId)

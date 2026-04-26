@@ -3,11 +3,11 @@ import { eq } from 'drizzle-orm'
 import { type Db } from '@foundry/db'
 import * as schema from '@foundry/db'
 import type { Attachment } from '@foundry/db'
-import type { Result, CrudError } from '@foundry/model'
+import type { Result } from '@foundry/model'
 import { ok, err, now } from '@foundry/model'
 import { ticketOwned, assertProjectOwner } from './project.js'
 import * as database from './repo.js'
-import type { AttachmentMeta, AttachmentCreateInput, AttachmentBytes } from './schema.js'
+import type { AttachmentMeta, AttachmentCreateInput, AttachmentBytes, CrudError } from './schema.js'
 
 function toMeta(a: Attachment): AttachmentMeta {
   return {

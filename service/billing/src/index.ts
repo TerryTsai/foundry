@@ -5,7 +5,7 @@
 
 export { createBillingService } from './service.js'
 export type { BillingClient } from './client.js'
-export type { QuotaResource, QuotaCheck } from './schema.js'
+export type { QuotaResource, QuotaCheck, BillingError } from './schema.js'
 
 // Raw exports remain during the @foundry/client → per-service migration.
 // Removed at cutover when the uber-client package is deleted.

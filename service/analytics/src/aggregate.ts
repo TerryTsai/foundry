@@ -2,11 +2,11 @@ import { eq, sql } from 'drizzle-orm'
 import { type Db } from '@foundry/db'
 import * as database from '@foundry/db'
 import * as schema from '@foundry/db'
-import type { Result, AnalyticsError } from '@foundry/model'
+import type { Result } from '@foundry/model'
 import { ok } from '@foundry/model'
 
 import type {
-  AnalyticsArgs, AnalyticsScope, AnalyticsResult,
+  AnalyticsArgs, AnalyticsScope, AnalyticsResult, AnalyticsError,
   SummaryRow, TicketCountsRow, DailyRow, AgentRow, TagRow, ToolRow,
 } from './schema.js'
 

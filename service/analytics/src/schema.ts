@@ -1,15 +1,10 @@
-import { z } from 'zod'
+// Shapes for @foundry/analytics. Types only — zod validators live in
+// validate.ts and are re-exported below for legacy import paths during
+// the @foundry/client → per-service migration.
+
 import type { SQL } from 'drizzle-orm'
 
-// ── Boundary schema ─────────────────────────────────────────────────
-
-export const analytics = z.object({
-  days:      z.coerce.number().int().min(1).max(365).default(30),
-  projectId: z.string().optional(),   // narrow to a single project (must be owned by the account)
-  agentId:   z.string().optional(),   // narrow sessions by agent
-  tag:       z.string().optional(),   // narrow tickets (and the sessions/tools rolled up from them) to a single tag
-})
-export type AnalyticsArgs = z.infer<typeof analytics>
+export type { AnalyticsArgs } from './validate.js'
 
 // ── Internal scope ───────────────────────────────────────────────────
 
@@ -96,3 +91,10 @@ export interface SessionTotals {
   tokens_in: number; tokens_out: number; duration_ms: number; step_count: number; tool_calls: number
   cpu_ms: number; net_bytes: number; peak: number; exec_count: number
 }
+
+// ── Error union ─────────────────────────────────────────────────────
+
+export type AnalyticsError =
+  | { kind: 'invalid_query';   reason: string }
+  | { kind: 'not_found';       entity: string; id: string }
+  | { kind: 'internal';        message: string }

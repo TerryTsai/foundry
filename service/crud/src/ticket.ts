@@ -4,12 +4,12 @@ import { eq, inArray, type SQL } from 'drizzle-orm'
 import { type Db } from '@foundry/db'
 import * as schema from '@foundry/db'
 import type { Ticket, Comment } from '@foundry/db'
-import type { Result, CrudError } from '@foundry/model'
+import type { Result } from '@foundry/model'
 import { ok, err, pick, now, timestamps } from '@foundry/model'
-import type { ticket as validate } from './schema.js'
+import type { ticket as validate } from './validate.js'
 import { assertProjectOwner, ticketOwned } from './project.js'
 import * as database from './repo.js'
-import type { DependencyChainEntry, VerdictRow } from './schema.js'
+import type { DependencyChainEntry, VerdictRow, CrudError } from './schema.js'
 
 // All ticket queries scope to projects the requester owns. Pre-resolve
 // owned project ids and add an inArray constraint.

@@ -2,10 +2,10 @@
 
 export * as validate from './schema.js'
 
-// service — login flow + session lookup helpers
+// flow — login flow + session lookup helpers
 export {
   authStart, authCallback, authMe, authLogout,
-} from './service.js'
+} from './flow.js'
 
 // middleware — cookie helpers + requireAuth
 export {

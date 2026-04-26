@@ -4,10 +4,10 @@ import { type Db } from '@foundry/db'
 import * as database from '@foundry/db'
 import * as schema from '@foundry/db'
 import type { Execution } from '@foundry/db'
-import type { Result, AnalyticsError } from '@foundry/model'
+import type { Result } from '@foundry/model'
 import { ok, err } from '@foundry/model'
 
-import type { UsageRollup, SessionUsageRow, SessionTotals } from './schema.js'
+import type { UsageRollup, SessionUsageRow, SessionTotals, AnalyticsError } from './schema.js'
 
 function rollupExecutions(executions: Execution[]): { exec_count: number; cpu_ms: number; peak_memory_mb: number | null; net_bytes: number } {
   let cpu_ms = 0, net_bytes = 0, peak = 0

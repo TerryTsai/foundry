@@ -3,9 +3,10 @@ import type { z } from 'zod'
 
 import { type Db } from '@foundry/db'
 import * as schema from '@foundry/db'
-import type { Result, CrudError } from '@foundry/model'
+import type { Result } from '@foundry/model'
 import { ok, err, pick, now, timestamps } from '@foundry/model'
-import type { project as validate } from './schema.js'
+import type { CrudError } from './schema.js'
+import type { project as validate } from './validate.js'
 import * as database from './repo.js'
 
 // Ownership-aware fetch: not_found (not permission_denied) on mismatch

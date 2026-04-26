@@ -3,8 +3,8 @@
 
 export { createAnalyticsService } from './service.js'
 export type { AnalyticsClient } from './client.js'
-export type { UsageRollup, AnalyticsArgs, AnalyticsResult } from './schema.js'
-export * as validate from './schema.js'
+export type { UsageRollup, AnalyticsArgs, AnalyticsResult, AnalyticsError } from './schema.js'
+export * as validate from './validate.js'
 
 // Raw exports remain during the @foundry/client → per-service migration.
 export { analytics, tagsList } from './aggregate.js'

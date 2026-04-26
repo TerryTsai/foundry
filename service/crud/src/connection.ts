@@ -4,12 +4,12 @@ import type { z } from 'zod'
 import { type Db } from '@foundry/db'
 import * as schema from '@foundry/db'
 import type { Connection } from '@foundry/db'
-import type { Result, CrudError } from '@foundry/model'
+import type { Result } from '@foundry/model'
 import { ok, err, now, timestamps } from '@foundry/model'
+import type { connection as validate } from './validate.js'
 import type {
-  connection as validate,
   MaskedConnection, ConnectionProviderSpec, ProviderGet, SupportedKindsFn,
-  EncryptSecret, DecryptSecret,
+  EncryptSecret, DecryptSecret, CrudError,
 } from './schema.js'
 import * as database from './repo.js'
 

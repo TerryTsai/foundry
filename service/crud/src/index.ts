@@ -1,6 +1,10 @@
 // Public surface for @foundry/crud. Re-exports from per-entity files.
 
-export * as validate from './schema.js'
+export { createCrudService } from './service.js'
+export type { CrudServiceDeps } from './service.js'
+export type { CrudClient } from './client.js'
+
+export * as validate from './validate.js'
 
 // project
 export {
@@ -88,4 +92,5 @@ export type {
   MaskedConnection,
   ConnectionProviderField, ConnectionProviderSpec,
   ProviderGet, SupportedKindsFn,
+  CrudError,
 } from './schema.js'

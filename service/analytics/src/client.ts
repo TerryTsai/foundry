@@ -1,9 +1,9 @@
 // Cross-service contract for @foundry/analytics. Types only — no value
 // imports beyond schema.ts and @foundry/model.
 
-import type { Ctx, Result, AnalyticsError } from '@foundry/model'
+import type { Ctx, Result } from '@foundry/model'
 
-import type { AnalyticsArgs, AnalyticsResult, UsageRollup } from './schema.js'
+import type { AnalyticsArgs, AnalyticsResult, UsageRollup, AnalyticsError } from './schema.js'
 
 export type AnalyticsClient = {
   analytics:    (ctx: Ctx, args: AnalyticsArgs) => Promise<Result<AnalyticsResult, AnalyticsError>>
