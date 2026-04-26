@@ -2,8 +2,8 @@ import { createAnthropic } from '@ai-sdk/anthropic'
 import { createOpenAI } from '@ai-sdk/openai'
 import { wrapLanguageModel, defaultSettingsMiddleware } from 'ai'
 
-import { type Db } from '@foundry/db'
 import type { Agent } from '@foundry/db'
+import type { Ctx } from '@foundry/model'
 
 import type { EngineDeps, WrappedModel } from '../schema.js'
 
@@ -22,25 +22,27 @@ function secretFor(conn: { secrets: string }, field: string, deps: EngineDeps): 
 
 function parseSecrets(blob: string, deps: EngineDeps): Record<string, unknown> {
   try {
-    return JSON.parse(deps.crud.decryptSecret(blob)) as Record<string, unknown>
+    return JSON.parse(deps.crypto.decryptSecret(blob)) as Record<string, unknown>
   } catch (errVal) {
     throw new Error(`connection secrets invalid: ${errVal instanceof Error ? errVal.message : String(errVal)}`)
   }
 }
 
-export function resolveModel(db: Db, deps: EngineDeps, connectionId: string, modelId: string): unknown {
-  const row = deps.crud.connectionGetById(db, connectionId)
-  if (!row) throw new Error(`connection '${connectionId}' not found`)
+export async function resolveModel(ctx: Ctx, deps: EngineDeps, connectionId: string, modelId: string): Promise<unknown> {
+  const r = await deps.crud.connectionGetById(ctx, connectionId)
+  if (!r.ok)   throw new Error(`connection '${connectionId}' lookup failed: ${r.error.message}`)
+  if (!r.value) throw new Error(`connection '${connectionId}' not found`)
+  const row = r.value
   const apiKey = secretFor(row, 'api_key', deps)
   if (row.kind === 'anthropic') return createAnthropic({ apiKey }).languageModel(modelId)
   if (row.kind === 'openai')    return createOpenAI({ apiKey }).languageModel(modelId)
   throw new Error(`connection kind '${row.kind}' has no model factory — cannot serve as an LLM provider`)
 }
 
-export function resolveModelWithDefaults(db: Db, deps: EngineDeps, agentDef: Agent) {
+export async function resolveModelWithDefaults(ctx: Ctx, deps: EngineDeps, agentDef: Agent) {
   const settings = buildSettings(agentDef)
   return wrapLanguageModel({
-    model: resolveModel(db, deps, agentDef.connection_id, agentDef.model) as unknown as WrappedModel,
+    model: (await resolveModel(ctx, deps, agentDef.connection_id, agentDef.model)) as unknown as WrappedModel,
     middleware: defaultSettingsMiddleware({ settings }),
   })
 }

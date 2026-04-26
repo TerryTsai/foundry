@@ -6,6 +6,7 @@
 
 import type { Db } from '@foundry/db'
 import type { Agent, Event, Project, Session, Ticket } from '@foundry/db'
+import type { Ctx, Result } from '@foundry/model'
 
 // ── ReconcilerConfig ─────────────────────────────────────────────────
 // Reconciler itself never inspects config — it threads it into the
@@ -52,9 +53,10 @@ export interface EngineDeps { readonly [engineDepsBrand]: never }
 // it as fire-and-forget but still needs to handle errors. Structural type
 // to keep reconciler module-agnostic.
 export type RunSessionFn = (
+  ctx:       Ctx,
   db:        Db,
   config:    ReconcilerConfig,
-  deps:     EngineDeps,
+  deps:      EngineDeps,
   sessionId: string,
   agent:     Agent,
   ticket:    Ticket,
@@ -63,7 +65,10 @@ export type RunSessionFn = (
 
 // ── crud callbacks ──────────────────────────────────────────────────
 // Reconciler depends on crud for read/write of tickets, sessions,
-// agents, events. All persistence goes through this bag.
+// agents, events. All persistence goes through this bag, async/Result/
+// Ctx-shaped. Optional reads return Result<T | undefined, …> so callers
+// branch on .value rather than wrapping not_found in the error channel;
+// writes resolve to Result<T, …> on success.
 
 export interface VerdictRow {
   id:         string
@@ -75,21 +80,23 @@ export interface VerdictRow {
   created_at: string
 }
 
+export type ReconcilerCrudError = { kind: 'internal'; message: string }
+
 export interface ReconcilerCrudOps {
-  agentList:               (db: Db, opts: { accountId: string }) => Agent[]
-  projectsActive:          (db: Db) => Project[]
-  ticketAllByProject:      (db: Db, projectId: string, status: string) => Ticket[]
-  ticketGetById:           (db: Db, id: string) => Ticket | undefined
-  ticketTransition:        (db: Db, id: string, from: string, to: string) => boolean
-  ticketUpdateById:        (db: Db, id: string, data: Record<string, unknown>) => Ticket
-  sessionInsert:           (db: Db, data: Record<string, unknown>) => Session
-  sessionUpdateById:       (db: Db, id: string, data: Record<string, unknown>) => Session
-  sessionRunning:          (db: Db) => Session[]
-  sessionRunningForTicket: (db: Db, ticketId: string) => Session[]
-  sessionsByTicketRaw:     (db: Db, ticketId: string) => Session[]
-  verdictBySession:        (db: Db, sessionId: string) => VerdictRow | undefined
-  eventCreate:             (db: Db, data: { entity_type: string; entity_id: string; kind: string; data?: string; caused_by: string; caused_by_id?: string | null }) => Event
-  eventLatest:             (db: Db, entityType: string, entityId: string) => Event | undefined
+  agentList:               (ctx: Ctx, opts: { accountId: string }) => Promise<Result<Agent[], ReconcilerCrudError>>
+  projectsActive:          (ctx: Ctx) => Promise<Result<Project[], ReconcilerCrudError>>
+  ticketAllByProject:      (ctx: Ctx, projectId: string, status: string) => Promise<Result<Ticket[], ReconcilerCrudError>>
+  ticketGetById:           (ctx: Ctx, id: string) => Promise<Result<Ticket | undefined, ReconcilerCrudError>>
+  ticketTransition:        (ctx: Ctx, id: string, from: string, to: string) => Promise<Result<boolean, ReconcilerCrudError>>
+  ticketUpdateById:        (ctx: Ctx, id: string, data: Record<string, unknown>) => Promise<Result<Ticket, ReconcilerCrudError>>
+  sessionInsert:           (ctx: Ctx, data: Record<string, unknown>) => Promise<Result<Session, ReconcilerCrudError>>
+  sessionUpdateById:       (ctx: Ctx, id: string, data: Record<string, unknown>) => Promise<Result<Session, ReconcilerCrudError>>
+  sessionRunning:          (ctx: Ctx) => Promise<Result<Session[], ReconcilerCrudError>>
+  sessionRunningForTicket: (ctx: Ctx, ticketId: string) => Promise<Result<Session[], ReconcilerCrudError>>
+  sessionsByTicketRaw:     (ctx: Ctx, ticketId: string) => Promise<Result<Session[], ReconcilerCrudError>>
+  verdictBySession:        (ctx: Ctx, sessionId: string) => Promise<Result<VerdictRow | undefined, ReconcilerCrudError>>
+  eventCreate:             (ctx: Ctx, data: { entity_type: string; entity_id: string; kind: string; data?: string; caused_by: string; caused_by_id?: string | null }) => Promise<Result<Event, ReconcilerCrudError>>
+  eventLatest:             (ctx: Ctx, entityType: string, entityId: string) => Promise<Result<Event | undefined, ReconcilerCrudError>>
 }
 
 // ── ReconcilerDeps ──────────────────────────────────────────────────
@@ -115,6 +122,7 @@ export interface ReconcilerDeps {
 // 'pass'   → policy was not applicable; reconciler tries the next.
 
 export interface PolicyCtx {
+  ctx:     Ctx
   db:      Db
   deps:    ReconcilerDeps
   project: Project
@@ -123,7 +131,7 @@ export interface PolicyCtx {
   slots:   { remaining: number }   // mutable across policies/tickets within a project tick
 }
 
-export type Policy = (ctx: PolicyCtx) => 'acted' | 'pass'
+export type Policy = (ctx: PolicyCtx) => Promise<'acted' | 'pass'>
 
 // ── Error union ─────────────────────────────────────────────────────
 

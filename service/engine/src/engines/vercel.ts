@@ -4,7 +4,6 @@
 import { generateText, stepCountIs, tool, type ModelMessage, type ToolSet } from 'ai'
 import { ulid } from 'ulid'
 
-import { type Db } from '@foundry/db'
 import { now } from '@foundry/model'
 
 import { resolveModelWithDefaults } from './model-factory.js'
@@ -27,7 +26,7 @@ function toAiTools<TCtx>(defs: ToolDef<TCtx>[], ctx: TCtx, prefix?: string): Too
   return out
 }
 
-function unwrapExec(deps: EngineDeps, db: Db, config: SessionContext['config']): ExecutionCreate {
+function unwrapExec(deps: EngineDeps, db: SessionContext['db'], config: SessionContext['config']): ExecutionCreate {
   return (input) => {
     const r = deps.sandbox.executionCreate(db, config, input)
     if (!r.ok) throw new Error(`sandbox execution failed: ${r.error.kind}`)
@@ -36,9 +35,9 @@ function unwrapExec(deps: EngineDeps, db: Db, config: SessionContext['config']):
 }
 
 function buildBuiltInTools(ctx: SessionContext, executionCreate: ExecutionCreate): ToolSet {
-  const { db, config, workDir, deps, agent: agentDef, ticket: ticketData, session } = ctx
+  const { db, config, workDir, deps, agent: agentDef, ticket: ticketData, session, project } = ctx
   const foundryCtx: McpFoundryCtx = { db, config, sessionId: session.id, workspace: workDir, projectId: ticketData.project_id, accountId: agentDef.account_id, ticketId: ticketData.id, agentName: agentDef.name, sandboxToken: ctx.sandboxToken, executionCreate }
-  const githubCtx:  McpGithubCtx  = { db, config, sessionId: session.id, workspace: workDir, ticket: ticketData, agentName: agentDef.name, executionCreate, projectGet: deps.crud.projectGetById }
+  const githubCtx:  McpGithubCtx  = { db, config, sessionId: session.id, workspace: workDir, ticket: ticketData, agentName: agentDef.name, executionCreate, projectGet: () => project }
   const sandboxCtx: McpSandboxCtx = { db, config, sessionId: session.id, workspace: workDir, executionCreate }
   return {
     ...toAiTools(deps.mcp.foundryServer.tools, foundryCtx),
@@ -48,26 +47,27 @@ function buildBuiltInTools(ctx: SessionContext, executionCreate: ExecutionCreate
   }
 }
 
-function attachConnectionTools(
+async function attachConnectionTools(
   result: ToolSet, ctx: SessionContext, executionCreate: ExecutionCreate,
-): void {
+): Promise<void> {
   const { db, config, workDir, deps, agent: agentDef, session } = ctx
-  const conns = deps.crud.connectionByAccount(db, agentDef.account_id)
+  const r = await deps.crud.connectionByAccount(ctx.ctx, agentDef.account_id)
+  const conns = r.ok ? r.value : []
   for (const conn of conns) {
     const mod = deps.mcp.byConnectionKind[conn.kind]
     if (!mod) continue
-    const { secrets, connConfig } = deps.mcp.parseConn(conn, deps.crud.decryptSecret)
+    const { secrets, connConfig } = deps.mcp.parseConn(conn, deps.crypto.decryptSecret)
     const prefix = `${conn.kind}-${conn.name}`
     const connCtx: McpConnCtx = { db, config, sessionId: session.id, workspace: workDir, secrets, connConfig, connectionName: conn.name, executionCreate }
     Object.assign(result, toAiTools(mod.tools, connCtx, prefix))
   }
 }
 
-function buildTools(ctx: SessionContext): ToolSet {
+async function buildTools(ctx: SessionContext): Promise<ToolSet> {
   const { db, config, deps } = ctx
   const executionCreate = unwrapExec(deps, db, config)
   const result = buildBuiltInTools(ctx, executionCreate)
-  attachConnectionTools(result, ctx, executionCreate)
+  await attachConnectionTools(result, ctx, executionCreate)
   return result
 }
 
@@ -84,16 +84,16 @@ function partToActivity(b: ContentPart): PartActivity | null {
   return { kind: 'said', payload: b, tool_use_id: null, isToolCall: false }
 }
 
-function writeStepActivities(db: Db, deps: EngineDeps, sessionId: string, turnId: string, result: StepResult): number {
+async function writeStepActivities(ctx: SessionContext, sessionId: string, turnId: string, result: StepResult): Promise<number> {
   const parts = contentPartsOf(result)
   const { inputTokens, outputTokens } = result.usage ?? {}
   let toolCalls = 0
-  parts.forEach((b, idx) => {
-    const act = partToActivity(b)
-    if (!act) return
+  for (let idx = 0; idx < parts.length; idx++) {
+    const act = partToActivity(parts[idx])
+    if (!act) continue
     if (act.isToolCall) toolCalls++
-    deps.crud.activityCreate(db, activityFromPart(sessionId, turnId, idx, act, inputTokens, outputTokens))
-  })
+    await ctx.deps.crud.activityCreate(ctx.ctx, activityFromPart(sessionId, turnId, idx, act, inputTokens, outputTokens))
+  }
   return toolCalls
 }
 
@@ -112,13 +112,13 @@ function newState(): EngineState {
 }
 
 export async function runEngine(ctx: SessionContext): Promise<LoopResult> {
-  const { db, deps, systemPrompt, userPrompt, shouldStop, agent: agentDef, session } = ctx
-  const model = resolveModelWithDefaults(db, deps, agentDef)
-  const tools = buildTools(ctx)
+  const { deps, systemPrompt, userPrompt, shouldStop, agent: agentDef, session } = ctx
+  const model = await resolveModelWithDefaults(ctx.ctx, deps, agentDef)
+  const tools = await buildTools(ctx)
   const messages: ModelMessage[] = [{ role: 'user', content: userPrompt }]
   const state = newState()
   for (let step = 0; step < agentDef.max_steps; step++) {
-    if (shouldStop()) { state.cancelled = true; break }
+    if (await shouldStop()) { state.cancelled = true; break }
     const result = await generateText({ model, system: systemPrompt, messages, tools, stopWhen: stepCountIs(1) })
     if (await applyStep(ctx, session.id, messages, result, state)) break
   }
@@ -128,9 +128,8 @@ export async function runEngine(ctx: SessionContext): Promise<LoopResult> {
 async function applyStep(
   ctx: SessionContext, sessionId: string, messages: ModelMessage[], result: StepResult, state: EngineState,
 ): Promise<boolean> {
-  const { db, deps } = ctx
   const turnId = ulid()
-  state.toolCalls += writeStepActivities(db, deps, sessionId, turnId, result)
+  state.toolCalls += await writeStepActivities(ctx, sessionId, turnId, result)
   state.tokensIn  += result.usage?.inputTokens  ?? 0
   state.tokensOut += result.usage?.outputTokens ?? 0
   messages.push(...result.response.messages)

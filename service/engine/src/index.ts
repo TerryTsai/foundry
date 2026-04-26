@@ -9,6 +9,8 @@ export type {
   EngineMcpConfig,
   EngineDeps,
   EngineCrudOps,
+  EngineCryptoOps,
+  EngineCrudError,
   EngineError,
   SessionContext,
   LoopResult,

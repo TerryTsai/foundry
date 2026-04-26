@@ -32,7 +32,8 @@ import {
   type ReconcilerService,
 } from '@foundry/reconciler'
 import { decodeEncryptionKey } from './encryption-key.js'
-import { runSession, type EngineCrudOps, type EngineDeps } from '@foundry/engine'
+import { runSession, type EngineCrudOps, type EngineCryptoOps, type EngineDeps } from '@foundry/engine'
+import { ok, err, type Result } from '@foundry/model'
 import { sessionJwt } from '@foundry/auth'
 import {
   asText, isMcpEnvelope, parseConn, toolUseId,
@@ -141,9 +142,10 @@ export function buildApp() {
   // through these closures.
   const authCrud      = buildAuthCrudOps()
   const sandboxCrud   = buildSandboxCrudOps()
-  const reconcilerCrud = buildReconcilerCrudOps()
-  const engineCrud    = buildEngineCrudOps(encryptSecretFn, decryptSecretFn)
-  const engineDeps    = buildEngineDeps(engineCrud, authCrud, sandboxCrud, encryptionKey, sandboxState)
+  const reconcilerCrud = buildReconcilerCrudOps(db)
+  const engineCrud    = buildEngineCrudOps(db)
+  const engineCrypto  = buildEngineCryptoOps(encryptSecretFn, decryptSecretFn)
+  const engineDeps    = buildEngineDeps(engineCrud, engineCrypto, authCrud, sandboxCrud, encryptionKey, sandboxState)
 
   // ── Public routes (no auth) ──
   app.get('/health',        (_req, res) => res.json({ ok: true }))
@@ -283,41 +285,68 @@ function buildSandboxCrudOps(): SandboxCrudOps {
   }
 }
 
+// Wrap a sync raw crud call into an async Result-returning thunk.
+// Catches throws so transport-style failures land in the error channel
+// instead of bubbling into engine/reconciler call sites that branch on
+// .ok. The kind is kept narrow ('internal') to satisfy both
+// EngineCrudError and ReconcilerCrudError, which are structurally
+// identical aliases.
+async function asAsyncResult<T>(thunk: () => T): Promise<Result<T, { kind: 'internal'; message: string }>> {
+  try { return ok(thunk()) }
+  catch (e) { return err({ kind: 'internal', message: e instanceof Error ? e.message : String(e) }) }
+}
+
 // eslint-disable-next-line max-lines-per-function -- composition root callback bag; one line per cross-module function
-function buildReconcilerCrudOps(): ReconcilerCrudOps {
+function buildReconcilerCrudOps(db: ReturnType<typeof createDatabase>): ReconcilerCrudOps {
   return {
-    agentList:               (db, opts) => {
+    agentList:               async (_ctx, opts) => {
       const r = agentList(db, opts)
-      return r.ok ? r.value : []
+      return r.ok ? ok(r.value) : err({ kind: 'internal', message: r.error.kind })
     },
-    projectsActive:          projectsActive,
-    ticketAllByProject:      ticketAllByProject,
-    ticketGetById:           ticketGetById,
-    ticketTransition:        ticketTransition,
-    ticketUpdateById:        ticketUpdateById,
-    sessionInsert:           sessionInsert,
-    sessionUpdateById:       sessionUpdateById,
-    sessionRunning:          sessionRunning,
-    sessionRunningForTicket: sessionRunningForTicket,
-    sessionsByTicketRaw:     sessionsByTicketRaw,
-    verdictBySession:        verdictBySession,
-    eventCreate:             eventCreate,
-    eventLatest:             eventLatest,
+    projectsActive:          async (_ctx)                  => asAsyncResult(() => projectsActive(db)),
+    ticketAllByProject:      async (_ctx, projectId, status) => asAsyncResult(() => ticketAllByProject(db, projectId, status)),
+    ticketGetById:           async (_ctx, id)              => asAsyncResult(() => ticketGetById(db, id)),
+    ticketTransition:        async (_ctx, id, from, to)    => asAsyncResult(() => ticketTransition(db, id, from, to)),
+    ticketUpdateById:        async (_ctx, id, data)        => asAsyncResult(() => ticketUpdateById(db, id, data)),
+    sessionInsert:           async (_ctx, data)            => asAsyncResult(() => sessionInsert(db, data)),
+    sessionUpdateById:       async (_ctx, id, data)        => asAsyncResult(() => sessionUpdateById(db, id, data)),
+    sessionRunning:          async (_ctx)                  => asAsyncResult(() => sessionRunning(db)),
+    sessionRunningForTicket: async (_ctx, ticketId)        => asAsyncResult(() => sessionRunningForTicket(db, ticketId)),
+    sessionsByTicketRaw:     async (_ctx, ticketId)        => asAsyncResult(() => sessionsByTicketRaw(db, ticketId)),
+    verdictBySession:        async (_ctx, sessionId)       => asAsyncResult(() => verdictBySession(db, sessionId)),
+    eventCreate:             async (_ctx, data)            => asAsyncResult(() => eventCreate(db, data)),
+    eventLatest:             async (_ctx, et, eid)         => asAsyncResult(() => eventLatest(db, et, eid)),
   }
 }
 
-function buildEngineCrudOps(
-  encryptSecret: (s: string) => string, decryptSecret: (s: string) => string,
-): EngineCrudOps {
+// eslint-disable-next-line max-lines-per-function -- composition root callback bag; one line per cross-module function
+function buildEngineCrudOps(db: ReturnType<typeof createDatabase>): EngineCrudOps {
   return {
-    encryptSecret, decryptSecret, attachmentListByTicketInternal,
-    ticketGetById, sessionGetById, agentGetById, projectGetById, accountGetById,
-    connectionGetById, connectionByAccount, commentByTicket,
-    verdictBySession, verdictByTicket,
-    ticketUpdateById, sessionUpdateById, connectionUpdateById,
-    activityCreate: activityWrite, activityUpdate, activityByTurnOrder,
-    eventCreate,
+    attachmentListByTicketInternal: async (_ctx, ticketId)         => asAsyncResult(() => attachmentListByTicketInternal(db, ticketId)),
+    ticketGetById:        async (_ctx, id)                          => asAsyncResult(() => ticketGetById(db, id)),
+    sessionGetById:       async (_ctx, id)                          => asAsyncResult(() => sessionGetById(db, id)),
+    agentGetById:         async (_ctx, id)                          => asAsyncResult(() => agentGetById(db, id)),
+    projectGetById:       async (_ctx, id)                          => asAsyncResult(() => projectGetById(db, id)),
+    accountGetById:       async (_ctx, id)                          => asAsyncResult(() => accountGetById(db, id)),
+    connectionGetById:    async (_ctx, id)                          => asAsyncResult(() => connectionGetById(db, id)),
+    connectionByAccount:  async (_ctx, accountId)                   => asAsyncResult(() => connectionByAccount(db, accountId)),
+    commentByTicket:      async (_ctx, ticketId)                    => asAsyncResult(() => commentByTicket(db, ticketId)),
+    verdictBySession:     async (_ctx, sessionId)                   => asAsyncResult(() => verdictBySession(db, sessionId)),
+    verdictByTicket:      async (_ctx, ticketId)                    => asAsyncResult(() => verdictByTicket(db, ticketId)),
+    activityByTurnOrder:  async (_ctx, sessionId, turnId, orderIdx) => asAsyncResult(() => activityByTurnOrder(db, sessionId, turnId, orderIdx)),
+    ticketUpdateById:     async (_ctx, id, data)                    => asAsyncResult(() => ticketUpdateById(db, id, data)),
+    sessionUpdateById:    async (_ctx, id, data)                    => asAsyncResult(() => sessionUpdateById(db, id, data)),
+    connectionUpdateById: async (_ctx, id, data)                    => asAsyncResult(() => connectionUpdateById(db, id, data)),
+    activityCreate:       async (_ctx, data)                        => asAsyncResult(() => activityWrite(db, data)),
+    activityUpdate:       async (_ctx, id, data)                    => asAsyncResult(() => activityUpdate(db, id, data)),
+    eventCreate:          async (_ctx, data)                        => asAsyncResult(() => eventCreate(db, data)),
   }
+}
+
+function buildEngineCryptoOps(
+  encryptSecret: (s: string) => string, decryptSecret: (s: string) => string,
+): EngineCryptoOps {
+  return { encryptSecret, decryptSecret }
 }
 
 // Cross-module callback bag for the engine. Built from concrete imports
@@ -325,7 +354,7 @@ function buildEngineCrudOps(
 // logic modules together.
 // eslint-disable-next-line max-lines-per-function -- composition root callback bag; one line per cross-module function
 function buildEngineDeps(
-  engineCrud: EngineCrudOps, authCrud: AuthCrudOps, sandboxCrud: SandboxCrudOps, encryptionKey: Buffer, sandboxState: SandboxState,
+  engineCrud: EngineCrudOps, engineCrypto: EngineCryptoOps, authCrud: AuthCrudOps, sandboxCrud: SandboxCrudOps, encryptionKey: Buffer, sandboxState: SandboxState,
 ): EngineDeps {
   return {
     auth: {
@@ -344,7 +373,8 @@ function buildEngineDeps(
       unregisterSessionWorkspace: (sessionId) => unregisterSessionWorkspace(sandboxState, sessionId),
       stopSessionContainer: (sessionId) => stopSessionContainer(sandboxState, sessionId),
     },
-    crud: engineCrud,
+    crud:   engineCrud,
+    crypto: engineCrypto,
   }
 }
 
@@ -405,7 +435,7 @@ export function boot() {
 function shutdown(reconciler: ReconcilerService, sandboxState: SandboxState, interval: ReturnType<typeof setInterval> | null) {
   console.log('SIGTERM received, draining…')
   if (interval) clearInterval(interval)
-  reconciler.drain()
+  reconciler.drain().catch((errVal: unknown) => console.error('reconciler drain error:', errVal))
   stopAllSessionContainers(sandboxState)
   try { execSync('podman kill --all', { timeout: 5000, stdio: 'ignore' }) } catch {
     // Ignored — best-effort container cleanup; podman may not be installed

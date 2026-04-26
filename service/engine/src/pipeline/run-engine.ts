@@ -10,7 +10,8 @@ import type { SessionStep } from '../schema.js'
 
 export function runEngine(next: SessionStep): SessionStep {
   return async (ctx) => {
-    const conn = ctx.deps.crud.connectionGetById(ctx.db, ctx.agent.connection_id)
+    const r = await ctx.deps.crud.connectionGetById(ctx.ctx, ctx.agent.connection_id)
+    const conn = r.ok ? r.value : undefined
     const engine = conn?.kind === 'anthropic-subscription'
       ? (await import('../engines/anthropic.js')).runEngine
       : (await import('../engines/vercel.js'   )).runEngine

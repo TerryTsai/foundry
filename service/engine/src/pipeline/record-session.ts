@@ -6,13 +6,13 @@ import type { SessionStep, SessionContext } from '../schema.js'
 
 export function recordSession(next: SessionStep): SessionStep {
   return async (ctx) => {
-    emitStartEvent(ctx)
+    await emitStartEvent(ctx)
     try {
       await next(ctx)
-      finalizeSession(ctx)
+      await finalizeSession(ctx)
       return ctx
     } catch (errVal) {
-      finalizeFailedSession(ctx, errVal)
+      await finalizeFailedSession(ctx, errVal)
       throw errVal
     } finally {
       await ctx.deps.sandbox.stopSessionContainer(ctx.session.id).catch(() => {})
@@ -20,8 +20,8 @@ export function recordSession(next: SessionStep): SessionStep {
   }
 }
 
-function emitStartEvent(ctx: SessionContext): void {
-  ctx.deps.crud.eventCreate(ctx.db, {
+async function emitStartEvent(ctx: SessionContext): Promise<void> {
+  await ctx.deps.crud.eventCreate(ctx.ctx, {
     entity_type: 'session', entity_id: ctx.session.id,
     kind: 'session_started',
     data: JSON.stringify({ agent: ctx.agent.name, ticket_id: ctx.ticket.id }),
@@ -29,14 +29,14 @@ function emitStartEvent(ctx: SessionContext): void {
   })
 }
 
-function finalizeSession(ctx: SessionContext): void {
+async function finalizeSession(ctx: SessionContext): Promise<void> {
   const r = ctx.result!
   const status = r.cancelled ? 'cancelled' : 'finished'
-  ctx.deps.crud.sessionUpdateById(ctx.db, ctx.session.id, {
+  await ctx.deps.crud.sessionUpdateById(ctx.ctx, ctx.session.id, {
     status, cost_usd: r.costUsd,
     duration_ms: Date.now() - ctx.startedAt, ended_at: now(),
   })
-  ctx.deps.crud.eventCreate(ctx.db, {
+  await ctx.deps.crud.eventCreate(ctx.ctx, {
     entity_type: 'session', entity_id: ctx.session.id,
     kind: 'session_' + status,
     data: JSON.stringify({ duration_ms: Date.now() - ctx.startedAt, cost_usd: r.costUsd }),
@@ -44,13 +44,13 @@ function finalizeSession(ctx: SessionContext): void {
   })
 }
 
-function finalizeFailedSession(ctx: SessionContext, errVal: unknown): void {
+async function finalizeFailedSession(ctx: SessionContext, errVal: unknown): Promise<void> {
   const msg = errVal instanceof Error ? errVal.message : String(errVal)
-  ctx.deps.crud.sessionUpdateById(ctx.db, ctx.session.id, {
+  await ctx.deps.crud.sessionUpdateById(ctx.ctx, ctx.session.id, {
     status: 'failed', error: msg,
     duration_ms: Date.now() - ctx.startedAt, ended_at: now(),
   })
-  ctx.deps.crud.eventCreate(ctx.db, {
+  await ctx.deps.crud.eventCreate(ctx.ctx, {
     entity_type: 'session', entity_id: ctx.session.id,
     kind: 'session_failed',
     data: JSON.stringify({ error: msg }),

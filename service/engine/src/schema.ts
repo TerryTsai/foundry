@@ -7,7 +7,7 @@
 import type { ZodType } from 'zod'
 import type { Db } from '@foundry/db'
 import type { Account, Activity, Agent, Connection, Comment, Event, Project, Session, Ticket } from '@foundry/db'
-import type { Result } from '@foundry/model'
+import type { Ctx, Result } from '@foundry/model'
 // Cross-service type imports — values from peer services are still
 // forbidden (cardinal rule); type-only imports are fine.
 import type { AuthError } from '@foundry/auth'
@@ -19,6 +19,11 @@ export type EngineError =
   | { kind: 'not_found';          entity: string; id: string }
   | { kind: 'crashed';            message: string }
   | { kind: 'internal';           message: string }
+
+// Local error union for crud reads/writes from the engine's perspective.
+// The composition root wraps real CrudError into this so engine doesn't
+// take a value-import dependency on @foundry/crud.
+export type EngineCrudError = { kind: 'internal'; message: string }
 
 // ── EngineConfig ─────────────────────────────────────────────────────
 // Engine reads `sandboxTimeout` directly (mintTtl). The remaining fields
@@ -216,31 +221,43 @@ export interface AttachmentSummary {
 // composition root constructs this once per service boot from the real
 // implementations in @foundry/{auth,mcp,sandbox,crud}.
 
+// Every method here is async / Result / Ctx-shaped. Optional reads
+// (*GetById, verdictBySession, activityByTurnOrder) keep "no row" out
+// of the error channel by returning Result<T | undefined, …> so callers
+// branch on .value rather than wrapping a not_found discriminator.
+// Writes resolve to Result<T, …> on success; the caller treats a
+// transport failure as a hard error.
 export interface EngineCrudOps {
-  // crypto / connection helpers
-  encryptSecret:                   (s: string) => string
-  decryptSecret:                   (s: string) => string
-  attachmentListByTicketInternal:  (db: Db, ticketId: string) => AttachmentSummary[]
+  attachmentListByTicketInternal:  (ctx: Ctx, ticketId: string)  => Promise<Result<AttachmentSummary[], EngineCrudError>>
   // entity reads
-  ticketGetById:                   (db: Db, id: string) => Ticket | undefined
-  sessionGetById:                  (db: Db, id: string) => Session | undefined
-  agentGetById:                    (db: Db, id: string) => Agent | undefined
-  projectGetById:                  (db: Db, id: string) => Project | undefined
-  accountGetById:                  (db: Db, id: string) => Account | undefined
-  connectionGetById:               (db: Db, id: string) => Connection | undefined
-  connectionByAccount:             (db: Db, accountId: string) => Connection[]
-  commentByTicket:                 (db: Db, ticketId: string) => Comment[]
-  verdictBySession:                (db: Db, sessionId: string) => VerdictRow | undefined
-  verdictByTicket:                 (db: Db, ticketId: string) => VerdictRow[]
+  ticketGetById:                   (ctx: Ctx, id: string)        => Promise<Result<Ticket      | undefined, EngineCrudError>>
+  sessionGetById:                  (ctx: Ctx, id: string)        => Promise<Result<Session     | undefined, EngineCrudError>>
+  agentGetById:                    (ctx: Ctx, id: string)        => Promise<Result<Agent       | undefined, EngineCrudError>>
+  projectGetById:                  (ctx: Ctx, id: string)        => Promise<Result<Project     | undefined, EngineCrudError>>
+  accountGetById:                  (ctx: Ctx, id: string)        => Promise<Result<Account     | undefined, EngineCrudError>>
+  connectionGetById:               (ctx: Ctx, id: string)        => Promise<Result<Connection  | undefined, EngineCrudError>>
+  connectionByAccount:             (ctx: Ctx, accountId: string) => Promise<Result<Connection[], EngineCrudError>>
+  commentByTicket:                 (ctx: Ctx, ticketId: string)  => Promise<Result<Comment[], EngineCrudError>>
+  verdictBySession:                (ctx: Ctx, sessionId: string) => Promise<Result<VerdictRow  | undefined, EngineCrudError>>
+  verdictByTicket:                 (ctx: Ctx, ticketId: string)  => Promise<Result<VerdictRow[], EngineCrudError>>
+  activityByTurnOrder:             (ctx: Ctx, sessionId: string, turnId: string, orderIndex: number) => Promise<Result<Activity | undefined, EngineCrudError>>
   // entity writes
-  ticketUpdateById:                (db: Db, id: string, data: Record<string, unknown>) => Ticket
-  sessionUpdateById:               (db: Db, id: string, data: Record<string, unknown>) => Session
-  connectionUpdateById:            (db: Db, id: string, data: Record<string, unknown>) => Connection
-  activityCreate:                  (db: Db, data: Record<string, unknown>) => Activity
-  activityUpdate:                  (db: Db, id: string, data: Record<string, unknown>) => Activity
-  activityByTurnOrder:             (db: Db, sessionId: string, turnId: string, orderIndex: number) => Activity | undefined
+  ticketUpdateById:                (ctx: Ctx, id: string, data: Record<string, unknown>) => Promise<Result<Ticket,     EngineCrudError>>
+  sessionUpdateById:               (ctx: Ctx, id: string, data: Record<string, unknown>) => Promise<Result<Session,    EngineCrudError>>
+  connectionUpdateById:            (ctx: Ctx, id: string, data: Record<string, unknown>) => Promise<Result<Connection, EngineCrudError>>
+  activityCreate:                  (ctx: Ctx, data: Record<string, unknown>) => Promise<Result<Activity, EngineCrudError>>
+  activityUpdate:                  (ctx: Ctx, id: string, data: Record<string, unknown>) => Promise<Result<Activity, EngineCrudError>>
   // event log
-  eventCreate:                     (db: Db, data: { entity_type: string; entity_id: string; kind: string; data?: string; caused_by: string; caused_by_id?: string | null }) => Event
+  eventCreate:                     (ctx: Ctx, data: { entity_type: string; entity_id: string; kind: string; data?: string; caused_by: string; caused_by_id?: string | null }) => Promise<Result<Event, EngineCrudError>>
+}
+
+// Crypto helpers stay sync — they're pure functions over a key-bound
+// closure, not data ops, and live alongside crud only because they're
+// composition-root concerns. Splitting them out of `crud` keeps that
+// bag uniformly async/Result/Ctx-shaped.
+export interface EngineCryptoOps {
+  encryptSecret: (s: string) => string
+  decryptSecret: (s: string) => string
 }
 
 export interface EngineDeps {
@@ -268,7 +285,8 @@ export interface EngineDeps {
     unregisterSessionWorkspace: (sessionId: string) => void
     stopSessionContainer:       (sessionId: string) => Promise<void>
   }
-  crud: EngineCrudOps
+  crud:   EngineCrudOps
+  crypto: EngineCryptoOps
 }
 
 // ── SessionContext ───────────────────────────────────────────────────
@@ -285,17 +303,23 @@ export interface LoopResult {
 }
 
 export interface SessionContext {
+  ctx:          Ctx               // per-session caller ctx; threaded into every crud call
   db:           Db
   config:       EngineConfig
   deps:         EngineDeps
   session:      Session
   ticket:       Ticket
   agent:        Agent
+  // Pre-loaded once in runSession so the sync `projectGet` slot on
+  // McpGithubCtx (which mcp's github tools call inside ticketRepo) can
+  // be satisfied without an async hop. Kept in sync with the row at
+  // session start; intentionally not refreshed mid-session.
+  project:      Project | undefined
   systemPrompt: string
   userPrompt:   string
   workDir:      string
   sandboxToken: string   // per-session bearer; minted in runSession
-  shouldStop:   () => boolean
+  shouldStop:   () => Promise<boolean>
   result?:      LoopResult
   startedAt:    number
 }

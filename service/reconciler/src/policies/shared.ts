@@ -1,6 +1,7 @@
 import { type Db } from '@foundry/db'
 import type { Agent, Session, Ticket } from '@foundry/db'
 import { now } from '@foundry/model'
+import type { Ctx } from '@foundry/model'
 
 import type { ReconcilerDeps, PolicyCtx } from '../schema.js'
 
@@ -13,13 +14,14 @@ export type { Policy, PolicyCtx } from '../schema.js'
 // Transition a ticket from `from` → `to`. Records a status_changed event
 // on success (returns true). Returns false if the current status doesn't
 // match `from` (race with another tick or operator action).
-export function transition(
-  db: Db, deps: ReconcilerDeps,
+export async function transition(
+  ctx: Ctx, deps: ReconcilerDeps,
   ticketId: string, from: string, to: string,
   causedBy: string, data?: Record<string, unknown>,
-): boolean {
-  if (!deps.crud.ticketTransition(db, ticketId, from, to)) return false
-  deps.crud.eventCreate(db, {
+): Promise<boolean> {
+  const r = await deps.crud.ticketTransition(ctx, ticketId, from, to)
+  if (!r.ok || !r.value) return false
+  await deps.crud.eventCreate(ctx, {
     entity_type: 'ticket', entity_id: ticketId,
     kind: 'status_changed',
     data: JSON.stringify({ from, to, ...data }),
@@ -32,27 +34,29 @@ export function transition(
 // in the background (fire-and-forget — the runner emits its own events
 // when it terminates). The composition root supplies runSession +
 // engineDeps via deps, so the reconciler itself never imports engine.
-export function dispatchSession(
-  db: Db, deps: ReconcilerDeps, ticket: Ticket, agent: Agent, role: 'producer' | 'verifier',
-): void {
-  const sess = deps.crud.sessionInsert(db, {
+export async function dispatchSession(
+  ctx: Ctx, db: Db, deps: ReconcilerDeps, ticket: Ticket, agent: Agent, role: 'producer' | 'verifier',
+): Promise<void> {
+  const sessR = await deps.crud.sessionInsert(ctx, {
     ticket_id: ticket.id, agent_id: agent.id,
     status: 'running', started_at: now(),
   })
-  deps.crud.eventCreate(db, {
+  if (!sessR.ok) return
+  const sess = sessR.value
+  await deps.crud.eventCreate(ctx, {
     entity_type: 'session', entity_id: sess.id,
     kind: 'started',
     data: JSON.stringify({ role, ticket_id: ticket.id, agent_name: agent.name }),
     caused_by: 'reconciler',
   })
-  void runSessionAsync(db, deps, sess.id, agent, ticket, role)
+  void runSessionAsync(ctx, db, deps, sess.id, agent, ticket, role)
 }
 
 async function runSessionAsync(
-  db: Db, deps: ReconcilerDeps, sessionId: string, agent: Agent, ticket: Ticket, role: 'producer' | 'verifier',
+  ctx: Ctx, db: Db, deps: ReconcilerDeps, sessionId: string, agent: Agent, ticket: Ticket, role: 'producer' | 'verifier',
 ): Promise<void> {
   try {
-    const r = await deps.engine.runSession(db, deps.config, deps.engine.engineDeps, sessionId, agent, ticket, role)
+    const r = await deps.engine.runSession(ctx, db, deps.config, deps.engine.engineDeps, sessionId, agent, ticket, role)
     if (!r.ok) console.error(`session ${sessionId} returned err:`, r.error)
   } catch (errVal) {
     console.error(`session ${sessionId} crashed:`, errVal)
@@ -76,8 +80,10 @@ export function parseVerifierIds(raw: string | null): string[] {
 // need this same window when deciding whether to dispatch the next
 // missing verifier or settle the round. Single source of truth here so
 // the round semantics can't drift between policies.
-export function currentRoundVerifierSessions(ctx: PolicyCtx): Session[] | null {
-  const sessions = ctx.deps.crud.sessionsByTicketRaw(ctx.db, ctx.ticket.id)
+export async function currentRoundVerifierSessions(ctx: PolicyCtx): Promise<Session[] | null> {
+  const r = await ctx.deps.crud.sessionsByTicketRaw(ctx.ctx, ctx.ticket.id)
+  if (!r.ok) return null
+  const sessions = r.value
   const producers = sessions.filter(s => s.agent_id === ctx.ticket.agent_id)
   const latestProducer = producers[producers.length - 1]
   if (!latestProducer) return null

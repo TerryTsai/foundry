@@ -4,7 +4,7 @@
 
 import { type Db } from '@foundry/db'
 import type { Agent, Ticket } from '@foundry/db'
-import type { Result } from '@foundry/model'
+import type { Ctx, Result } from '@foundry/model'
 import { ok, err } from '@foundry/model'
 
 import type { EngineConfig, EngineDeps, EngineError, SessionContext, SessionStep } from './schema.js'
@@ -21,15 +21,19 @@ import { pollCancel }            from './pipeline/poll-cancel.js'
 import { runEngine }             from './pipeline/run-engine.js'
 
 export async function runSession(
-  db: Db, config: EngineConfig, deps: EngineDeps, sessionId: string,
+  ctx: Ctx, db: Db, config: EngineConfig, deps: EngineDeps, sessionId: string,
   agent: Agent, ticket: Ticket, role: 'producer' | 'verifier',
 ): Promise<Result<void, EngineError>> {
-  const session = deps.crud.sessionGetById(db, sessionId)
+  const sessionR = await deps.crud.sessionGetById(ctx, sessionId)
+  if (!sessionR.ok) return err({ kind: 'crashed', message: `sessionGetById: ${sessionR.error.message}` })
+  const session = sessionR.value
   if (!session) return err({ kind: 'not_found', entity: 'session', id: sessionId })
+  const projectR = await deps.crud.projectGetById(ctx, ticket.project_id)
+  if (!projectR.ok) return err({ kind: 'crashed', message: `projectGetById: ${projectR.error.message}` })
   const tokenResult = mintSandboxToken(db, deps, sessionId, config.sandboxTimeout)
   if (!tokenResult.ok) return tokenResult
-  const ctx = buildSessionContext(db, config, deps, session, ticket, agent, tokenResult.value)
-  await buildPipeline(role)(ctx)
+  const sessionCtx = buildSessionContext(ctx, db, config, deps, session, ticket, agent, projectR.value, tokenResult.value)
+  await buildPipeline(role)(sessionCtx)
   return ok(undefined)
 }
 
@@ -61,13 +65,14 @@ function mintSandboxToken(
 }
 
 function buildSessionContext(
-  db: Db, config: EngineConfig, deps: EngineDeps,
-  session: SessionContext['session'], ticket: Ticket, agent: Agent, sandboxToken: string,
+  ctx: Ctx, db: Db, config: EngineConfig, deps: EngineDeps,
+  session: SessionContext['session'], ticket: Ticket, agent: Agent,
+  project: SessionContext['project'], sandboxToken: string,
 ): SessionContext {
   return {
-    db, config, deps, session, ticket, agent, sandboxToken,
+    ctx, db, config, deps, session, ticket, agent, project, sandboxToken,
     systemPrompt: '', userPrompt: '', workDir: '',
-    shouldStop: () => false,
+    shouldStop: async () => false,
     startedAt: Date.now(),
   }
 }

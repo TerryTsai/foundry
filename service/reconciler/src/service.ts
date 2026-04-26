@@ -5,6 +5,7 @@
 // what server actually needs.
 
 import type { Db } from '@foundry/db'
+import { makeCtx } from '@foundry/model'
 
 import { reconcilerTick, shutdownDrain } from './reconciler.js'
 import type { ReconcilerDeps, Policy } from './schema.js'
@@ -19,11 +20,16 @@ export type ReconcilerServiceDeps = {
 export type ReconcilerService = {
   client: ReconcilerClient
   tick:   () => Promise<void>
-  drain:  () => void
+  drain:  () => Promise<void>
 }
+
+// The reconciler runs as a system actor: there is no inbound HTTP
+// request to seed a ctx. We mint one per tick / drain so each crud
+// call carries its own traceId for correlation.
+const systemCtx = () => makeCtx({ accountId: 'system' })
 
 export const createReconcilerService = (deps: ReconcilerServiceDeps): ReconcilerService => ({
   client: {},
-  tick:   () => reconcilerTick(deps.db, deps.deps, deps.policies),
-  drain:  () => shutdownDrain(deps.db, deps.deps),
+  tick:   () => reconcilerTick(systemCtx(), deps.db, deps.deps, deps.policies),
+  drain:  () => shutdownDrain(systemCtx(), deps.deps),
 })

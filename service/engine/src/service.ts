@@ -1,12 +1,7 @@
 // Wiring for @foundry/engine. createEngineService binds db + config +
 // the EngineDeps bag (constructed by the composition root) and returns
 // an EngineClient. runSession needs loaded Agent and Ticket rows; this
-// resolves them via the crud callbacks already on engineDeps.
-//
-// The legacy EngineDeps shape will collapse into typed clients in the
-// phase-2 async-Result conversion of the engine internals; for now the
-// service preserves the existing wiring contract while exposing the
-// per-service entry point.
+// resolves them via the crud client on engineDeps.
 
 import type { Db } from '@foundry/db'
 import type { Result } from '@foundry/model'
@@ -23,11 +18,13 @@ export type EngineServiceDeps = {
 }
 
 export const createEngineService = (deps: EngineServiceDeps): EngineClient => ({
-  runSession: async (_ctx, args): Promise<Result<void, EngineError>> => {
-    const agent  = deps.engineDeps.crud.agentGetById(deps.db, args.agentId)
-    if (!agent)  return err({ kind: 'not_found', entity: 'agent', id: args.agentId })
-    const ticket = deps.engineDeps.crud.ticketGetById(deps.db, args.ticketId)
-    if (!ticket) return err({ kind: 'not_found', entity: 'ticket', id: args.ticketId })
-    return runSessionInternal(deps.db, deps.config, deps.engineDeps, args.sessionId, agent, ticket, args.role)
+  runSession: async (ctx, args): Promise<Result<void, EngineError>> => {
+    const agentR = await deps.engineDeps.crud.agentGetById(ctx, args.agentId)
+    if (!agentR.ok)   return err({ kind: 'crashed', message: `agentGetById: ${agentR.error.message}` })
+    if (!agentR.value) return err({ kind: 'not_found', entity: 'agent', id: args.agentId })
+    const ticketR = await deps.engineDeps.crud.ticketGetById(ctx, args.ticketId)
+    if (!ticketR.ok)   return err({ kind: 'crashed', message: `ticketGetById: ${ticketR.error.message}` })
+    if (!ticketR.value) return err({ kind: 'not_found', entity: 'ticket', id: args.ticketId })
+    return runSessionInternal(ctx, deps.db, deps.config, deps.engineDeps, args.sessionId, agentR.value, ticketR.value, args.role)
   },
 })

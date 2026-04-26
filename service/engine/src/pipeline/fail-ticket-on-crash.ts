@@ -11,8 +11,8 @@ export function failTicketOnCrash(next: SessionStep): SessionStep {
     catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       try {
-        ctx.deps.crud.ticketUpdateById(ctx.db, ctx.ticket.id, { status: 'failed', updated_at: now() })
-        ctx.deps.crud.eventCreate(ctx.db, {
+        await ctx.deps.crud.ticketUpdateById(ctx.ctx, ctx.ticket.id, { status: 'failed', updated_at: now() })
+        await ctx.deps.crud.eventCreate(ctx.ctx, {
           entity_type: 'ticket', entity_id: ctx.ticket.id,
           kind: 'status_changed',
           data: JSON.stringify({ from: 'running', to: 'failed', reason: msg }),
