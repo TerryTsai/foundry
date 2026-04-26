@@ -7,7 +7,7 @@ import type { Agent, Ticket } from '@foundry/db'
 import type { Result, EngineError } from '@foundry/model'
 import { ok, err } from '@foundry/model'
 
-import type { EngineConfig, EngineDeps, SessionContext, SessionStep } from './types.js'
+import type { EngineConfig, EngineDeps, SessionContext, SessionStep } from './schema.js'
 
 import { compose }              from './pipeline/compose.js'
 import { catchCrash }            from './pipeline/catch-crash.js'

@@ -2,7 +2,7 @@
 // session row's terminal state and emits an event.
 
 import { now } from '@foundry/model'
-import type { SessionStep, SessionContext } from '../types.js'
+import type { SessionStep, SessionContext } from '../schema.js'
 
 export function recordSession(next: SessionStep): SessionStep {
   return async (ctx) => {

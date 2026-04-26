@@ -25,4 +25,4 @@ export type {
   McpSandboxCtx,
   McpConnCtx,
   McpResult,
-} from './types.js'
+} from './schema.js'

@@ -11,14 +11,14 @@ import type { Connection } from '@foundry/db'
 import type {
   DecryptSecret,
   RunCommandOptions, RunCommandCtx, BoundedOutput,
-} from '../types.js'
-import { BOUNDED_THRESHOLD } from '../types.js'
+} from '../schema.js'
+import { BOUNDED_THRESHOLD } from '../schema.js'
 
 // Re-exports so existing per-integration tools.ts files (and external
 // consumers via @foundry/mcp's index.ts) keep their import surface
 // unchanged after the type-relocation sweep.
-export type { ConnCtx, RunCommandOptions, RunCommandCtx } from '../types.js'
-export { BOUNDED_THRESHOLD, boundedOutput } from '../types.js'
+export type { ConnCtx, RunCommandOptions, RunCommandCtx } from '../schema.js'
+export { BOUNDED_THRESHOLD, boundedOutput } from '../schema.js'
 
 // ── parseConn ──
 // Decode a Connection row into the (secrets, config) record pair every

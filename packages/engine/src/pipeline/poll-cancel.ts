@@ -4,7 +4,7 @@
 // Stops when the ticket leaves `running` (founder cancel, reconciler
 // state change) or the session leaves `running` (external kill).
 
-import type { SessionStep } from '../types.js'
+import type { SessionStep } from '../schema.js'
 
 export function pollCancel(next: SessionStep): SessionStep {
   return async (ctx) => {

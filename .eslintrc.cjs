@@ -39,9 +39,6 @@ const LOGIC_FEATURE_GLOBS = LOGIC_MODULES.map(m => `packages/${m}/src/**/*.ts`)
 // do NOT apply here.
 const SCHEMA_FILES = [
   '**/schema.ts',
-  // Transitional names — migrating to schema.ts during the standard rollout.
-  '**/types.ts',
-  '**/validators.ts',
   // mcp's per-integration tools.ts files declare each tool's zod schema
   // inline; the schema IS part of the tool's identity, not a side detail.
   '**/integrations/*/tools.ts',

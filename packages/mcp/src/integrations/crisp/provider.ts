@@ -1,4 +1,4 @@
-import type { ConnectionProvider } from '../types.js'
+import type { ConnectionProvider } from '../schema.js'
 
 export const crisp: ConnectionProvider = {
   kind: 'crisp',

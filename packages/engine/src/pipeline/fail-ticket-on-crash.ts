@@ -3,7 +3,7 @@
 // terminal state and move on.
 
 import { now } from '@foundry/model'
-import type { SessionStep } from '../types.js'
+import type { SessionStep } from '../schema.js'
 
 export function failTicketOnCrash(next: SessionStep): SessionStep {
   return async (ctx) => {

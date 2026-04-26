@@ -10,7 +10,7 @@ export type {
   McpServerInfo, ToolDef, McpToolSelection, McpCategory,
   ConnectionProvider, CredentialField,
   McpConfig, ExecutionCreate, ExecutionCreateInput, ExecHandleEmitter, DecryptSecret,
-} from './types.js'
+} from './schema.js'
 
 // Built-in tool servers
 export * as foundryServer from './tools/foundry.js'

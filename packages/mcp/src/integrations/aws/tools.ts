@@ -3,7 +3,7 @@
 import { z } from 'zod'
 
 import { runCommand, type ConnCtx } from '../shared.js'
-import type { McpServerInfo, ToolDef } from '../types.js'
+import type { McpServerInfo, ToolDef } from '../schema.js'
 
 type AwsCtx = ConnCtx
 

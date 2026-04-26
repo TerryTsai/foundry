@@ -6,7 +6,7 @@
 // orchestrator reads success by looking at ctx.result (producer) or the
 // verdict row (verifier), never by catching.
 
-import type { SessionStep } from '../types.js'
+import type { SessionStep } from '../schema.js'
 
 export function catchCrash(next: SessionStep): SessionStep {
   return async (ctx) => {

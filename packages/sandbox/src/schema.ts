@@ -4,10 +4,19 @@
 // sandbox needs. The route layer passes the full Config object; TS
 // structural typing makes that compatible.
 
+import { z } from 'zod'
 import type { Db, Execution, Session } from '@foundry/db'
 import type { Result } from '@foundry/model'
 import type { ChildProcess } from 'child_process'
 import type { EventEmitter } from 'events'
+
+// ── HTTP boundary validators ────────────────────────────────────────
+
+export const executionCreate = z.object({
+  command:    z.string().min(1),
+  session_id: z.string().optional(),
+  timeout_ms: z.number().int().positive().optional(),
+})
 
 export interface SandboxConfig {
   port:               number

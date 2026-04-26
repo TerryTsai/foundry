@@ -15,8 +15,8 @@
 // loaded as a built-in because auth is via GitHub App config, not a
 // user-stored connection.
 
-import type { ConnectionProvider } from './types.js'
-import type { McpServerInfo, ToolDef } from '../types.js'
+import type { ConnectionProvider } from './schema.js'
+import type { McpServerInfo, ToolDef } from '../schema.js'
 import type { ConnCtx } from './shared.js'
 
 // Shape every connection-backed tool module exports. Keeping it explicit

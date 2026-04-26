@@ -3,7 +3,7 @@
 // the execution service so the persistent session container can
 // bind-mount it at /home/foundry on first tool use.
 
-import type { SessionStep } from '../types.js'
+import type { SessionStep } from '../schema.js'
 
 export function provisionWorkspace(next: SessionStep): SessionStep {
   return async (ctx) => {

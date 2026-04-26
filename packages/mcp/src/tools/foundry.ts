@@ -14,7 +14,7 @@
 import { z } from 'zod'
 
 import type { Db } from '@foundry/db'
-import type { McpConfig, ExecutionCreate, McpServerInfo, ToolDef } from '../types.js'
+import type { McpConfig, ExecutionCreate, McpServerInfo, ToolDef } from '../schema.js'
 import { esc, runCommand } from '../integrations/shared.js'
 
 export interface FoundryCtx {

@@ -13,11 +13,11 @@ import * as githubMcp  from './integrations/github/tools.js'
 import * as sandboxMcp from './tools/sandbox.js'
 import * as browserMcp from './tools/browser.js'
 
-import type { McpListEntry, ConnectionByAccountFn } from './types.js'
+import type { McpListEntry, ConnectionByAccountFn } from './schema.js'
 
 // Re-export so existing imports through @foundry/mcp/agent-mcp-list keep
 // working without touching the public surface.
-export type { ConnectionByAccountFn } from './types.js'
+export type { ConnectionByAccountFn } from './schema.js'
 
 export function agentMcpList(
   db: Db, accountId: string, connectionByAccount: ConnectionByAccountFn,

@@ -1,4 +1,4 @@
-import type { SessionStep } from '../types.js'
+import type { SessionStep } from '../schema.js'
 
 // Innermost pipeline stage — picks the engine for this session's
 // connection kind and runs it. anthropic-subscription connections use

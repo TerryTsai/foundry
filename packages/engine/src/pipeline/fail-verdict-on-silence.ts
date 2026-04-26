@@ -4,7 +4,7 @@
 // so the next producer's prompt surfaces the reason. Silent = failed
 // review, never implicit approval.
 
-import type { SessionStep } from '../types.js'
+import type { SessionStep } from '../schema.js'
 
 export function failVerdictOnSilence(next: SessionStep): SessionStep {
   return async (ctx) => {

@@ -20,7 +20,7 @@ import type {
   EngineDeps, SessionContext, LoopResult, ToolDef, ExecutionCreate,
   McpConnCtx,
   SdkMcpServer, Block, UpsertParams, ToolCtxs, TurnAccumulator, UsageShape,
-} from '../types.js'
+} from '../schema.js'
 
 // SDK's binary resolver tries `@anthropic-ai/claude-agent-sdk-linux-x64-musl`
 // before the glibc variant. The musl package's lockfile entry is missing

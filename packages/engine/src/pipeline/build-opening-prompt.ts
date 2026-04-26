@@ -7,7 +7,7 @@
 import type { Db } from '@foundry/db'
 import { now } from '@foundry/model'
 import type { Ticket } from '@foundry/db'
-import type { EngineDeps, SessionStep } from '../types.js'
+import type { EngineDeps, SessionStep } from '../schema.js'
 
 function triggerPrompt(db: Db, ticket: Ticket, deps: EngineDeps): string {
   const title = ticket.title.trim() || '(untitled)'

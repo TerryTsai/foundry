@@ -12,7 +12,7 @@ import type {
   EngineDeps, SessionContext, LoopResult, ToolDef, ExecutionCreate,
   McpFoundryCtx, McpGithubCtx, McpSandboxCtx, McpConnCtx,
   AiToolInputSchema, StepResult, ContentPart, PartActivity, EngineState,
-} from '../types.js'
+} from '../schema.js'
 
 function toAiTools<TCtx>(defs: ToolDef<TCtx>[], ctx: TCtx, prefix?: string): ToolSet {
   const out: ToolSet = {}

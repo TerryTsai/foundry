@@ -1,6 +1,6 @@
 // Public surface for @foundry/sandbox.
 
-export * as validate from './validators.js'
+export * as validate from './schema.js'
 
 export {
   ensureSessionContainer, startSessionContainer,

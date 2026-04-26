@@ -11,7 +11,7 @@ import { z } from 'zod'
 
 import type { Db, Project, Ticket } from '@foundry/db'
 import { toInt } from '@foundry/model'
-import type { McpConfig, ExecutionCreate, McpServerInfo, ToolDef } from '../../types.js'
+import type { McpConfig, ExecutionCreate, McpServerInfo, ToolDef } from '../../schema.js'
 import { installationForRepo, installationToken } from './provider.js'
 import { runCommand } from '../shared.js'
 

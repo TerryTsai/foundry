@@ -5,7 +5,7 @@
 // Types (SessionStep, Middleware, SessionContext) live in
 // engine/types.ts; this file only owns the composition function.
 
-import type { Middleware, SessionStep } from '../types.js'
+import type { Middleware, SessionStep } from '../schema.js'
 
 // Compose middleware around a base step. The first middleware listed is
 // the outermost onion layer (sees the whole call including downstream

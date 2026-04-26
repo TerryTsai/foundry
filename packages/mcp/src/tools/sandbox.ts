@@ -15,7 +15,7 @@ import { join, dirname } from 'path'
 import { ulid } from 'ulid'
 
 import type { Db } from '@foundry/db'
-import type { McpConfig, ExecutionCreate, McpServerInfo, ToolDef } from '../types.js'
+import type { McpConfig, ExecutionCreate, McpServerInfo, ToolDef } from '../schema.js'
 import * as validate from './sandbox-schema.js'
 import { bounded, esc, runCommand } from '../integrations/shared.js'
 

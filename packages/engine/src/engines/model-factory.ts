@@ -5,7 +5,7 @@ import { wrapLanguageModel, defaultSettingsMiddleware } from 'ai'
 import { type Db } from '@foundry/db'
 import type { Agent } from '@foundry/db'
 
-import type { EngineDeps, WrappedModel } from '../types.js'
+import type { EngineDeps, WrappedModel } from '../schema.js'
 
 // Resolve a connection-bound LLM client. The Claude Agent SDK path
 // (kind 'anthropic-subscription') bypasses this entirely; its token is

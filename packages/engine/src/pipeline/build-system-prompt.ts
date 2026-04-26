@@ -2,7 +2,7 @@
 // → comments → prior verdicts). Verifier sessions get an extra rubric.
 
 import type { Db, Ticket, Agent } from '@foundry/db'
-import type { EngineDeps, Middleware, Role } from '../types.js'
+import type { EngineDeps, Middleware, Role } from '../schema.js'
 
 function assemble(db: Db, deps: EngineDeps, ticket: Ticket, agent: Agent, role: Role): string {
   const parts: string[] = []

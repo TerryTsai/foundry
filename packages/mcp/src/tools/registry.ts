@@ -13,7 +13,7 @@ import * as sandbox from './sandbox.js'
 import * as browser from './browser.js'
 import * as github  from '../integrations/github/tools.js'   // collocated with github auth helpers; treated as a built-in here
 
-import type { McpServerInfo, McpToolSelection } from '../types.js'
+import type { McpServerInfo, McpToolSelection } from '../schema.js'
 
 export const builtIns = { foundry, github, sandbox, browser }
 
