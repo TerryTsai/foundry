@@ -18,7 +18,7 @@ import type { Ctx } from '@foundry/model'
 
 import type {
   EngineDeps, SessionContext, LoopResult, ToolDef, ExecutionCreate,
-  McpConnCtx,
+  McpConnCtx, ToolSelection,
   SdkMcpServer, Block, UpsertParams, ToolCtxs, TurnAccumulator, UsageShape,
 } from '../schema.js'
 
@@ -58,12 +58,12 @@ function readFileToken(): string | null {
 
 async function syncStoredToken(ctx: Ctx, deps: EngineDeps, conn: Connection, token: string): Promise<void> {
   try {
-    const stored = JSON.parse(deps.crypto.decryptSecret(conn.secrets)) as Record<string, unknown>
+    const stored = JSON.parse(deps.decryptSecret(conn.secrets)) as Record<string, unknown>
     if (stored.access_token === token) return
     stored.access_token = token
     stored.api_key      = token
-    await deps.crud.connectionUpdateById(ctx, conn.id, {
-      secrets:    deps.crypto.encryptSecret(JSON.stringify(stored)),
+    await deps.connectionUpdateById(ctx, conn.id, {
+      secrets:    deps.encryptSecret(JSON.stringify(stored)),
       updated_at: new Date().toISOString(),
     })
   } catch { /* malformed stored secrets */ }
@@ -71,7 +71,7 @@ async function syncStoredToken(ctx: Ctx, deps: EngineDeps, conn: Connection, tok
 
 function readStoredToken(deps: EngineDeps, conn: Connection): string | null {
   try {
-    const secrets = JSON.parse(deps.crypto.decryptSecret(conn.secrets)) as Record<string, unknown>
+    const secrets = JSON.parse(deps.decryptSecret(conn.secrets)) as Record<string, unknown>
     const v = secrets.access_token ?? secrets.api_key
     if (typeof v === 'string' && v) return v
   } catch { /* malformed */ }
@@ -119,14 +119,14 @@ function blockToActivity(b: Block): { kind: string; payload: unknown; tool_use_i
 
 // Upsert a single activity row keyed by (session_id, turn_id, order_index).
 async function upsertActivity(ctx: Ctx, deps: EngineDeps, params: UpsertParams) {
-  const r = await deps.crud.activityByTurnOrder(ctx, params.sessionId, params.turnId, params.orderIndex)
+  const r = await deps.activityByTurnOrder(ctx, params.sessionId, params.turnId, params.orderIndex)
   const existing = r.ok ? r.value : undefined
   const baseData = activityBaseData(params)
   if (existing) {
-    await deps.crud.activityUpdate(ctx, existing.id, { ...baseData, tokens_in: params.tokens_in ?? null, tokens: params.tokens ?? null })
+    await deps.activityUpdate(ctx, existing.id, { ...baseData, tokens_in: params.tokens_in ?? null, tokens: params.tokens ?? null })
     return existing
   }
-  const inserted = await deps.crud.activityCreate(ctx, activityCreatePayload(params, baseData))
+  const inserted = await deps.activityCreate(ctx, activityCreatePayload(params, baseData))
   return inserted.ok ? inserted.value : undefined
 }
 
@@ -151,9 +151,9 @@ function toSdkServer<TCtx>(
   deps: EngineDeps, name: string, defs: ToolDef<TCtx>[],
   serverCtx: TCtx, allowed: string[] | '*' | null | undefined, isCancelled: () => Promise<boolean>,
 ): SdkMcpServer {
-  const tu = (extra: unknown): TCtx => ({ ...serverCtx, toolUseId: deps.mcp.toolUseId(extra) })
+  const tu = (extra: unknown): TCtx => ({ ...serverCtx, toolUseId: deps.toolUseId(extra) })
   const all = defs.map(t => wrapTool(deps, t, tu, isCancelled))
-  return createSdkMcpServer({ name, tools: deps.mcp.filterTools(all, allowed) })
+  return createSdkMcpServer({ name, tools: deps.filterTools(all, allowed) })
 }
 
 function wrapTool<TCtx>(
@@ -162,16 +162,16 @@ function wrapTool<TCtx>(
 ) {
   const shape = (t.schema as ZodObject<ZodRawShape>).shape
   return sdkTool(t.name, t.description, shape, async (args: unknown, extra: unknown): Promise<CallToolResult> => {
-    if (await isCancelled()) return deps.mcp.asText({ error: 'session cancelled' }) as CallToolResult
+    if (await isCancelled()) return deps.asText({ error: 'session cancelled' }) as CallToolResult
     const result = await t.handler(tu(extra), args)
-    const envelope = deps.mcp.isMcpEnvelope(result) ? result : deps.mcp.asText(result)
+    const envelope = deps.isMcpEnvelope(result) ? result : deps.asText(result)
     return envelope as CallToolResult
   })
 }
 
 function unwrapExec(deps: EngineDeps, db: SessionContext['db'], config: SessionContext['config']): ExecutionCreate {
   return (input) => {
-    const r = deps.sandbox.executionCreate(db, config, input)
+    const r = deps.executionCreate(db, config, input)
     if (!r.ok) throw new Error(`sandbox execution failed: ${r.error.kind}`)
     return r.value
   }
@@ -180,7 +180,7 @@ function unwrapExec(deps: EngineDeps, db: SessionContext['db'], config: SessionC
 async function buildMcpServers(ctx: SessionContext): Promise<Record<string, SdkMcpServer>> {
   const { config, workDir, deps } = ctx
   const sessionId = ctx.session.id, agentDef = ctx.agent, ticketData = ctx.ticket
-  const selection = deps.mcp.parseToolSelection(agentDef.tools)
+  const selection = deps.parseToolSelection(agentDef.tools)
   const executionCreate = unwrapExec(deps, ctx.db, config)
   const isCancelled = buildCancelCheck(ctx, sessionId, ticketData.id)
   const ctxs = buildToolCtxs(ctx, executionCreate)
@@ -189,9 +189,9 @@ async function buildMcpServers(ctx: SessionContext): Promise<Record<string, SdkM
 
 function buildCancelCheck(sessionCtx: SessionContext, sessionId: string, ticketId: string): () => Promise<boolean> {
   return async () => {
-    const tR = await sessionCtx.deps.crud.ticketGetById(sessionCtx.ctx, ticketId)
+    const tR = await sessionCtx.deps.ticketGetById(sessionCtx.ctx, ticketId)
     if (!tR.ok || !tR.value || tR.value.status !== 'running') return true
-    const sR = await sessionCtx.deps.crud.sessionGetById(sessionCtx.ctx, sessionId)
+    const sR = await sessionCtx.deps.sessionGetById(sessionCtx.ctx, sessionId)
     return !sR.ok || !sR.value || sR.value.status !== 'running'
   }
 }
@@ -210,17 +210,17 @@ async function assembleMcpServers(
   sessionCtx: SessionContext,
   deps: EngineDeps,
   ctxs: ToolCtxs,
-  selection: ReturnType<EngineDeps['mcp']['parseToolSelection']>,
+  selection: ToolSelection,
   isCancelled: () => Promise<boolean>,
   accountId: string, sessionId: string, workDir: string,
   config: SessionContext['config'],
   executionCreate: ExecutionCreate,
 ): Promise<Record<string, SdkMcpServer>> {
   const out: Record<string, SdkMcpServer> = {}
-  if (selection === null || 'foundry' in selection) out.foundry = toSdkServer(deps, 'foundry', deps.mcp.foundryServer.tools, ctxs.foundry, selection?.foundry, isCancelled)
-  if (selection === null || 'github'  in selection) out.github  = toSdkServer(deps, 'github',  deps.mcp.githubServer.tools,  ctxs.github,  selection?.github,  isCancelled)
-  if (selection === null || 'sandbox' in selection) out.sandbox = toSdkServer(deps, 'sandbox', deps.mcp.sandboxServer.tools, ctxs.sandbox, selection?.sandbox, isCancelled)
-  if (selection === null || 'browser' in selection) out.browser = toSdkServer(deps, 'browser', deps.mcp.browserServer.tools, ctxs.sandbox, selection?.browser, isCancelled)
+  if (selection === null || 'foundry' in selection) out.foundry = toSdkServer(deps, 'foundry', deps.foundryServer.tools, ctxs.foundry, selection?.foundry, isCancelled)
+  if (selection === null || 'github'  in selection) out.github  = toSdkServer(deps, 'github',  deps.githubServer.tools,  ctxs.github,  selection?.github,  isCancelled)
+  if (selection === null || 'sandbox' in selection) out.sandbox = toSdkServer(deps, 'sandbox', deps.sandboxServer.tools, ctxs.sandbox, selection?.sandbox, isCancelled)
+  if (selection === null || 'browser' in selection) out.browser = toSdkServer(deps, 'browser', deps.browserServer.tools, ctxs.sandbox, selection?.browser, isCancelled)
   await attachConnectionServers(out, sessionCtx, deps, accountId, sessionId, workDir, config, selection, isCancelled, executionCreate)
   return out
 }
@@ -230,11 +230,11 @@ async function attachConnectionServers(
   sessionCtx: SessionContext,
   deps: EngineDeps, accountId: string, sessionId: string, workDir: string,
   config: SessionContext['config'],
-  selection: ReturnType<EngineDeps['mcp']['parseToolSelection']>,
+  selection: ToolSelection,
   isCancelled: () => Promise<boolean>,
   executionCreate: ExecutionCreate,
 ): Promise<void> {
-  const r = await deps.crud.connectionByAccount(sessionCtx.ctx, accountId)
+  const r = await deps.connectionByAccount(sessionCtx.ctx, accountId)
   const conns = r.ok ? r.value : []
   for (const conn of conns) {
     attachOneConnection(out, sessionCtx, deps, sessionId, workDir, config, selection, isCancelled, executionCreate, conn)
@@ -246,16 +246,16 @@ function attachOneConnection(
   sessionCtx: SessionContext,
   deps: EngineDeps, sessionId: string, workDir: string,
   config: SessionContext['config'],
-  selection: ReturnType<EngineDeps['mcp']['parseToolSelection']>,
+  selection: ToolSelection,
   isCancelled: () => Promise<boolean>,
   executionCreate: ExecutionCreate,
   conn: Connection,
 ): void {
-  const mod = deps.mcp.byConnectionKind[conn.kind]
+  const mod = deps.byConnectionKind[conn.kind]
   if (!mod) return
   const key = `${conn.kind}:${conn.name}`
   if (selection !== null && !(key in selection)) return
-  const { secrets, connConfig } = deps.mcp.parseConn(conn, deps.crypto.decryptSecret)
+  const { secrets, connConfig } = deps.parseConn(conn, deps.decryptSecret)
   const connCtx: McpConnCtx = { db: sessionCtx.db, config, sessionId, workspace: workDir, secrets, connConfig, connectionName: conn.name, executionCreate }
   out[key] = toSdkServer(deps, key, mod.tools, connCtx, selection === null ? null : selection[key], isCancelled)
 }
@@ -270,7 +270,7 @@ function newAccumulator(): TurnAccumulator {
 
 export async function runEngine(ctx: SessionContext): Promise<LoopResult> {
   const { deps } = ctx
-  const r = await deps.crud.connectionGetById(ctx.ctx, ctx.agent.connection_id)
+  const r = await deps.connectionGetById(ctx.ctx, ctx.agent.connection_id)
   if (!r.ok)   throw new Error(`connection ${ctx.agent.connection_id} lookup failed: ${r.error.message}`)
   if (!r.value) throw new Error(`connection ${ctx.agent.connection_id} not found`)
   const conn = r.value
@@ -377,7 +377,7 @@ async function reconcileSessionTokens(ctx: SessionContext, modelIn: number, mode
   const deltaIn  = modelIn  - acc.inputTokens
   const deltaOut = modelOut - acc.outputTokens
   if (deltaIn === 0 && deltaOut === 0) return
-  await ctx.deps.crud.activityCreate(ctx.ctx, {
+  await ctx.deps.activityCreate(ctx.ctx, {
     session_id: ctx.session.id, turn_id: null, kind: 'reconcile',
     order_index: 0,
     payload: JSON.stringify({ deltaIn, deltaOut, modelIn, modelOut }),

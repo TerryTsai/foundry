@@ -11,7 +11,7 @@ export async function finishWithoutVerifiers(ctx: PolicyCtx): Promise<'acted' | 
   if (!agent) return 'pass'
   if (parseVerifierIds(agent.verifiers).length > 0) return 'pass'
 
-  const r = await deps.crud.sessionsByTicketRaw(ctx.ctx, ticket.id)
+  const r = await deps.sessionsByTicketRaw(ctx.ctx, ticket.id)
   const sessions = r.ok ? r.value : []
   const producers = sessions.filter(s => s.agent_id === ticket.agent_id)
   const latest = producers[producers.length - 1]

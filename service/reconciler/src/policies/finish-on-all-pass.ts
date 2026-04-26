@@ -19,7 +19,7 @@ async function checkAndFinish(ctx: PolicyCtx, verifierSessions: Session[]): Prom
   if (verifierSessions.some(s => s.status === 'running')) return 'pass'
   const verdicts: VerdictRow[] = []
   for (const s of verifierSessions) {
-    const r = await ctx.deps.crud.verdictBySession(ctx.ctx, s.id)
+    const r = await ctx.deps.verdictBySession(ctx.ctx, s.id)
     if (r.ok && r.value) verdicts.push(r.value)
   }
   if (verdicts.length === 0) return 'pass'

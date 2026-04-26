@@ -6,7 +6,7 @@ import { type PolicyCtx, transition } from './shared.js'
 export async function settleRunning(ctx: PolicyCtx): Promise<'acted' | 'pass'> {
   const { deps, ticket } = ctx
   if (ticket.status !== 'running') return 'pass'
-  const r = await deps.crud.sessionRunningForTicket(ctx.ctx, ticket.id)
+  const r = await deps.sessionRunningForTicket(ctx.ctx, ticket.id)
   if (!r.ok) return 'pass'
   if (r.value.length > 0) return 'pass'
   return (await transition(ctx.ctx, deps, ticket.id, 'running', 'waiting', 'reconciler')) ? 'acted' : 'pass'

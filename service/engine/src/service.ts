@@ -19,10 +19,10 @@ export type EngineServiceDeps = {
 
 export const createEngineService = (deps: EngineServiceDeps): EngineClient => ({
   runSession: async (ctx, args): Promise<Result<void, EngineError>> => {
-    const agentR = await deps.engineDeps.crud.agentGetById(ctx, args.agentId)
+    const agentR = await deps.engineDeps.agentGetById(ctx, args.agentId)
     if (!agentR.ok)   return err({ kind: 'crashed', message: `agentGetById: ${agentR.error.message}` })
     if (!agentR.value) return err({ kind: 'not_found', entity: 'agent', id: args.agentId })
-    const ticketR = await deps.engineDeps.crud.ticketGetById(ctx, args.ticketId)
+    const ticketR = await deps.engineDeps.ticketGetById(ctx, args.ticketId)
     if (!ticketR.ok)   return err({ kind: 'crashed', message: `ticketGetById: ${ticketR.error.message}` })
     if (!ticketR.value) return err({ kind: 'not_found', entity: 'ticket', id: args.ticketId })
     return runSessionInternal(ctx, deps.db, deps.config, deps.engineDeps, args.sessionId, agentR.value, ticketR.value, args.role)

@@ -10,7 +10,7 @@ export async function dispatchRecoveryProducer(ctx: PolicyCtx): Promise<'acted' 
   const agent = agents.find(a => a.id === ticket.agent_id)
   if (!agent) return 'pass'
 
-  const sessR = await deps.crud.sessionsByTicketRaw(ctx.ctx, ticket.id)
+  const sessR = await deps.sessionsByTicketRaw(ctx.ctx, ticket.id)
   const sessions = sessR.ok ? sessR.value : []
   const hasProducer = sessions.some(s => s.agent_id === ticket.agent_id)
   if (hasProducer) return 'pass'

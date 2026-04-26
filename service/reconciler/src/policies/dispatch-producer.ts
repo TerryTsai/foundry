@@ -12,7 +12,7 @@ export async function dispatchProducer(ctx: PolicyCtx): Promise<'acted' | 'pass'
   if (!agent) return 'pass'
 
   if (ticket.depends_on) {
-    const depR = await deps.crud.ticketGetById(ctx.ctx, ticket.depends_on)
+    const depR = await deps.ticketGetById(ctx.ctx, ticket.depends_on)
     const dep  = depR.ok ? depR.value : undefined
     if (!dep || dep.status !== 'finished') return 'pass'
   }

@@ -7,13 +7,13 @@
 import { now } from '@foundry/model'
 import type { Ctx } from '@foundry/model'
 import type { Ticket } from '@foundry/db'
-import type { EngineCrudOps, SessionStep, AttachmentSummary } from '../schema.js'
+import type { EngineDeps, SessionStep, AttachmentSummary } from '../schema.js'
 
-async function triggerPrompt(ctx: Ctx, ticket: Ticket, crud: EngineCrudOps): Promise<string> {
+async function triggerPrompt(ctx: Ctx, ticket: Ticket, deps: EngineDeps): Promise<string> {
   const title = ticket.title.trim() || '(untitled)'
   const lines: string[] = [`Begin work on the ticket above: **${title}**. Proceed autonomously.`]
 
-  const r = await crud.attachmentListByTicketInternal(ctx, ticket.id)
+  const r = await deps.attachmentListByTicketInternal(ctx, ticket.id)
   const atts: AttachmentSummary[] = r.ok ? r.value : []
   if (atts.length > 0) {
     lines.push('')
@@ -30,8 +30,8 @@ async function triggerPrompt(ctx: Ctx, ticket: Ticket, crud: EngineCrudOps): Pro
 
 export function buildOpeningPrompt(next: SessionStep): SessionStep {
   return async (sessionCtx) => {
-    sessionCtx.userPrompt = await triggerPrompt(sessionCtx.ctx, sessionCtx.ticket, sessionCtx.deps.crud)
-    await sessionCtx.deps.crud.activityCreate(sessionCtx.ctx, {
+    sessionCtx.userPrompt = await triggerPrompt(sessionCtx.ctx, sessionCtx.ticket, sessionCtx.deps)
+    await sessionCtx.deps.activityCreate(sessionCtx.ctx, {
       session_id:   sessionCtx.session.id,
       turn_id:      null,
       kind:         'prompt',

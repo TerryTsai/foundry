@@ -12,6 +12,7 @@ import type { Ctx, Result } from '@foundry/model'
 // forbidden (cardinal rule); type-only imports are fine.
 import type { AuthError } from '@foundry/auth'
 import type { SandboxError } from '@foundry/sandbox'
+import type { VerdictRow } from '@foundry/crud'
 
 export type EngineError =
   | { kind: 'model_unavailable';  reason: string }
@@ -19,11 +20,6 @@ export type EngineError =
   | { kind: 'not_found';          entity: string; id: string }
   | { kind: 'crashed';            message: string }
   | { kind: 'internal';           message: string }
-
-// Local error union for crud reads/writes from the engine's perspective.
-// The composition root wraps real CrudError into this so engine doesn't
-// take a value-import dependency on @foundry/crud.
-export type EngineCrudError = { kind: 'internal'; message: string }
 
 // ── EngineConfig ─────────────────────────────────────────────────────
 // Engine reads `sandboxTimeout` directly (mintTtl). The remaining fields
@@ -195,18 +191,6 @@ export interface ExecutionHandle {
 
 export type ExecutionCreate = (input: ExecutionCreateInput) => ExecutionHandle
 
-// ── Verdict shape (structural mirror of crud's VerdictRow) ───────────
-
-export interface VerdictRow {
-  id:         string
-  session_id: string
-  agent_id:   string
-  ticket_id:  string
-  pass:       boolean
-  reason:     string
-  created_at: string
-}
-
 // ── Attachment summary returned by attachmentListByTicketInternal ────
 
 export interface AttachmentSummary {
@@ -217,76 +201,58 @@ export interface AttachmentSummary {
 }
 
 // ── EngineDeps ───────────────────────────────────────────────────────
-// Single bundle of every cross-module function the engine needs. The
-// composition root constructs this once per service boot from the real
-// implementations in @foundry/{auth,mcp,sandbox,crud}.
+// Every cross-module function the engine needs. Composition root
+// constructs this once per service boot from the real implementations
+// in @foundry/{auth,mcp,sandbox,crud}. The `crud` slot is uniformly
+// async / Result / Ctx-shaped: optional reads return Result<T | undefined>
+// so callers branch on .value rather than wrapping not_found in the
+// error channel; writes resolve to Result<T> on success and treat
+// transport failures as hard errors. Crypto helpers stay sync (pure
+// closures over the encryption key, not data ops).
 
-// Every method here is async / Result / Ctx-shaped. Optional reads
-// (*GetById, verdictBySession, activityByTurnOrder) keep "no row" out
-// of the error channel by returning Result<T | undefined, …> so callers
-// branch on .value rather than wrapping a not_found discriminator.
-// Writes resolve to Result<T, …> on success; the caller treats a
-// transport failure as a hard error.
-export interface EngineCrudOps {
-  attachmentListByTicketInternal:  (ctx: Ctx, ticketId: string)  => Promise<Result<AttachmentSummary[], EngineCrudError>>
-  // entity reads
-  ticketGetById:                   (ctx: Ctx, id: string)        => Promise<Result<Ticket      | undefined, EngineCrudError>>
-  sessionGetById:                  (ctx: Ctx, id: string)        => Promise<Result<Session     | undefined, EngineCrudError>>
-  agentGetById:                    (ctx: Ctx, id: string)        => Promise<Result<Agent       | undefined, EngineCrudError>>
-  projectGetById:                  (ctx: Ctx, id: string)        => Promise<Result<Project     | undefined, EngineCrudError>>
-  accountGetById:                  (ctx: Ctx, id: string)        => Promise<Result<Account     | undefined, EngineCrudError>>
-  connectionGetById:               (ctx: Ctx, id: string)        => Promise<Result<Connection  | undefined, EngineCrudError>>
-  connectionByAccount:             (ctx: Ctx, accountId: string) => Promise<Result<Connection[], EngineCrudError>>
-  commentByTicket:                 (ctx: Ctx, ticketId: string)  => Promise<Result<Comment[], EngineCrudError>>
-  verdictBySession:                (ctx: Ctx, sessionId: string) => Promise<Result<VerdictRow  | undefined, EngineCrudError>>
-  verdictByTicket:                 (ctx: Ctx, ticketId: string)  => Promise<Result<VerdictRow[], EngineCrudError>>
-  activityByTurnOrder:             (ctx: Ctx, sessionId: string, turnId: string, orderIndex: number) => Promise<Result<Activity | undefined, EngineCrudError>>
-  // entity writes
-  ticketUpdateById:                (ctx: Ctx, id: string, data: Record<string, unknown>) => Promise<Result<Ticket,     EngineCrudError>>
-  sessionUpdateById:               (ctx: Ctx, id: string, data: Record<string, unknown>) => Promise<Result<Session,    EngineCrudError>>
-  connectionUpdateById:            (ctx: Ctx, id: string, data: Record<string, unknown>) => Promise<Result<Connection, EngineCrudError>>
-  activityCreate:                  (ctx: Ctx, data: Record<string, unknown>) => Promise<Result<Activity, EngineCrudError>>
-  activityUpdate:                  (ctx: Ctx, id: string, data: Record<string, unknown>) => Promise<Result<Activity, EngineCrudError>>
-  // event log
-  eventCreate:                     (ctx: Ctx, data: { entity_type: string; entity_id: string; kind: string; data?: string; caused_by: string; caused_by_id?: string | null }) => Promise<Result<Event, EngineCrudError>>
-}
-
-// Crypto helpers stay sync — they're pure functions over a key-bound
-// closure, not data ops, and live alongside crud only because they're
-// composition-root concerns. Splitting them out of `crud` keeps that
-// bag uniformly async/Result/Ctx-shaped.
-export interface EngineCryptoOps {
-  encryptSecret: (s: string) => string
-  decryptSecret: (s: string) => string
-}
+type CrudErr = { kind: 'internal'; message: string }
 
 export interface EngineDeps {
-  auth: {
-    sessionJwtMint: (db: Db, sessionId: string, ttlMs: number) => Result<string, AuthError>
-  }
-  mcp: {
-    foundryServer: ToolServer<McpFoundryCtx>
-    githubServer:  ToolServer<McpGithubCtx>
-    sandboxServer: ToolServer<McpSandboxCtx>
-    browserServer: ToolServer<McpSandboxCtx>
-    byConnectionKind: Record<string, IntegrationModule<McpConnCtx> | undefined>
-    filterTools:        <T extends { name: string }>(tools: T[], allowed: string[] | '*' | null | undefined) => T[]
-    parseToolSelection: (raw: string | null) => ToolSelection
-    parseConn:          (conn: Connection, decrypt: (s: string) => string) => ParsedConn
-    asText:             (value: unknown) => McpResult
-    isMcpEnvelope:      (value: unknown) => value is McpResult
-    toolUseId:          (extra: unknown) => string | undefined
-    workspaceEmpty:     () => Promise<string>
-    workspaceDestroy:   (path: string) => Promise<void>
-  }
-  sandbox: {
-    executionCreate:            (db: Db, config: EngineConfig, input: ExecutionCreateInput) => Result<ExecutionHandle, SandboxError>
-    registerSessionWorkspace:   (sessionId: string, workspace: string) => void
-    unregisterSessionWorkspace: (sessionId: string) => void
-    stopSessionContainer:       (sessionId: string) => Promise<void>
-  }
-  crud:   EngineCrudOps
-  crypto: EngineCryptoOps
+  sessionJwtMint:             (db: Db, sessionId: string, ttlMs: number) => Result<string, AuthError>
+  foundryServer:              ToolServer<McpFoundryCtx>
+  githubServer:               ToolServer<McpGithubCtx>
+  sandboxServer:              ToolServer<McpSandboxCtx>
+  browserServer:              ToolServer<McpSandboxCtx>
+  byConnectionKind:           Record<string, IntegrationModule<McpConnCtx> | undefined>
+  filterTools:                <T extends { name: string }>(tools: T[], allowed: string[] | '*' | null | undefined) => T[]
+  parseToolSelection:         (raw: string | null) => ToolSelection
+  parseConn:                  (conn: Connection, decrypt: (s: string) => string) => ParsedConn
+  asText:                     (value: unknown) => McpResult
+  isMcpEnvelope:              (value: unknown) => value is McpResult
+  toolUseId:                  (extra: unknown) => string | undefined
+  workspaceEmpty:             () => Promise<string>
+  workspaceDestroy:           (path: string) => Promise<void>
+  executionCreate:            (db: Db, config: EngineConfig, input: ExecutionCreateInput) => Result<ExecutionHandle, SandboxError>
+  registerSessionWorkspace:   (sessionId: string, workspace: string) => void
+  unregisterSessionWorkspace: (sessionId: string) => void
+  stopSessionContainer:       (sessionId: string) => Promise<void>
+  encryptSecret:              (s: string) => string
+  decryptSecret:              (s: string) => string
+  // entity reads
+  attachmentListByTicketInternal: (ctx: Ctx, ticketId: string)  => Promise<Result<AttachmentSummary[], CrudErr>>
+  ticketGetById:        (ctx: Ctx, id: string)        => Promise<Result<Ticket      | undefined, CrudErr>>
+  sessionGetById:       (ctx: Ctx, id: string)        => Promise<Result<Session     | undefined, CrudErr>>
+  agentGetById:         (ctx: Ctx, id: string)        => Promise<Result<Agent       | undefined, CrudErr>>
+  projectGetById:       (ctx: Ctx, id: string)        => Promise<Result<Project     | undefined, CrudErr>>
+  accountGetById:       (ctx: Ctx, id: string)        => Promise<Result<Account     | undefined, CrudErr>>
+  connectionGetById:    (ctx: Ctx, id: string)        => Promise<Result<Connection  | undefined, CrudErr>>
+  connectionByAccount:  (ctx: Ctx, accountId: string) => Promise<Result<Connection[], CrudErr>>
+  commentByTicket:      (ctx: Ctx, ticketId: string)  => Promise<Result<Comment[], CrudErr>>
+  verdictBySession:     (ctx: Ctx, sessionId: string) => Promise<Result<VerdictRow | undefined, CrudErr>>
+  verdictByTicket:      (ctx: Ctx, ticketId: string)  => Promise<Result<VerdictRow[], CrudErr>>
+  activityByTurnOrder:  (ctx: Ctx, sessionId: string, turnId: string, orderIndex: number) => Promise<Result<Activity | undefined, CrudErr>>
+  // entity writes
+  ticketUpdateById:     (ctx: Ctx, id: string, data: Record<string, unknown>) => Promise<Result<Ticket,     CrudErr>>
+  sessionUpdateById:    (ctx: Ctx, id: string, data: Record<string, unknown>) => Promise<Result<Session,    CrudErr>>
+  connectionUpdateById: (ctx: Ctx, id: string, data: Record<string, unknown>) => Promise<Result<Connection, CrudErr>>
+  activityCreate:       (ctx: Ctx, data: Record<string, unknown>) => Promise<Result<Activity, CrudErr>>
+  activityUpdate:       (ctx: Ctx, id: string, data: Record<string, unknown>) => Promise<Result<Activity, CrudErr>>
+  eventCreate:          (ctx: Ctx, data: { entity_type: string; entity_id: string; kind: string; data?: string; caused_by: string; caused_by_id?: string | null }) => Promise<Result<Event, CrudErr>>
 }
 
 // ── SessionContext ───────────────────────────────────────────────────
@@ -385,16 +351,14 @@ export interface TurnAccumulator {
 // Subset of the SDK BetaMessage usage / iterations shape we read.
 // Typed loose because the SDK has reshaped these fields historically;
 // we treat anything unrecognized as zero rather than a hard error.
-export interface UsageIteration {
-  type?:                        string
-  input_tokens?:                number | null
-  output_tokens?:               number | null
-  cache_read_input_tokens?:     number | null
-  cache_creation_input_tokens?: number | null
-}
-
 export interface UsageShape {
-  iterations?:                  UsageIteration[] | null
+  iterations?: Array<{
+    type?:                        string
+    input_tokens?:                number | null
+    output_tokens?:               number | null
+    cache_read_input_tokens?:     number | null
+    cache_creation_input_tokens?: number | null
+  }> | null
   input_tokens?:                number | null
   output_tokens?:               number | null
   cache_read_input_tokens?:     number | null
@@ -408,10 +372,9 @@ import type { generateText, tool, ToolSet } from 'ai'
 export type StepResult = Awaited<ReturnType<typeof generateText<ToolSet>>>
 
 // `ai`'s tool schema slot. The ai SDK pulls in its own zod typing that
-// drifts vs the workspace zod version; the option type is the safe
-// shared shape between them.
-export type AiToolOptions = Parameters<typeof tool>[0]
-export type AiToolInputSchema = AiToolOptions['inputSchema']
+// drifts vs the workspace zod version; pulling the schema field off the
+// option type via Parameters<> is the safe shared shape between them.
+export type AiToolInputSchema = Parameters<typeof tool>[0]['inputSchema']
 
 export type ContentPart =
   | { type: 'text'; text: string }
@@ -444,9 +407,4 @@ import type { wrapLanguageModel } from 'ai'
 // each publish their own LanguageModel type alias; pinning to a literal
 // one breaks every minor bump. Extracting via Parameters<> keeps us
 // aligned to whatever shape `wrapLanguageModel` wants today.
-export type WrapModelArgs = Parameters<typeof wrapLanguageModel>[0]
-export type WrappedModel = WrapModelArgs['model']
-
-// Re-export Connection so engines can type their locals without
-// reaching across module boundaries themselves.
-export type { Connection }
+export type WrappedModel = Parameters<typeof wrapLanguageModel>[0]['model']

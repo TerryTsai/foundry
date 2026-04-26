@@ -6,30 +6,19 @@ export type { EngineClient, RunSessionArgs } from './client.js'
 
 export type {
   EngineConfig,
-  EngineMcpConfig,
   EngineDeps,
-  EngineCrudOps,
-  EngineCryptoOps,
-  EngineCrudError,
   EngineError,
   SessionContext,
   LoopResult,
-  ToolDef,
-  ToolServer,
-  IntegrationModule,
-  ParsedConn,
-  ToolSelection,
   ExecutionCreate,
   ExecutionCreateInput,
   ExecutionHandle,
   ExecHandleEmitter,
   AttachmentSummary,
-  VerdictRow,
   McpFoundryCtx,
   McpGithubCtx,
   McpSandboxCtx,
   McpConnCtx,
-  McpResult,
 } from './schema.js'
 
 // Raw export remains during the @foundry/client → per-service migration.

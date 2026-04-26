@@ -23,12 +23,10 @@ export { retryAfterFail }           from './policies/retry-after-fail.js'
 export type {
   ReconcilerDeps,
   ReconcilerConfig,
-  ReconcilerCrudOps,
   EngineDeps,
   RunSessionFn,
   Policy,
   PolicyCtx,
-  ReconcilerError,
 } from './schema.js'
 
 // Raw exports remain during the @foundry/client → per-service migration.

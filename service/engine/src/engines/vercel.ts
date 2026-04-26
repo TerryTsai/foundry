@@ -28,7 +28,7 @@ function toAiTools<TCtx>(defs: ToolDef<TCtx>[], ctx: TCtx, prefix?: string): Too
 
 function unwrapExec(deps: EngineDeps, db: SessionContext['db'], config: SessionContext['config']): ExecutionCreate {
   return (input) => {
-    const r = deps.sandbox.executionCreate(db, config, input)
+    const r = deps.executionCreate(db, config, input)
     if (!r.ok) throw new Error(`sandbox execution failed: ${r.error.kind}`)
     return r.value
   }
@@ -40,10 +40,10 @@ function buildBuiltInTools(ctx: SessionContext, executionCreate: ExecutionCreate
   const githubCtx:  McpGithubCtx  = { db, config, sessionId: session.id, workspace: workDir, ticket: ticketData, agentName: agentDef.name, executionCreate, projectGet: () => project }
   const sandboxCtx: McpSandboxCtx = { db, config, sessionId: session.id, workspace: workDir, executionCreate }
   return {
-    ...toAiTools(deps.mcp.foundryServer.tools, foundryCtx),
-    ...toAiTools(deps.mcp.githubServer.tools,  githubCtx),
-    ...toAiTools(deps.mcp.sandboxServer.tools, sandboxCtx),
-    ...toAiTools(deps.mcp.browserServer.tools, sandboxCtx),
+    ...toAiTools(deps.foundryServer.tools, foundryCtx),
+    ...toAiTools(deps.githubServer.tools,  githubCtx),
+    ...toAiTools(deps.sandboxServer.tools, sandboxCtx),
+    ...toAiTools(deps.browserServer.tools, sandboxCtx),
   }
 }
 
@@ -51,12 +51,12 @@ async function attachConnectionTools(
   result: ToolSet, ctx: SessionContext, executionCreate: ExecutionCreate,
 ): Promise<void> {
   const { db, config, workDir, deps, agent: agentDef, session } = ctx
-  const r = await deps.crud.connectionByAccount(ctx.ctx, agentDef.account_id)
+  const r = await deps.connectionByAccount(ctx.ctx, agentDef.account_id)
   const conns = r.ok ? r.value : []
   for (const conn of conns) {
-    const mod = deps.mcp.byConnectionKind[conn.kind]
+    const mod = deps.byConnectionKind[conn.kind]
     if (!mod) continue
-    const { secrets, connConfig } = deps.mcp.parseConn(conn, deps.crypto.decryptSecret)
+    const { secrets, connConfig } = deps.parseConn(conn, deps.decryptSecret)
     const prefix = `${conn.kind}-${conn.name}`
     const connCtx: McpConnCtx = { db, config, sessionId: session.id, workspace: workDir, secrets, connConfig, connectionName: conn.name, executionCreate }
     Object.assign(result, toAiTools(mod.tools, connCtx, prefix))
@@ -92,7 +92,7 @@ async function writeStepActivities(ctx: SessionContext, sessionId: string, turnI
     const act = partToActivity(parts[idx])
     if (!act) continue
     if (act.isToolCall) toolCalls++
-    await ctx.deps.crud.activityCreate(ctx.ctx, activityFromPart(sessionId, turnId, idx, act, inputTokens, outputTokens))
+    await ctx.deps.activityCreate(ctx.ctx, activityFromPart(sessionId, turnId, idx, act, inputTokens, outputTokens))
   }
   return toolCalls
 }

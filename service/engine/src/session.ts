@@ -24,11 +24,11 @@ export async function runSession(
   ctx: Ctx, db: Db, config: EngineConfig, deps: EngineDeps, sessionId: string,
   agent: Agent, ticket: Ticket, role: 'producer' | 'verifier',
 ): Promise<Result<void, EngineError>> {
-  const sessionR = await deps.crud.sessionGetById(ctx, sessionId)
+  const sessionR = await deps.sessionGetById(ctx, sessionId)
   if (!sessionR.ok) return err({ kind: 'crashed', message: `sessionGetById: ${sessionR.error.message}` })
   const session = sessionR.value
   if (!session) return err({ kind: 'not_found', entity: 'session', id: sessionId })
-  const projectR = await deps.crud.projectGetById(ctx, ticket.project_id)
+  const projectR = await deps.projectGetById(ctx, ticket.project_id)
   if (!projectR.ok) return err({ kind: 'crashed', message: `projectGetById: ${projectR.error.message}` })
   const tokenResult = mintSandboxToken(db, deps, sessionId, config.sandboxTimeout)
   if (!tokenResult.ok) return tokenResult
@@ -59,7 +59,7 @@ function mintSandboxToken(
   db: Db, deps: EngineDeps, sessionId: string, sandboxTimeout: number,
 ): Result<string, EngineError> {
   const ttlMs = Math.max(sandboxTimeout * 2, 30 * 60 * 1000)
-  const r = deps.auth.sessionJwtMint(db, sessionId, ttlMs)
+  const r = deps.sessionJwtMint(db, sessionId, ttlMs)
   if (!r.ok) return err({ kind: 'crashed', message: `failed to mint sandbox token: ${r.error.kind}` })
   return ok(r.value)
 }

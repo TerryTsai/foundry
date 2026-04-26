@@ -7,6 +7,9 @@
 import type { Db } from '@foundry/db'
 import type { Agent, Event, Project, Session, Ticket } from '@foundry/db'
 import type { Ctx, Result } from '@foundry/model'
+import type { VerdictRow } from '@foundry/crud'
+
+export type { VerdictRow }
 
 // ── ReconcilerConfig ─────────────────────────────────────────────────
 // Reconciler itself never inspects config — it threads it into the
@@ -63,53 +66,33 @@ export type RunSessionFn = (
   role:      'producer' | 'verifier',
 ) => Promise<{ ok: true; value: void } | { ok: false; error: { kind: string; message?: string } }>
 
-// ── crud callbacks ──────────────────────────────────────────────────
-// Reconciler depends on crud for read/write of tickets, sessions,
-// agents, events. All persistence goes through this bag, async/Result/
-// Ctx-shaped. Optional reads return Result<T | undefined, …> so callers
-// branch on .value rather than wrapping not_found in the error channel;
-// writes resolve to Result<T, …> on success.
-
-export interface VerdictRow {
-  id:         string
-  session_id: string
-  agent_id:   string
-  ticket_id:  string
-  pass:       boolean
-  reason:     string
-  created_at: string
-}
-
-export type ReconcilerCrudError = { kind: 'internal'; message: string }
-
-export interface ReconcilerCrudOps {
-  agentList:               (ctx: Ctx, opts: { accountId: string }) => Promise<Result<Agent[], ReconcilerCrudError>>
-  projectsActive:          (ctx: Ctx) => Promise<Result<Project[], ReconcilerCrudError>>
-  ticketAllByProject:      (ctx: Ctx, projectId: string, status: string) => Promise<Result<Ticket[], ReconcilerCrudError>>
-  ticketGetById:           (ctx: Ctx, id: string) => Promise<Result<Ticket | undefined, ReconcilerCrudError>>
-  ticketTransition:        (ctx: Ctx, id: string, from: string, to: string) => Promise<Result<boolean, ReconcilerCrudError>>
-  ticketUpdateById:        (ctx: Ctx, id: string, data: Record<string, unknown>) => Promise<Result<Ticket, ReconcilerCrudError>>
-  sessionInsert:           (ctx: Ctx, data: Record<string, unknown>) => Promise<Result<Session, ReconcilerCrudError>>
-  sessionUpdateById:       (ctx: Ctx, id: string, data: Record<string, unknown>) => Promise<Result<Session, ReconcilerCrudError>>
-  sessionRunning:          (ctx: Ctx) => Promise<Result<Session[], ReconcilerCrudError>>
-  sessionRunningForTicket: (ctx: Ctx, ticketId: string) => Promise<Result<Session[], ReconcilerCrudError>>
-  sessionsByTicketRaw:     (ctx: Ctx, ticketId: string) => Promise<Result<Session[], ReconcilerCrudError>>
-  verdictBySession:        (ctx: Ctx, sessionId: string) => Promise<Result<VerdictRow | undefined, ReconcilerCrudError>>
-  eventCreate:             (ctx: Ctx, data: { entity_type: string; entity_id: string; kind: string; data?: string; caused_by: string; caused_by_id?: string | null }) => Promise<Result<Event, ReconcilerCrudError>>
-  eventLatest:             (ctx: Ctx, entityType: string, entityId: string) => Promise<Result<Event | undefined, ReconcilerCrudError>>
-}
-
 // ── ReconcilerDeps ──────────────────────────────────────────────────
-// Single bundle of every cross-module function the reconciler needs.
-// Composition root constructs this once per service boot.
+// Every cross-module function the reconciler needs. Composition root
+// constructs this once per service boot. Crud calls are uniformly
+// async/Result/Ctx-shaped: optional reads return Result<T | undefined>
+// so callers branch on .value rather than wrapping not_found in the
+// error channel; writes resolve to Result<T> on success.
+
+type CrudErr = { kind: 'internal'; message: string }
 
 export interface ReconcilerDeps {
-  config: ReconcilerConfig
-  crud:   ReconcilerCrudOps
-  engine: {
-    runSession: RunSessionFn
-    engineDeps: EngineDeps
-  }
+  config:                  ReconcilerConfig
+  runSession:              RunSessionFn
+  engineDeps:              EngineDeps
+  agentList:               (ctx: Ctx, accountId: string) => Promise<Result<Agent[], CrudErr>>
+  projectsActive:          (ctx: Ctx) => Promise<Result<Project[], CrudErr>>
+  ticketAllByProject:      (ctx: Ctx, projectId: string, status: string) => Promise<Result<Ticket[], CrudErr>>
+  ticketGetById:           (ctx: Ctx, id: string) => Promise<Result<Ticket | undefined, CrudErr>>
+  ticketTransition:        (ctx: Ctx, id: string, from: string, to: string) => Promise<Result<boolean, CrudErr>>
+  ticketUpdateById:        (ctx: Ctx, id: string, data: Record<string, unknown>) => Promise<Result<Ticket, CrudErr>>
+  sessionInsert:           (ctx: Ctx, data: Record<string, unknown>) => Promise<Result<Session, CrudErr>>
+  sessionUpdateById:       (ctx: Ctx, id: string, data: Record<string, unknown>) => Promise<Result<Session, CrudErr>>
+  sessionRunning:          (ctx: Ctx) => Promise<Result<Session[], CrudErr>>
+  sessionRunningForTicket: (ctx: Ctx, ticketId: string) => Promise<Result<Session[], CrudErr>>
+  sessionsByTicketRaw:     (ctx: Ctx, ticketId: string) => Promise<Result<Session[], CrudErr>>
+  verdictBySession:        (ctx: Ctx, sessionId: string) => Promise<Result<VerdictRow | undefined, CrudErr>>
+  eventCreate:             (ctx: Ctx, data: { entity_type: string; entity_id: string; kind: string; data?: string; caused_by: string; caused_by_id?: string | null }) => Promise<Result<Event, CrudErr>>
+  eventLatest:             (ctx: Ctx, entityType: string, entityId: string) => Promise<Result<Event | undefined, CrudErr>>
 }
 
 // ── Policy ───────────────────────────────────────────────────────────
@@ -132,8 +115,3 @@ export interface PolicyCtx {
 }
 
 export type Policy = (ctx: PolicyCtx) => Promise<'acted' | 'pass'>
-
-// ── Error union ─────────────────────────────────────────────────────
-
-export type ReconcilerError =
-  | { kind: 'internal'; message: string }

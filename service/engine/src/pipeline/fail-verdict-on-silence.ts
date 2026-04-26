@@ -21,12 +21,12 @@ export function failVerdictOnSilence(next: SessionStep): SessionStep {
 // orchestrator halts the dance instead.
 async function synthesizeIfSilent(ctx: SessionContext): Promise<void> {
   if (ctx.result?.cancelled) return
-  const r = await ctx.deps.crud.verdictBySession(ctx.ctx, ctx.session.id)
+  const r = await ctx.deps.verdictBySession(ctx.ctx, ctx.session.id)
   if (!r.ok || r.value) return
   const reason = ctx.result
     ? 'verifier ended without reporting a verdict'
     : 'verifier crashed before reporting a verdict'
-  await ctx.deps.crud.sessionUpdateById(ctx.ctx, ctx.session.id, {
+  await ctx.deps.sessionUpdateById(ctx.ctx, ctx.session.id, {
     verdict_pass:   false,
     verdict_reason: reason,
   })

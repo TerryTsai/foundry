@@ -19,9 +19,9 @@ export async function transition(
   ticketId: string, from: string, to: string,
   causedBy: string, data?: Record<string, unknown>,
 ): Promise<boolean> {
-  const r = await deps.crud.ticketTransition(ctx, ticketId, from, to)
+  const r = await deps.ticketTransition(ctx, ticketId, from, to)
   if (!r.ok || !r.value) return false
-  await deps.crud.eventCreate(ctx, {
+  await deps.eventCreate(ctx, {
     entity_type: 'ticket', entity_id: ticketId,
     kind: 'status_changed',
     data: JSON.stringify({ from, to, ...data }),
@@ -37,13 +37,13 @@ export async function transition(
 export async function dispatchSession(
   ctx: Ctx, db: Db, deps: ReconcilerDeps, ticket: Ticket, agent: Agent, role: 'producer' | 'verifier',
 ): Promise<void> {
-  const sessR = await deps.crud.sessionInsert(ctx, {
+  const sessR = await deps.sessionInsert(ctx, {
     ticket_id: ticket.id, agent_id: agent.id,
     status: 'running', started_at: now(),
   })
   if (!sessR.ok) return
   const sess = sessR.value
-  await deps.crud.eventCreate(ctx, {
+  await deps.eventCreate(ctx, {
     entity_type: 'session', entity_id: sess.id,
     kind: 'started',
     data: JSON.stringify({ role, ticket_id: ticket.id, agent_name: agent.name }),
@@ -56,7 +56,7 @@ async function runSessionAsync(
   ctx: Ctx, db: Db, deps: ReconcilerDeps, sessionId: string, agent: Agent, ticket: Ticket, role: 'producer' | 'verifier',
 ): Promise<void> {
   try {
-    const r = await deps.engine.runSession(ctx, db, deps.config, deps.engine.engineDeps, sessionId, agent, ticket, role)
+    const r = await deps.runSession(ctx, db, deps.config, deps.engineDeps, sessionId, agent, ticket, role)
     if (!r.ok) console.error(`session ${sessionId} returned err:`, r.error)
   } catch (errVal) {
     console.error(`session ${sessionId} crashed:`, errVal)
@@ -81,7 +81,7 @@ export function parseVerifierIds(raw: string | null): string[] {
 // missing verifier or settle the round. Single source of truth here so
 // the round semantics can't drift between policies.
 export async function currentRoundVerifierSessions(ctx: PolicyCtx): Promise<Session[] | null> {
-  const r = await ctx.deps.crud.sessionsByTicketRaw(ctx.ctx, ctx.ticket.id)
+  const r = await ctx.deps.sessionsByTicketRaw(ctx.ctx, ctx.ticket.id)
   if (!r.ok) return null
   const sessions = r.value
   const producers = sessions.filter(s => s.agent_id === ctx.ticket.agent_id)

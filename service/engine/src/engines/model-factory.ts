@@ -22,14 +22,14 @@ function secretFor(conn: { secrets: string }, field: string, deps: EngineDeps): 
 
 function parseSecrets(blob: string, deps: EngineDeps): Record<string, unknown> {
   try {
-    return JSON.parse(deps.crypto.decryptSecret(blob)) as Record<string, unknown>
+    return JSON.parse(deps.decryptSecret(blob)) as Record<string, unknown>
   } catch (errVal) {
     throw new Error(`connection secrets invalid: ${errVal instanceof Error ? errVal.message : String(errVal)}`)
   }
 }
 
 export async function resolveModel(ctx: Ctx, deps: EngineDeps, connectionId: string, modelId: string): Promise<unknown> {
-  const r = await deps.crud.connectionGetById(ctx, connectionId)
+  const r = await deps.connectionGetById(ctx, connectionId)
   if (!r.ok)   throw new Error(`connection '${connectionId}' lookup failed: ${r.error.message}`)
   if (!r.value) throw new Error(`connection '${connectionId}' not found`)
   const row = r.value
