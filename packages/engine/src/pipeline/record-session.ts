@@ -4,7 +4,7 @@
 import { now } from '@foundry/model'
 import type { Middleware, SessionContext } from './compose.js'
 
-export const withBookkeeping: Middleware = (next) => async (ctx) => {
+export const recordSession: Middleware = (next) => async (ctx) => {
   emitStartEvent(ctx)
   try {
     await next(ctx)

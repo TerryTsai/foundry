@@ -5,7 +5,7 @@
 
 import type { Middleware } from './compose.js'
 
-export const withWorkspace: Middleware = (next) => async (ctx) => {
+export const provisionWorkspace: Middleware = (next) => async (ctx) => {
   ctx.workDir = await ctx.deps.mcp.workspaceEmpty()
   ctx.deps.sandbox.registerSessionWorkspace(ctx.session.id, ctx.workDir)
   try { return await next(ctx) }

@@ -9,37 +9,37 @@ import { ok, err } from '@foundry/model'
 
 import type { EngineConfig, EngineDeps, SessionContext } from './types.js'
 
-import { compose }                   from './pipeline/compose.js'
-import { withBookkeeping }          from './pipeline/bookkeeping.js'
-import { withCooperativeCancel }    from './pipeline/cooperative-cancel.js'
-import { withCrashSafe }            from './pipeline/crash-safe.js'
-import { withEngine }               from './pipeline/engine.js'
-import { withOpeningPrompt }        from './pipeline/opening-prompt.js'
-import { withSyntheticFailVerdict } from './pipeline/synthetic-fail-verdict.js'
-import { withSystemPrompt }         from './pipeline/system-prompt.js'
-import { withTicketFailOnCrash }    from './pipeline/ticket-fail-on-crash.js'
-import { withWorkspace }            from './pipeline/workspace.js'
+import { compose }              from './pipeline/compose.js'
+import { catchCrash }            from './pipeline/catch-crash.js'
+import { recordSession }         from './pipeline/record-session.js'
+import { failTicketOnCrash }     from './pipeline/fail-ticket-on-crash.js'
+import { failVerdictOnSilence }  from './pipeline/fail-verdict-on-silence.js'
+import { provisionWorkspace }    from './pipeline/provision-workspace.js'
+import { buildSystemPrompt }     from './pipeline/build-system-prompt.js'
+import { buildOpeningPrompt }    from './pipeline/build-opening-prompt.js'
+import { pollCancel }            from './pipeline/poll-cancel.js'
+import { runEngine }             from './pipeline/run-engine.js'
 
 const PRODUCER = compose(
-  withCrashSafe,
-  withBookkeeping,
-  withTicketFailOnCrash,
-  withWorkspace,
-  withSystemPrompt('producer'),
-  withOpeningPrompt,
-  withCooperativeCancel,
-  withEngine,
+  catchCrash,
+  recordSession,
+  failTicketOnCrash,
+  provisionWorkspace,
+  buildSystemPrompt('producer'),
+  buildOpeningPrompt,
+  pollCancel,
+  runEngine,
 )(async (ctx) => ctx)
 
 const VERIFIER = compose(
-  withCrashSafe,
-  withBookkeeping,
-  withSyntheticFailVerdict,
-  withWorkspace,
-  withSystemPrompt('verifier'),
-  withOpeningPrompt,
-  withCooperativeCancel,
-  withEngine,
+  catchCrash,
+  recordSession,
+  failVerdictOnSilence,
+  provisionWorkspace,
+  buildSystemPrompt('verifier'),
+  buildOpeningPrompt,
+  pollCancel,
+  runEngine,
 )(async (ctx) => ctx)
 
 export async function runSession(

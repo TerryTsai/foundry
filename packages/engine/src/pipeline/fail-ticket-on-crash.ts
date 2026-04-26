@@ -5,7 +5,7 @@
 import { now } from '@foundry/model'
 import type { Middleware } from './compose.js'
 
-export const withTicketFailOnCrash: Middleware = (next) => async (ctx) => {
+export const failTicketOnCrash: Middleware = (next) => async (ctx) => {
   try { return await next(ctx) }
   catch (err) {
     const msg = err instanceof Error ? err.message : String(err)

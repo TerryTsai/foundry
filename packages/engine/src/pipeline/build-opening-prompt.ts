@@ -28,7 +28,7 @@ function triggerPrompt(db: Db, ticket: Ticket, deps: EngineDeps): string {
   return lines.join('\n')
 }
 
-export const withOpeningPrompt: Middleware = (next) => async (ctx) => {
+export const buildOpeningPrompt: Middleware = (next) => async (ctx) => {
   ctx.userPrompt = triggerPrompt(ctx.db, ctx.ticket, ctx.deps)
   ctx.deps.crud.activityCreate(ctx.db, {
     session_id:   ctx.session.id,

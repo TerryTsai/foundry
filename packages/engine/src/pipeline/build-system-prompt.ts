@@ -60,7 +60,7 @@ function formatVerdict(db: Db, deps: EngineDeps, v: { agent_id: string; pass: bo
   return `[${name}] ${tag} — ${v.reason}`
 }
 
-export const withSystemPrompt = (role: Role): Middleware => (next) => async (ctx) => {
+export const buildSystemPrompt = (role: Role): Middleware => (next) => async (ctx) => {
   ctx.systemPrompt = assemble(ctx.db, ctx.deps, ctx.ticket, ctx.agent, role)
   return next(ctx)
 }

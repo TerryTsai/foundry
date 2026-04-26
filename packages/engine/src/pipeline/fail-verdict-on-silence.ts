@@ -6,7 +6,7 @@
 
 import type { Middleware } from './compose.js'
 
-export const withSyntheticFailVerdict: Middleware = (next) => async (ctx) => {
+export const failVerdictOnSilence: Middleware = (next) => async (ctx) => {
   try { await next(ctx) }
   finally {
     // Skip synthesis on cancel: the Claude Agent SDK keeps draining

@@ -8,7 +8,7 @@
 
 import type { Middleware } from './compose.js'
 
-export const withCrashSafe: Middleware = (next) => async (ctx) => {
+export const catchCrash: Middleware = (next) => async (ctx) => {
   try { await next(ctx) } catch { /* inner layers already persisted the failure */ }
   return ctx
 }

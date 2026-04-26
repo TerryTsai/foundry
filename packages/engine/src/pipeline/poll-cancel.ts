@@ -6,7 +6,7 @@
 
 import type { Middleware } from './compose.js'
 
-export const withCooperativeCancel: Middleware = (next) => async (ctx) => {
+export const pollCancel: Middleware = (next) => async (ctx) => {
   const { db, deps, session, ticket } = ctx
   ctx.shouldStop = () => {
     const t = deps.crud.ticketGetById(db, ticket.id)
