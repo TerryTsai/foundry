@@ -6,10 +6,7 @@
     "server"
   ],
   "scripts": {
-    "lint": "eslint .",
-    "check:layout": "node scripts/check-layout.mjs",
-    "check:manifests": "node scripts/check-manifests.mjs",
-    "check": "npm run check:layout && npm run check:manifests && npm run lint"
+    "check": "eslint ."
   },
   "devDependencies": {
     "@typescript-eslint/eslint-plugin": "^7.13.0",

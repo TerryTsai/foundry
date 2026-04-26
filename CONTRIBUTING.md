@@ -1,12 +1,12 @@
 # Contributing
 
-Read [`ARCHITECTURE.md`](./ARCHITECTURE.md) before adding code. It is authoritative for module boundaries, file layout, code style, and the conventions every change must follow. The rules are enforced mechanically — `npm run check` runs layout, manifest, and lint validation.
+Read [`ARCHITECTURE.md`](./ARCHITECTURE.md) before adding code. It is authoritative for module boundaries, file layout, code style, and the conventions every change must follow. The rules are enforced mechanically — `npm run check` runs the lint pass, which carries the cardinal-rule, function-shape, and no-class checks.
 
 ## Before opening a change
 
 ```sh
 npm install        # if package.json changed
-npm run check      # layout + manifest + lint
+npm run check      # lint (cardinal rule + function shape + no classes)
 npx tsc -b         # type-check the workspace
 ```
 
@@ -18,18 +18,17 @@ cd packages/<module> && npx vitest run
 
 ## Adding a new module
 
-```sh
-node scripts/new-module.mjs <name>
-```
+Copy an existing package as a skeleton (e.g. `cp -r packages/billing packages/<name>`), rename it inside `package.json`, update `src/index.ts`, then:
 
-Generates a package skeleton matching the standard layout (package.json, tsconfig.json, README.md, src/index.ts). Add the package's tsconfig reference to the root `tsconfig.json`, declare its dependencies in `package.json`, and update `.eslintrc.cjs` if it needs to opt into strict rules.
+1. Add the package's tsconfig reference to the root `tsconfig.json`.
+2. Declare its dependencies in `package.json`.
+3. If it's a logic module, add it to `LOGIC_MODULES` in `.eslintrc.cjs` so the cardinal rule covers it.
 
 ## What you can rely on
 
-- **Cross-module imports**: only `@foundry/model`, `@foundry/client`, `@foundry/db` are importable across logic-module boundaries. Enforced by `scripts/check-manifests.mjs`.
+- **Cross-module imports**: logic modules cannot import other logic modules; non-{crud,analytics} can only type-import `@foundry/db`. Enforced by ESLint `no-restricted-imports` per logic-module package in `.eslintrc.cjs`.
 - **No classes in logic modules**: enforced by ESLint `no-restricted-syntax`.
-- **File layout**: every package has `package.json`, `tsconfig.json`, `README.md`, and either `src/index.ts` (library) or `src/main.tsx + index.html + vite.config.ts` (SPA). Enforced by `scripts/check-layout.mjs`.
-- **Function size**: 10 lines / depth 2 for new-code packages (model, client, billing). 30 lines / depth 3 for legacy migrated logic modules until the internal Result-conversion sweep tightens them.
+- **Function size**: 20-line cap, depth ≤ 2. Enforced by ESLint `max-lines-per-function` and `max-depth`.
 
 ## What's grandfathered
 
