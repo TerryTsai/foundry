@@ -1,7 +1,7 @@
 import { Router } from 'express'
 import type { Request } from 'express'
 import type { Db } from '@foundry/db'
-import type { Result, CrudError, AnalyticsError } from '@foundry/model'
+import type { Result } from '@foundry/model'
 import { ok } from '@foundry/model'
 import { parse, run, runResult, send, data } from '../http.js'
 import { accountId } from '../account-id.js'
@@ -10,9 +10,10 @@ import {
   agentList, agentGet, agentCreate, agentUpdate, agentRemove,
   sessionGet, sessionStatus, sessionKill, sessionActivities,
   connectionByAccount,
+  type CrudError,
 } from '@foundry/crud'
 import { agentMcpList, TOOL_NAMES } from '@foundry/mcp'
-import { agentUsage } from '@foundry/analytics'
+import { agentUsage, type AnalyticsError } from '@foundry/analytics'
 
 export function agentRoutes(db: Db) {
   const r = Router()

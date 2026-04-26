@@ -30,16 +30,10 @@ export type {
   Event,
 } from './entities/index.js'
 
-export type {
-  AuthError,
-  BillingError,
-  CrudError,
-  AnalyticsError,
-  SandboxError,
-  McpError,
-  EngineError,
-  ReconcilerError,
-} from './errors/index.js'
+// Per-service error unions live in each service's schema.ts and are
+// re-exported by its index.ts. Cross-service consumers import them via
+// `import type { XxxError } from '@foundry/<service>'` (type-only —
+// cardinal rule still forbids value imports of peer logic modules).
 
 export {
   pick, now, timestamps, toInt, succeeds,

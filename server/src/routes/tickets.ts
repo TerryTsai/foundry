@@ -1,7 +1,7 @@
 import { Router } from 'express'
 import type { Request } from 'express'
 import type { Db, Event } from '@foundry/db'
-import type { Result, CrudError, AnalyticsError } from '@foundry/model'
+import type { Result } from '@foundry/model'
 import { ok } from '@foundry/model'
 import { parse, runResult, send, data } from '../http.js'
 import { accountId } from '../account-id.js'
@@ -13,8 +13,9 @@ import {
   ticketOwned,
   sessionByTicket,
   eventByEntity,
+  type CrudError,
 } from '@foundry/crud'
-import { ticketUsage } from '@foundry/analytics'
+import { ticketUsage, type AnalyticsError } from '@foundry/analytics'
 import { killRunningExecutionsForTicket, type SandboxCrudOps, type SandboxState } from '@foundry/sandbox'
 
 export function ticketRoutes(db: Db, sandboxCrud: SandboxCrudOps, sandboxState: SandboxState) {

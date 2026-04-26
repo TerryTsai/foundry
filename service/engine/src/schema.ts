@@ -7,7 +7,11 @@
 import type { ZodType } from 'zod'
 import type { Db } from '@foundry/db'
 import type { Account, Activity, Agent, Connection, Comment, Event, Project, Session, Ticket } from '@foundry/db'
-import type { Result, AuthError, SandboxError } from '@foundry/model'
+import type { Result } from '@foundry/model'
+// Cross-service type imports — values from peer services are still
+// forbidden (cardinal rule); type-only imports are fine.
+import type { AuthError } from '@foundry/auth'
+import type { SandboxError } from '@foundry/sandbox'
 
 export type EngineError =
   | { kind: 'model_unavailable';  reason: string }

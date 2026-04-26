@@ -5,7 +5,7 @@ import { existsSync } from 'fs'
 import { execSync } from 'child_process'
 
 import { config } from './config.js'
-import { createDatabase, type Db } from '@foundry/db'
+import { createDatabase } from '@foundry/db'
 import { errors } from './http.js'
 
 import { authRoutes }       from './routes/auth.js'
@@ -23,13 +23,13 @@ import {
 } from './routes/attachments.js'
 
 import {
-  reconcilerTick, shutdownDrain,
   dispatchProducer, settleRunning, dispatchRecoveryProducer,
   finishWithoutVerifiers, dispatchVerifier, finishOnAllPass, retryAfterFail,
   type ReconcilerCrudOps, type ReconcilerDeps,
   type EngineDeps as ReconcilerEngineDeps,
   type RunSessionFn as ReconcilerRunSessionFn,
   type Policy,
+  type ReconcilerService,
 } from '@foundry/reconciler'
 import { decodeEncryptionKey } from './encryption-key.js'
 import { runSession, type EngineCrudOps, type EngineDeps } from '@foundry/engine'
@@ -95,13 +95,19 @@ import {
   sessionsForTicketRaw,
 } from '@foundry/crud'
 
-import {
-  createInProcessClient,
-  createAuthAdapter, createBillingAdapter, createCrudAdapter,
-  createAnalyticsAdapter, createSandboxAdapter, createMcpAdapter,
-  createEngineAdapter, createReconcilerAdapter,
-  type Client,
-} from '@foundry/client'
+// Per-service wiring entry points. Each service.ts constructs its own
+// XxxClient from the deps passed in here; the composition root no longer
+// builds an aggregate Client. Routes still call raw module functions
+// directly today, but the per-service clients are live for future
+// bind(client, ctx) migrations.
+import { createBillingService }    from '@foundry/billing/service'
+import { createAnalyticsService }  from '@foundry/analytics/service'
+import { createCrudService }       from '@foundry/crud/service'
+import { createAuthService }       from '@foundry/auth/service'
+import { createSandboxService }    from '@foundry/sandbox/service'
+import { createMcpService }        from '@foundry/mcp/service'
+import { createEngineService }     from '@foundry/engine/service'
+import { createReconcilerService } from '@foundry/reconciler/service'
 
 // Build the Express app, wire every route, and return it together with the
 // db handle and constructed deps bags. Split out from boot() so tests
@@ -192,12 +198,31 @@ export function buildApp() {
     keyFn: (req) => req.account?.id ?? req.ip ?? 'anon',
   }))
 
+  // Per-service clients. Each service.ts wraps the raw module functions
+  // with its own typed boundary; cross-service consumers (reconciler →
+  // engine, etc.) take the typed client of their dependency. Routes still
+  // use raw functions for now.
+  const reconcilerDeps   = buildReconcilerDeps(reconcilerCrud, engineDeps)
+  const billingService   = createBillingService()
+  void billingService
+  const analyticsService = createAnalyticsService({ db })
+  void analyticsService
+  const crudService      = createCrudService({ db, providerGet, supportedKinds, encryptSecret: encryptSecretFn, decryptSecret: decryptSecretFn })
+  void crudService
+  const authService      = createAuthService({ db, config, githubDeps: buildGithubDeps(), authCrud, encryptionKey })
+  void authService
+  const sandboxService   = createSandboxService({ db, config, executionOwned, sessionOwned, sandboxCrud, sandboxState })
+  void sandboxService
+  const mcpService       = createMcpService({ db, connectionByAccount })
+  void mcpService
+  const engineService    = createEngineService({ db, config, engineDeps })
+  void engineService
+  const reconciler       = createReconcilerService({ db, deps: reconcilerDeps, policies: RECONCILER_POLICIES })
+
   // On-demand reconcile triggered by `POST /project/:id/run` (and any
-  // future caller that needs to nudge the loop). Pre-bound here so the
-  // route handlers don't need to reach for reconcilerDeps themselves.
+  // future caller that needs to nudge the loop).
   const triggerReconcile = () => {
-    reconcilerTick(db, reconcilerDeps, RECONCILER_POLICIES).catch((err: unknown) =>
-      console.error('reconciler error:', err))
+    reconciler.tick().catch((err: unknown) => console.error('reconciler error:', err))
   }
 
   app.use('/project',    projectRoutes(db, triggerReconcile))
@@ -216,30 +241,7 @@ export function buildApp() {
 
   app.use(errors)
 
-  const reconcilerDeps = buildReconcilerDeps(reconcilerCrud, engineDeps)
-  const client         = buildClient(db, engineDeps, authCrud, sandboxCrud, encryptionKey, sandboxState, encryptSecretFn, decryptSecretFn)
-  return { app, db, reconcilerDeps, client, sandboxState }
-}
-
-// Composition root: assemble the typed cross-module Client from the
-// in-process adapters. Routes don't use this yet — the next sweep wires
-// each handler to bind(client, ctx). For now it's available so the
-// shape compiles end-to-end.
-function buildClient(
-  db: Db, engineDeps: EngineDeps,
-  authCrud: AuthCrudOps, sandboxCrud: SandboxCrudOps, encryptionKey: Buffer, sandboxState: SandboxState,
-  encryptSecret: (s: string) => string, decryptSecret: (s: string) => string,
-): Client {
-  return createInProcessClient({
-    auth:       createAuthAdapter({ db, config, githubDeps: buildGithubDeps(), authCrud, encryptionKey }),
-    billing:    createBillingAdapter(),
-    crud:       createCrudAdapter({ db, providerGet, supportedKinds, encryptSecret, decryptSecret }),
-    analytics:  createAnalyticsAdapter({ db }),
-    sandbox:    createSandboxAdapter({ db, config, executionOwned, sessionOwned, sandboxCrud, sandboxState }),
-    mcp:        createMcpAdapter({ db }),
-    engine:     createEngineAdapter({ db, config, engineDeps }),
-    reconciler: createReconcilerAdapter(),
-  })
+  return { app, db, reconciler, sandboxState }
 }
 
 // Bridge AuthConfig (what auth's GithubOAuthDeps wants) → McpConfig (what
@@ -383,28 +385,27 @@ const RECONCILER_POLICIES: Policy[] = [
 // loop, and installs a SIGTERM handler that drains running work before
 // exiting. Returns the http.Server so callers can await close() in tests.
 export function boot() {
-  const { app, db, reconcilerDeps, sandboxState } = buildApp()
+  const { app, reconciler, sandboxState } = buildApp()
 
   let reconcilerInterval: ReturnType<typeof setInterval> | null = null
 
   const server = app.listen(config.port, () => {
     console.log(`foundry service listening on port ${config.port}`)
     reconcilerInterval = setInterval(() => {
-      reconcilerTick(db, reconcilerDeps, RECONCILER_POLICIES).catch((err: unknown) =>
-        console.error('reconciler error:', err))
+      reconciler.tick().catch((err: unknown) => console.error('reconciler error:', err))
     }, 5000)
   })
 
   // ── Graceful shutdown on deploy restart ──
-  process.on('SIGTERM', () => shutdown(db, reconcilerDeps, sandboxState, reconcilerInterval))
+  process.on('SIGTERM', () => shutdown(reconciler, sandboxState, reconcilerInterval))
 
   return server
 }
 
-function shutdown(db: Db, reconcilerDeps: ReconcilerDeps, sandboxState: SandboxState, interval: ReturnType<typeof setInterval> | null) {
+function shutdown(reconciler: ReconcilerService, sandboxState: SandboxState, interval: ReturnType<typeof setInterval> | null) {
   console.log('SIGTERM received, draining…')
   if (interval) clearInterval(interval)
-  shutdownDrain(db, reconcilerDeps)
+  reconciler.drain()
   stopAllSessionContainers(sandboxState)
   try { execSync('podman kill --all', { timeout: 5000, stdio: 'ignore' }) } catch {
     // Ignored — best-effort container cleanup; podman may not be installed

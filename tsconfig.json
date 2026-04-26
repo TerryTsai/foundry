@@ -2,7 +2,6 @@
   "files": [],
   "references": [
     { "path": "./model" },
-    { "path": "./client" },
     { "path": "./db" },
     { "path": "./mcp" },
     { "path": "./service/auth" },

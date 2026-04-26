@@ -6,6 +6,8 @@ export type { AnalyticsClient } from './client.js'
 export type { UsageRollup, AnalyticsArgs, AnalyticsResult, AnalyticsError } from './schema.js'
 export * as validate from './validate.js'
 
-// Raw exports remain during the @foundry/client → per-service migration.
+// Raw exports for routes that still call analytics directly. Will move
+// behind bind(client, ctx) once route handlers migrate to the typed
+// AnalyticsClient.
 export { analytics, tagsList } from './aggregate.js'
 export { ticketUsage, agentUsage, sessionUsage } from './usage.js'

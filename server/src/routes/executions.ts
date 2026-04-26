@@ -1,14 +1,14 @@
 import { Router } from 'express'
 import type { Request, Response } from 'express'
 import type { Db } from '@foundry/db'
-import type { Result, SandboxError } from '@foundry/model'
+import type { Result } from '@foundry/model'
 import type { Config } from '../config.js'
 import { parse, runResult, send, data } from '../http.js'
 import { accountId } from '../account-id.js'
 import {
   validate,
   executionList, executionGet, executionCreate, executionKill, executionStream,
-  type SandboxCrudOps, type SandboxState,
+  type SandboxCrudOps, type SandboxState, type SandboxError,
 } from '@foundry/sandbox'
 import { executionOwned } from '@foundry/crud'
 

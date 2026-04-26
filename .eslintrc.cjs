@@ -43,6 +43,12 @@ const LOGIC_FEATURE_GLOBS = LOGIC_MODULES.map(m => `${modulePath(m)}/src/**/*.ts
 // do NOT apply here.
 const SCHEMA_FILES = [
   '**/schema.ts',
+  // Per-service contract + wiring + zod files. client.ts is types only;
+  // service.ts is the createXxxService closure (factory, not feature
+  // logic); validate.ts is the zod boundary (zod runtime allowed here).
+  '**/client.ts',
+  '**/service.ts',
+  '**/validate.ts',
   // mcp's per-integration tools.ts files declare each tool's zod schema
   // inline; the schema IS part of the tool's identity, not a side detail.
   '**/integrations/*/tools.ts',
@@ -70,11 +76,17 @@ const TEST_GLOBS = [
 // allowed because some engine adapters need ZodObject etc. structurally
 // without pulling in zod's runtime.
 const cardinalRuleOverrides = LOGIC_MODULES.flatMap(self => {
+  // Cross-service imports: VALUE imports of a peer service's bare package
+  // are forbidden (would pull the peer's implementation across the seam).
+  // TYPE imports are fine — types compile away. Composition root in
+  // @foundry/server wires services together via createXxxService(deps),
+  // not via direct imports.
   const cardinalPaths = LOGIC_MODULES
     .filter(other => other !== self)
     .map(other => ({
       name: `@foundry/${other}`,
-      message: `Cardinal rule: logic module '${self}' cannot import logic module '${other}'. Cross-module work goes through @foundry/client or callback bundles injected by @foundry/server. See ARCHITECTURE.md.`,
+      allowTypeImports: true,
+      message: `Cardinal rule: logic module '${self}' may only type-import @foundry/${other}. Cross-service runtime work goes through createXxxService(deps) wired by @foundry/server. See ARCHITECTURE.md.`,
     }))
   if (!DB_VALUE_ALLOWED.has(self)) {
     cardinalPaths.push({

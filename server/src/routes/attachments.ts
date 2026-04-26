@@ -1,12 +1,12 @@
 import { Router } from 'express'
 import type { Request, Response } from 'express'
 import type { Db } from '@foundry/db'
-import type { Result, CrudError } from '@foundry/model'
+import type { Result } from '@foundry/model'
 import { runResult, send } from '../http.js'
 import { accountId } from '../account-id.js'
 import {
   attachmentGetBytes, attachmentCreate, attachmentListByTicket, attachmentListByComment,
-  type AttachmentMeta,
+  type AttachmentMeta, type CrudError,
 } from '@foundry/crud'
 
 export function attachmentRoutes(db: Db) {
