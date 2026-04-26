@@ -11,6 +11,8 @@ export type CrudAdapterDeps = {
   db:              Db
   providerGet:     crud.ProviderGet
   supportedKinds:  crud.SupportedKindsFn
+  encryptSecret:   crud.EncryptSecret
+  decryptSecret:   crud.DecryptSecret
 }
 
 // eslint-disable-next-line max-lines-per-function -- adapter wiring; one line per slice method
@@ -54,10 +56,10 @@ export const createCrudAdapter = (deps: CrudAdapterDeps): CrudSlice => ({
   agentRemove: async (ctx, id)           => crud.agentRemove(deps.db, ctx.accountId, id),
 
   // ── connections ──
-  connectionList:   async (ctx)             => crud.connectionList(deps.db, ctx.accountId, deps.providerGet),
-  connectionGet:    async (ctx, id)         => crud.connectionGet(deps.db, ctx.accountId, id, deps.providerGet),
-  connectionCreate: async (ctx, args)       => crud.connectionCreate(deps.db, ctx.accountId, args, deps.providerGet, deps.supportedKinds),
-  connectionUpdate: async (ctx, id, args)   => crud.connectionUpdate(deps.db, ctx.accountId, id, args, deps.providerGet),
+  connectionList:   async (ctx)             => crud.connectionList(deps.db, ctx.accountId, deps.providerGet, deps.decryptSecret),
+  connectionGet:    async (ctx, id)         => crud.connectionGet(deps.db, ctx.accountId, id, deps.providerGet, deps.decryptSecret),
+  connectionCreate: async (ctx, args)       => crud.connectionCreate(deps.db, ctx.accountId, args, deps.providerGet, deps.supportedKinds, deps.encryptSecret, deps.decryptSecret),
+  connectionUpdate: async (ctx, id, args)   => crud.connectionUpdate(deps.db, ctx.accountId, id, args, deps.providerGet, deps.encryptSecret, deps.decryptSecret),
   connectionRemove: async (ctx, id)         => crud.connectionRemove(deps.db, ctx.accountId, id),
 
   // ── attachments ──

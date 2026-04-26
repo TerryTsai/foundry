@@ -1,6 +1,6 @@
 // Public surface for @foundry/crud. Re-exports from per-entity files.
 
-export * as validate from './validators.js'
+export * as validate from './schema.js'
 
 // project
 export {
@@ -16,14 +16,12 @@ export {
   verdictList,
   tagList, tagAdd, tagRemove,
 } from './ticket.js'
-export type { DependencyChainEntry } from './ticket.js'
 
 // session
 export {
   sessionGet, sessionStatus, verdictSet, sessionKill,
   sessionActivities, activityCreate, sessionByTicket, sessionListAll,
 } from './session.js'
-export type { ActivityCreateInput } from './session.js'
 
 // agent
 export {
@@ -34,14 +32,10 @@ export {
 export {
   connectionList, connectionGet, connectionCreate, connectionUpdate, connectionRemove,
 } from './connection.js'
-export type {
-  MaskedConnection, ConnectionProviderField, ConnectionProviderSpec,
-  ProviderGet, SupportedKindsFn,
-} from './connection.js'
 
-// secrets-crypto
+// secrets-crypto — raw functions; server binds the key in closures.
 export {
-  encryptSecret, decryptSecret, isEncrypted, assertKeyConfigured,
+  encryptSecret, decryptSecret, isEncrypted,
 } from './secrets-crypto.js'
 
 // attachment
@@ -49,7 +43,6 @@ export {
   attachmentCreate, attachmentListByTicket, attachmentListByComment,
   attachmentGetBytes, attachmentListByTicketInternal, attachmentGetInternal,
 } from './attachment.js'
-export type { AttachmentMeta, AttachmentBytes, AttachmentCreateInput } from './attachment.js'
 
 // execution metering — DB-side writes for the sandbox runtime
 export {
@@ -61,13 +54,11 @@ export {
   executionMarkCancelled,
   sessionsForTicketRaw,
 } from './execution.js'
-export type { ExecutionInsertInput } from './execution.js'
 
 // event log
 export {
   eventCreate, eventByEntity, eventLatest,
 } from './event.js'
-export type { EventCreateInput } from './event.js'
 
 // internal cross-module callbacks (engine / reconciler / sandbox / auth / mcp)
 export {
@@ -86,5 +77,15 @@ export {
   commentByTicket,
 } from './internal.js'
 
-// verdict row type (formerly @foundry/db's VerdictRow)
-export type { VerdictRow } from './repo.js'
+// Shape exports — types/interfaces consumed by callers (routes, server,
+// adapters). All declared in schema.ts per the schema.ts standard.
+export type {
+  AttachmentMeta, AttachmentBytes, AttachmentCreateInput,
+  ExecutionInsertInput, ActivityCreateInput,
+  DependencyChainEntry, VerdictRow,
+  EventCreateInput,
+  EncryptSecret, DecryptSecret, CryptoOps,
+  MaskedConnection,
+  ConnectionProviderField, ConnectionProviderSpec,
+  ProviderGet, SupportedKindsFn,
+} from './schema.js'

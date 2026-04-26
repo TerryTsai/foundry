@@ -5,15 +5,7 @@
 import { type Db } from '@foundry/db'
 import type { Event } from '@foundry/db'
 import * as database from './repo.js'
-
-export interface EventCreateInput {
-  entity_type:    string
-  entity_id:      string
-  kind:           string
-  data?:          string
-  caused_by:      string
-  caused_by_id?:  string | null
-}
+import type { EventCreateInput } from './schema.js'
 
 export function eventCreate(db: Db, input: EventCreateInput): Event {
   return database.eventInsert(db, input)

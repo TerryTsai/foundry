@@ -13,20 +13,11 @@ import * as githubMcp  from './integrations/github/tools.js'
 import * as sandboxMcp from './tools/sandbox.js'
 import * as browserMcp from './tools/browser.js'
 
-interface McpListEntry {
-  id: string; name: string; category: string; description: string
-  tools: Array<{ name: string; description: string }>
-}
+import type { McpListEntry, ConnectionByAccountFn } from './types.js'
 
-const builtInTools: Record<string, { name: string; description: string }[]> = {
-  foundry: foundryMcp.tools.map(t => ({ name: t.name, description: t.description })),
-  github:  githubMcp.tools.map(t  => ({ name: t.name, description: t.description })),
-  sandbox: sandboxMcp.tools.map(t => ({ name: t.name, description: t.description })),
-  browser: browserMcp.tools.map(t => ({ name: t.name, description: t.description })),
-}
-
-// mcp can't import @foundry/crud — composition root injects this lookup.
-export type ConnectionByAccountFn = (db: Db, accountId: string) => Connection[]
+// Re-export so existing imports through @foundry/mcp/agent-mcp-list keep
+// working without touching the public surface.
+export type { ConnectionByAccountFn } from './types.js'
 
 export function agentMcpList(
   db: Db, accountId: string, connectionByAccount: ConnectionByAccountFn,
@@ -37,7 +28,17 @@ export function agentMcpList(
 }
 
 function builtInEntries(): McpListEntry[] {
+  const builtInTools: Record<string, { name: string; description: string }[]> = {
+    foundry: foundryMcp.tools.map(toolInfo),
+    github:  githubMcp.tools.map(toolInfo),
+    sandbox: sandboxMcp.tools.map(toolInfo),
+    browser: browserMcp.tools.map(toolInfo),
+  }
   return mcpRegistry.map(info => ({ ...info, tools: builtInTools[info.id] ?? [] }))
+}
+
+function toolInfo(t: { name: string; description: string }): { name: string; description: string } {
+  return { name: t.name, description: t.description }
 }
 
 function connectionEntries(conns: Connection[]): McpListEntry[] {

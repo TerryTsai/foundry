@@ -5,7 +5,7 @@ import { type Db } from '@foundry/db'
 import * as schema from '@foundry/db'
 import type { Result, CrudError } from '@foundry/model'
 import { ok, err, pick, now, timestamps } from '@foundry/model'
-import type { project as validate } from './validators.js'
+import type { project as validate } from './schema.js'
 import * as database from './repo.js'
 
 // Ownership-aware fetch: not_found (not permission_denied) on mismatch

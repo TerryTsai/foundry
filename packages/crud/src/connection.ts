@@ -6,34 +6,19 @@ import * as schema from '@foundry/db'
 import type { Connection } from '@foundry/db'
 import type { Result, CrudError } from '@foundry/model'
 import { ok, err, now, timestamps } from '@foundry/model'
-import type { connection as validate } from './validators.js'
-import { encryptSecret, decryptSecret } from './secrets-crypto.js'
+import type {
+  connection as validate,
+  MaskedConnection, ConnectionProviderSpec, ProviderGet, SupportedKindsFn,
+  EncryptSecret, DecryptSecret,
+} from './schema.js'
 import * as database from './repo.js'
-
-// Masked shape returned by the API — secrets never serialized directly.
-export type MaskedConnection = Omit<Connection, 'secrets'> & { api_key_preview: string | null }
-
-export interface ConnectionProviderField {
-  key:      string
-  label:    string
-  type?:    string
-  required?: boolean
-}
-export interface ConnectionProviderSpec {
-  kind:        string
-  name:        string
-  credentials: ConnectionProviderField[]
-  validate?:   (secrets: Record<string, unknown>, config: Record<string, unknown>) => string | null
-}
-export type ProviderGet      = (kind: string) => ConnectionProviderSpec | undefined
-export type SupportedKindsFn = () => string[]
 
 function maskKey(key: string): string {
   if (key.length <= 8) return '****'
   return key.slice(0, 4) + '...' + key.slice(-4)
 }
 
-function maskPreview(secrets: string, providerGet: ProviderGet, kind: string): string | null {
+function maskPreview(secrets: string, providerGet: ProviderGet, kind: string, decryptSecret: DecryptSecret): string | null {
   try {
     const parsed = JSON.parse(decryptSecret(secrets)) as Record<string, unknown>
     const passwordKeys = passwordKeysFor(providerGet, kind)
@@ -57,32 +42,37 @@ function firstPasswordPreview(parsed: Record<string, unknown>, passwordKeys: str
   return null
 }
 
-function maskConnection(c: Connection, providerGet: ProviderGet): MaskedConnection {
+function maskConnection(c: Connection, providerGet: ProviderGet, decryptSecret: DecryptSecret): MaskedConnection {
   const { secrets, ...rest } = c
-  return { ...rest, api_key_preview: maskPreview(secrets, providerGet, c.kind) }
+  return { ...rest, api_key_preview: maskPreview(secrets, providerGet, c.kind, decryptSecret) }
 }
 
-export function connectionList(db: Db, accountId: string, providerGet: ProviderGet): Result<MaskedConnection[], CrudError> {
+export function connectionList(
+  db: Db, accountId: string, providerGet: ProviderGet, decryptSecret: DecryptSecret,
+): Result<MaskedConnection[], CrudError> {
   const rows = database.connectionAll(db, [eq(schema.connection.account_id, accountId)])
-  return ok(rows.map(c => maskConnection(c, providerGet)))
+  return ok(rows.map(c => maskConnection(c, providerGet, decryptSecret)))
 }
 
-export function connectionGet(db: Db, accountId: string, id: string, providerGet: ProviderGet): Result<MaskedConnection, CrudError> {
+export function connectionGet(
+  db: Db, accountId: string, id: string, providerGet: ProviderGet, decryptSecret: DecryptSecret,
+): Result<MaskedConnection, CrudError> {
   const row = database.connectionGet(db, id)
   if (!row || row.account_id !== accountId) return err({ kind: 'not_found', entity: 'connection', id })
-  return ok(maskConnection(row, providerGet))
+  return ok(maskConnection(row, providerGet, decryptSecret))
 }
 
 export function connectionCreate(
   db: Db, accountId: string, input: z.infer<typeof validate.create>,
   providerGet: ProviderGet, supportedKinds: SupportedKindsFn,
+  encryptSecret: EncryptSecret, decryptSecret: DecryptSecret,
 ): Result<MaskedConnection, CrudError> {
   const provider = providerGet(input.kind)
   if (!provider) return err({ kind: 'validation_failed', field: 'kind', reason: `unsupported connection kind '${input.kind}' — supported: ${supportedKinds().join(', ')}` })
   if (database.connectionGetByName(db, input.name)) return err({ kind: 'conflict', reason: `connection '${input.name}' already exists` })
   const validated = validateConnectionInput(provider, input)
   if (!validated.ok) return validated
-  return ok(maskConnection(connectionCreateInsert(db, accountId, input), providerGet))
+  return ok(maskConnection(connectionCreateInsert(db, accountId, input, encryptSecret), providerGet, decryptSecret))
 }
 
 function validateConnectionInput(
@@ -112,7 +102,9 @@ function validateRequiredCredentials(
   return null
 }
 
-function connectionCreateInsert(db: Db, accountId: string, input: z.infer<typeof validate.create>): Connection {
+function connectionCreateInsert(
+  db: Db, accountId: string, input: z.infer<typeof validate.create>, encryptSecret: EncryptSecret,
+): Connection {
   return database.connectionInsert(db, {
     account_id: accountId, kind: input.kind, name: input.name,
     config:  JSON.stringify(input.config  ?? {}),
@@ -124,6 +116,7 @@ function connectionCreateInsert(db: Db, accountId: string, input: z.infer<typeof
 export function connectionUpdate(
   db: Db, accountId: string, id: string,
   input: z.infer<typeof validate.update>, providerGet: ProviderGet,
+  encryptSecret: EncryptSecret, decryptSecret: DecryptSecret,
 ): Result<MaskedConnection, CrudError> {
   const row = database.connectionGet(db, id)
   if (!row || row.account_id !== accountId) return err({ kind: 'not_found', entity: 'connection', id })
@@ -131,7 +124,7 @@ export function connectionUpdate(
   if (input.name    !== undefined) data.name    = input.name
   if (input.config  !== undefined) data.config  = JSON.stringify(input.config)
   if (input.secrets !== undefined) data.secrets = encryptSecret(JSON.stringify(input.secrets))
-  return ok(maskConnection(database.connectionUpdate(db, id, data), providerGet))
+  return ok(maskConnection(database.connectionUpdate(db, id, data), providerGet, decryptSecret))
 }
 
 export function connectionRemove(db: Db, accountId: string, id: string): Result<{ ok: true }, CrudError> {

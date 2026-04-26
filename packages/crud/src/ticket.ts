@@ -6,15 +6,10 @@ import * as schema from '@foundry/db'
 import type { Ticket, Comment } from '@foundry/db'
 import type { Result, CrudError } from '@foundry/model'
 import { ok, err, pick, now, timestamps } from '@foundry/model'
-import type { ticket as validate } from './validators.js'
+import type { ticket as validate } from './schema.js'
 import { assertProjectOwner, ticketOwned } from './project.js'
 import * as database from './repo.js'
-import type { VerdictRow } from './repo.js'
-
-export interface DependencyChainEntry {
-  id: string; title: string; description: string
-  agent_id: string | null; status: string
-}
+import type { DependencyChainEntry, VerdictRow } from './schema.js'
 
 // All ticket queries scope to projects the requester owns. Pre-resolve
 // owned project ids and add an inArray constraint.
@@ -143,14 +138,13 @@ function nextDependencyStep(db: Db, current: Ticket, accountId: string): Ticket 
   return next
 }
 
-const NOISE_COMMENTS = new Set([
-  'Session started', 'Session started (SDK)', 'Session finished',
-  'Session failed', 'Session cancelled', 'Session crashed',
-])
-
 export function ticketPriorHistory(db: Db, ticketId: string, sessionId: string, agentName: string): string {
+  const noise = new Set([
+    'Session started', 'Session started (SDK)', 'Session finished',
+    'Session failed', 'Session cancelled', 'Session crashed',
+  ])
   const comments = database.commentByTicket(db, ticketId)
-    .filter(c => c.session_id !== sessionId && !NOISE_COMMENTS.has(c.body))
+    .filter(c => c.session_id !== sessionId && !noise.has(c.body))
   if (comments.length === 0) return ''
   return formatPriorHistory(comments, agentName)
 }

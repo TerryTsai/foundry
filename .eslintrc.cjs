@@ -46,6 +46,11 @@ const SCHEMA_FILES = [
   // inline; the schema IS part of the tool's identity, not a side detail.
   '**/integrations/*/tools.ts',
   '**/tools/*.ts',
+  // mcp's per-integration provider.ts files are pure declarative metadata
+  // (kind, name, credentials shape) — the integration's identity card.
+  // The integration registry is the catalog of those identities.
+  '**/integrations/*/provider.ts',
+  '**/integrations/registry.ts',
 ]
 
 const TEST_GLOBS = [

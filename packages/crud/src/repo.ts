@@ -17,6 +17,7 @@ import type {
   Account, Activity, Agent, AuthSession, Comment, Connection, Event,
   Execution, Project, Session, Ticket,
 } from '@foundry/db'
+import type { VerdictRow } from './schema.js'
 
 // ════════════════════════════════════════════════════════════════════════════
 // PROJECT
@@ -289,24 +290,35 @@ export function agentRemove(d: Db, id: string): void {
 // SESSION (rolled-up usage columns + raw access)
 // ════════════════════════════════════════════════════════════════════════════
 
-const sessionWithAgentColumns = {
-  id:             schema.session.id,
-  ticket_id:      schema.session.ticket_id,
-  agent_id:       schema.session.agent_id,
-  agent_name:     schema.agent.name,
-  model:          schema.agent.model,
-  status:         schema.session.status,
-  error:          schema.session.error,
-  cost_usd:       schema.session.cost_usd,
-  duration_ms:    schema.session.duration_ms,
-  verdict_pass:   schema.session.verdict_pass,
-  verdict_reason: schema.session.verdict_reason,
-  started_at:     schema.session.started_at,
-  ended_at:       schema.session.ended_at,
-  tokens_in:  sql<number | null>`SUM(${schema.activity.tokens_in})`.as('tokens_in'),
-  tokens_out: sql<number | null>`SUM(${schema.activity.tokens})`.as('tokens_out'),
-  step_count: sql<number | null>`NULLIF(COUNT(DISTINCT ${schema.activity.turn_id}), 0)`.as('step_count'),
-  tool_calls: sql<number | null>`NULLIF((SELECT COUNT(*) FROM execution WHERE execution.session_id = session.id), 0)`.as('tool_calls'),
+function sessionWithAgentColumns() {
+  return { ...sessionAgentBaseCols(), ...sessionAggregateCols() }
+}
+
+function sessionAgentBaseCols() {
+  return {
+    id:             schema.session.id,
+    ticket_id:      schema.session.ticket_id,
+    agent_id:       schema.session.agent_id,
+    agent_name:     schema.agent.name,
+    model:          schema.agent.model,
+    status:         schema.session.status,
+    error:          schema.session.error,
+    cost_usd:       schema.session.cost_usd,
+    duration_ms:    schema.session.duration_ms,
+    verdict_pass:   schema.session.verdict_pass,
+    verdict_reason: schema.session.verdict_reason,
+    started_at:     schema.session.started_at,
+    ended_at:       schema.session.ended_at,
+  }
+}
+
+function sessionAggregateCols() {
+  return {
+    tokens_in:  sql<number | null>`SUM(${schema.activity.tokens_in})`.as('tokens_in'),
+    tokens_out: sql<number | null>`SUM(${schema.activity.tokens})`.as('tokens_out'),
+    step_count: sql<number | null>`NULLIF(COUNT(DISTINCT ${schema.activity.turn_id}), 0)`.as('step_count'),
+    tool_calls: sql<number | null>`NULLIF((SELECT COUNT(*) FROM execution WHERE execution.session_id = session.id), 0)`.as('tool_calls'),
+  }
 }
 
 export function sessionRunningForTicket(d: Db, ticketId: string): Session[] {
@@ -349,7 +361,7 @@ export function sessionRemove(d: Db, id: string): void {
 }
 
 export function sessionGetAggregated(d: Db, id: string) {
-  return d.select(sessionWithAgentColumns)
+  return d.select(sessionWithAgentColumns())
     .from(schema.session)
     .leftJoin(schema.agent,    eq(schema.session.agent_id, schema.agent.id))
     .leftJoin(schema.activity, eq(schema.activity.session_id, schema.session.id))
@@ -359,7 +371,7 @@ export function sessionGetAggregated(d: Db, id: string) {
 }
 
 export function sessionAggregateAll(d: Db, conditions?: SQL[]) {
-  const base = d.select(sessionWithAgentColumns)
+  const base = d.select(sessionWithAgentColumns())
     .from(schema.session)
     .leftJoin(schema.agent,    eq(schema.session.agent_id, schema.agent.id))
     .leftJoin(schema.activity, eq(schema.activity.session_id, schema.session.id))
@@ -451,16 +463,6 @@ export function executionBySession(d: Db, sessionId: string): Execution[] {
 // ════════════════════════════════════════════════════════════════════════════
 // VERDICT (lives on session.verdict_pass / session.verdict_reason)
 // ════════════════════════════════════════════════════════════════════════════
-
-export interface VerdictRow {
-  id:         string       // session.id (1:1)
-  session_id: string
-  agent_id:   string
-  ticket_id:  string
-  pass:       boolean
-  reason:     string
-  created_at: string       // session.ended_at ?? session.started_at
-}
 
 function sessionToVerdict(s: Session): VerdictRow | null {
   if (s.verdict_pass === null || s.verdict_pass === undefined) return null

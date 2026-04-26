@@ -16,6 +16,7 @@ import * as schema from '@foundry/db'
 import type { Execution } from '@foundry/db'
 import { now } from '@foundry/model'
 import * as database from './repo.js'
+import type { ExecutionInsertInput } from './schema.js'
 
 // ── reads ────────────────────────────────────────────────────────────
 
@@ -43,18 +44,6 @@ export function executionBySession(db: Db, sessionId: string): Execution[] {
 }
 
 // ── writes (called by sandbox runtime via injected callbacks) ────────
-
-export interface ExecutionInsertInput {
-  session_id?:  string | null
-  tool_name?:   string | null
-  tool_input?:  string | null
-  tool_use_id?: string | null
-  command:      string
-  status:       string
-  timeout_ms:   number
-  memory_mb?:   number | null
-  started_at:   string
-}
 
 export function executionCreate(db: Db, input: ExecutionInsertInput): Execution {
   return database.executionInsert(db, {

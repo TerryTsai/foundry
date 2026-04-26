@@ -3,30 +3,22 @@
 // SDK) and buildAi (Vercel ai SDK) adapters in each engine import from
 // here.
 
-import { z } from 'zod'
 import { writeFileSync, mkdirSync } from 'fs'
 import { join } from 'path'
 import { ulid } from 'ulid'
 
-import type { Db, Connection } from '@foundry/db'
-import type { ExecutionCreate, DecryptSecret, McpConfig } from '../types.js'
+import type { Connection } from '@foundry/db'
+import type {
+  DecryptSecret,
+  RunCommandOptions, RunCommandCtx, BoundedOutput,
+} from '../types.js'
+import { BOUNDED_THRESHOLD } from '../types.js'
 
-// ── Connection ctx ──
-// Context passed into every connection-backed MCP server (cloudflare,
-// resend, aws, …). Built-in servers (foundry/github/sandbox/browser)
-// use their own richer ctx types but share the same `executionCreate`
-// callback shape.
-export interface ConnCtx {
-  db:               Db
-  config:           McpConfig
-  sessionId:        string
-  workspace:        string
-  secrets:          Record<string, string>
-  connConfig:       Record<string, unknown>
-  connectionName:   string
-  toolUseId?:       string
-  executionCreate:  ExecutionCreate
-}
+// Re-exports so existing per-integration tools.ts files (and external
+// consumers via @foundry/mcp's index.ts) keep their import surface
+// unchanged after the type-relocation sweep.
+export type { ConnCtx, RunCommandOptions, RunCommandCtx } from '../types.js'
+export { BOUNDED_THRESHOLD, boundedOutput } from '../types.js'
 
 // ── parseConn ──
 // Decode a Connection row into the (secrets, config) record pair every
@@ -47,19 +39,7 @@ export function parseConn(
 // agent can paginate it via the read tool. Keeps single tool calls small
 // in the context window.
 
-export const BOUNDED_THRESHOLD = 10_240 // 10 KB
-
-export const boundedOutput = z.object({
-  content:    z.string(),
-  outputFile: z.string().optional(),
-  totalLines: z.number().optional(),
-  totalBytes: z.number().optional(),
-  error:      z.string().optional(),
-})
-
-export function bounded(
-  workspace: string, raw: string,
-): { content: string; outputFile?: string; totalLines?: number; totalBytes?: number } {
+export function bounded(workspace: string, raw: string): BoundedOutput {
   const bytes = Buffer.byteLength(raw, 'utf-8')
   if (bytes <= BOUNDED_THRESHOLD) return { content: raw }
   const filename = spillToFile(workspace, raw)
@@ -94,21 +74,15 @@ export function esc(s: string): string {
 // an execution row. Primary defense is "secrets never enter the sandbox"
 // via tier-2 isolation; this catches the narrow failure modes where git
 // or another tool might echo a token it received in its env (e.g. git
-// printing the push URL on failure). The patterns are intentionally
-// loose — false positives are fine, false negatives are not.
-
-const SECRET_PATTERNS: Array<[RegExp, string]> = [
-  // Basic-auth tokens embedded in URLs (github install tokens, anything else)
-  [/x-access-token:[^@\s'"]+@/g, 'x-access-token:[REDACTED]@'],
-  // Bearer tokens for common providers
-  [/Bearer\s+(ghs_[A-Za-z0-9]+|gho_[A-Za-z0-9]+|ghp_[A-Za-z0-9]+|github_pat_[A-Za-z0-9_]+|sk-ant-[A-Za-z0-9_-]+|xoxb-[A-Za-z0-9-]+|xoxp-[A-Za-z0-9-]+)/g, 'Bearer [REDACTED]'],
-]
+// printing the push URL on failure). Patterns are intentionally loose —
+// false positives are fine, false negatives are not. Both replacements
+// inlined per the repetition-over-abstraction principle.
 
 export function scrubSecrets(s: string | null | undefined): string | null {
   if (!s) return s ?? null
-  let out = s
-  for (const [pat, rep] of SECRET_PATTERNS) out = out.replace(pat, rep)
-  return out
+  return s
+    .replace(/x-access-token:[^@\s'"]+@/g, 'x-access-token:[REDACTED]@')
+    .replace(/Bearer\s+(ghs_[A-Za-z0-9]+|gho_[A-Za-z0-9]+|ghp_[A-Za-z0-9]+|github_pat_[A-Za-z0-9_]+|sk-ant-[A-Za-z0-9_-]+|xoxb-[A-Za-z0-9-]+|xoxp-[A-Za-z0-9-]+)/g, 'Bearer [REDACTED]')
 }
 
 // ── MCP content envelope ──
@@ -133,25 +107,6 @@ export function asImage(bytes: Buffer, mime: string): { content: [{ type: 'image
   return { content: [{ type: 'image', data: bytes.toString('base64'), mimeType: mime }] }
 }
 
-// ── Sandbox exec wrapper ──
-// runCommand execs a command into this session's persistent podman
-// container. State — filesystem writes, background processes, chromium,
-// dev servers, installed packages — persists across calls within a
-// session. Used by every tool that touches the sandbox.
-//
-// The `executionCreate` callback (lifted into ctx by the engine layer)
-// owns the actual sandbox lifecycle; this module is not allowed to
-// import @foundry/sandbox directly.
-
-export interface RunCommandOptions {
-  env?:       Record<string, string>  // extra env vars for the exec; NOT logged to DB
-  timeoutMs?: number                   // override config.sandboxTimeout
-  /** tool_use block id from the SDK handler's `extra._meta`. Persisted
-   *  on the execution row so the UI can correlate the sandbox-domain
-   *  execution back to the agent-domain tool_use block that caused it. */
-  toolUseId?: string
-}
-
 // Extract the BetaMessage tool_use block id that caused this MCP tool
 // call. The SDK stashes it under `_meta["claudecode/toolUseId"]`. Helper
 // so every handler can pull it uniformly from the opaque `extra` arg.
@@ -161,13 +116,15 @@ export function toolUseId(extra: unknown): string | undefined {
   return typeof id === 'string' ? id : undefined
 }
 
-// Minimal ctx slice runCommand needs. Every tool ctx (Foundry/Sandbox/
-// Browser/Github/Conn) satisfies it.
-export interface RunCommandCtx {
-  sessionId:       string
-  workspace:       string
-  executionCreate: ExecutionCreate
-}
+// ── Sandbox exec wrapper ──
+// runCommand execs a command into this session's persistent podman
+// container. State — filesystem writes, background processes, chromium,
+// dev servers, installed packages — persists across calls within a
+// session. Used by every tool that touches the sandbox.
+//
+// The `executionCreate` callback (lifted into ctx by the engine layer)
+// owns the actual sandbox lifecycle; this module is not allowed to
+// import @foundry/sandbox directly.
 
 export function runCommand(
   ctx: RunCommandCtx,

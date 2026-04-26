@@ -7,6 +7,7 @@ import type { Result, CrudError } from '@foundry/model'
 import { ok, err, now } from '@foundry/model'
 import { sessionOwned, ticketOwned } from './project.js'
 import * as database from './repo.js'
+import type { ActivityCreateInput } from './schema.js'
 
 export function sessionGet(db: Db, accountId: string, id: string): Result<unknown, CrudError> {
   const owned = sessionOwned(db, id, accountId)
@@ -55,18 +56,6 @@ export function sessionActivities(db: Db, accountId: string, sessionId: string):
   const owned = sessionOwned(db, sessionId, accountId)
   if (!owned.ok) return owned
   return ok(database.activityBySession(db, sessionId))
-}
-
-export interface ActivityCreateInput {
-  session_id:   string
-  turn_id?:     string | null
-  kind:         'prompt' | 'thought' | 'said' | 'tool_call' | 'reconcile'
-  order_index?: number
-  payload:      unknown
-  tool_use_id?: string
-  execution_id?: string
-  tokens_in?:   number | null
-  tokens?:      number | null
 }
 
 // Internal — runtime emits activity rows for sessions it just dispatched.

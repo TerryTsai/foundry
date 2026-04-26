@@ -7,22 +7,7 @@ import type { Result, CrudError } from '@foundry/model'
 import { ok, err, now } from '@foundry/model'
 import { ticketOwned, assertProjectOwner } from './project.js'
 import * as database from './repo.js'
-
-const ALLOWED_MIMES = new Set([
-  'image/png', 'image/jpeg', 'image/webp', 'image/gif', 'application/pdf',
-])
-const MAX_BYTES = 10 * 1024 * 1024
-
-export interface AttachmentMeta {
-  id:         string
-  ticket_id:  string | null
-  comment_id: string | null
-  name:       string
-  mime:       string
-  size:       number
-  created_by: string
-  created_at: string
-}
+import type { AttachmentMeta, AttachmentCreateInput, AttachmentBytes } from './schema.js'
 
 function toMeta(a: Attachment): AttachmentMeta {
   return {
@@ -30,15 +15,6 @@ function toMeta(a: Attachment): AttachmentMeta {
     name: a.name, mime: a.mime, size: a.size,
     created_by: a.created_by, created_at: a.created_at,
   }
-}
-
-export interface AttachmentCreateInput {
-  ticket_id?: string
-  comment_id?: string
-  name: string
-  mime: string
-  bytes: Buffer
-  created_by: string
 }
 
 export function attachmentCreate(
@@ -52,9 +28,10 @@ export function attachmentCreate(
 }
 
 function validateAttachmentInput(input: AttachmentCreateInput): Result<void, CrudError> {
-  if (!ALLOWED_MIMES.has(input.mime)) return err({ kind: 'conflict', reason: `unsupported mime type: ${input.mime}` })
+  const allowed = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif', 'application/pdf'])
+  if (!allowed.has(input.mime)) return err({ kind: 'conflict', reason: `unsupported mime type: ${input.mime}` })
   if (input.bytes.length === 0) return err({ kind: 'conflict', reason: 'empty attachment' })
-  if (input.bytes.length > MAX_BYTES) return err({ kind: 'conflict', reason: `attachment too large (${input.bytes.length} bytes; max ${MAX_BYTES})` })
+  if (input.bytes.length > 10 * 1024 * 1024) return err({ kind: 'conflict', reason: `attachment too large (${input.bytes.length} bytes; max ${10 * 1024 * 1024})` })
   if (!input.ticket_id && !input.comment_id) return err({ kind: 'conflict', reason: 'attachment must reference a ticket or comment' })
   if (input.ticket_id && input.comment_id) return err({ kind: 'conflict', reason: 'attachment cannot reference both a ticket and a comment' })
   return ok(undefined)
@@ -85,15 +62,17 @@ function insertAttachment(db: Db, input: AttachmentCreateInput): Attachment {
   return db.select().from(schema.attachment).where(eq(schema.attachment.id, id)).get() as Attachment
 }
 
-const metaCols = {
-  id:         schema.attachment.id,
-  ticket_id:  schema.attachment.ticket_id,
-  comment_id: schema.attachment.comment_id,
-  name:       schema.attachment.name,
-  mime:       schema.attachment.mime,
-  size:       schema.attachment.size,
-  created_by: schema.attachment.created_by,
-  created_at: schema.attachment.created_at,
+function attachmentMetaCols() {
+  return {
+    id:         schema.attachment.id,
+    ticket_id:  schema.attachment.ticket_id,
+    comment_id: schema.attachment.comment_id,
+    name:       schema.attachment.name,
+    mime:       schema.attachment.mime,
+    size:       schema.attachment.size,
+    created_by: schema.attachment.created_by,
+    created_at: schema.attachment.created_at,
+  }
 }
 
 export function attachmentListByTicket(db: Db, accountId: string, ticketId: string): Result<AttachmentMeta[], CrudError> {
@@ -103,9 +82,9 @@ export function attachmentListByTicket(db: Db, accountId: string, ticketId: stri
 }
 
 function attachmentRowsForTicket(db: Db, ticketId: string): AttachmentMeta[] {
-  const direct = db.select(metaCols).from(schema.attachment)
+  const direct = db.select(attachmentMetaCols()).from(schema.attachment)
     .where(eq(schema.attachment.ticket_id, ticketId)).all() as AttachmentMeta[]
-  const viaComments = db.select(metaCols).from(schema.attachment)
+  const viaComments = db.select(attachmentMetaCols()).from(schema.attachment)
     .innerJoin(schema.comment, eq(schema.comment.id, schema.attachment.comment_id))
     .where(eq(schema.comment.ticket_id, ticketId)).all() as AttachmentMeta[]
   return [...direct, ...viaComments]
@@ -116,12 +95,10 @@ export function attachmentListByComment(db: Db, accountId: string, commentId: st
   if (!c) return err({ kind: 'not_found', entity: 'comment', id: commentId })
   const owned = ticketOwned(db, c.ticket_id, accountId)
   if (!owned.ok) return owned
-  const rows = db.select(metaCols).from(schema.attachment)
+  const rows = db.select(attachmentMetaCols()).from(schema.attachment)
     .where(eq(schema.attachment.comment_id, commentId)).all() as AttachmentMeta[]
   return ok(rows)
 }
-
-export interface AttachmentBytes { mime: string; name: string; bytes: Buffer }
 
 export function attachmentGetBytes(
   db: Db, accountId: string, id: string,

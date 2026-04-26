@@ -72,7 +72,8 @@ import {
 } from '@foundry/sandbox'
 import {
   agentList,
-  encryptSecret, decryptSecret, attachmentListByTicketInternal,
+  encryptSecret, decryptSecret,
+  attachmentListByTicketInternal,
   executionOwned, sessionOwned,
   ticketGetById, ticketUpdateById, ticketTransition, ticketAllByProject,
   projectGetById, projectsActive,
@@ -113,6 +114,12 @@ export function buildApp() {
   // hides in any logic module.
   const encryptionKey = decodeEncryptionKey(process.env.FOUNDRY_ENCRYPTION_KEY ?? '')
 
+  // Bind the key once to produce the closure-shaped (plain) => string
+  // and (stored) => string callbacks every consumer (engine deps, route
+  // handlers) actually wants. Crud's raw exports are key-aware.
+  const encryptSecretFn = (plain:  string) => encryptSecret(plain,  encryptionKey)
+  const decryptSecretFn = (stored: string) => decryptSecret(stored, encryptionKey)
+
   // Sandbox runtime state (active execs, persistent containers, session
   // workspace paths). Created once here and threaded into every sandbox
   // function — no module-level Maps in @foundry/sandbox.
@@ -129,7 +136,7 @@ export function buildApp() {
   const authCrud      = buildAuthCrudOps()
   const sandboxCrud   = buildSandboxCrudOps()
   const reconcilerCrud = buildReconcilerCrudOps()
-  const engineCrud    = buildEngineCrudOps()
+  const engineCrud    = buildEngineCrudOps(encryptSecretFn, decryptSecretFn)
   const engineDeps    = buildEngineDeps(engineCrud, authCrud, sandboxCrud, encryptionKey, sandboxState)
 
   // ── Public routes (no auth) ──
@@ -194,7 +201,7 @@ export function buildApp() {
   }
 
   app.use('/project',    projectRoutes(db, triggerReconcile))
-  app.use('/connection', connectionRoutes(db))
+  app.use('/connection', connectionRoutes(db, encryptSecretFn, decryptSecretFn))
   app.use('/ticket',     ticketRoutes(db, sandboxCrud, sandboxState))
   app.use('/agent',      agentRoutes(db))
   app.use('/session',    sessionRoutes(db, sandboxCrud))
@@ -210,7 +217,7 @@ export function buildApp() {
   app.use(errors)
 
   const reconcilerDeps = buildReconcilerDeps(reconcilerCrud, engineDeps)
-  const client         = buildClient(db, engineDeps, authCrud, sandboxCrud, encryptionKey, sandboxState)
+  const client         = buildClient(db, engineDeps, authCrud, sandboxCrud, encryptionKey, sandboxState, encryptSecretFn, decryptSecretFn)
   return { app, db, reconcilerDeps, client, sandboxState }
 }
 
@@ -221,25 +228,29 @@ export function buildApp() {
 function buildClient(
   db: Db, engineDeps: EngineDeps,
   authCrud: AuthCrudOps, sandboxCrud: SandboxCrudOps, encryptionKey: Buffer, sandboxState: SandboxState,
+  encryptSecret: (s: string) => string, decryptSecret: (s: string) => string,
 ): Client {
-  // Bridge AuthConfig (what auth's GithubOAuthDeps wants) → McpConfig (what
-  // the github provider helpers expect). The full service Config satisfies
-  // both structurally; the closures here just adapt the type aliases.
-  const githubDeps = {
-    oauthAuthorizeUrl: (_c: unknown, baseUrl: string, state: string) => githubProvider.oauthAuthorizeUrl(config, baseUrl, state),
-    oauthExchangeCode: (_c: unknown, code: string)                   => githubProvider.oauthExchangeCode(config, code),
-    fetchUser:         (token: string)                               => githubProvider.fetchUser(token),
-  }
   return createInProcessClient({
-    auth:       createAuthAdapter({ db, config, githubDeps, authCrud, encryptionKey }),
+    auth:       createAuthAdapter({ db, config, githubDeps: buildGithubDeps(), authCrud, encryptionKey }),
     billing:    createBillingAdapter(),
-    crud:       createCrudAdapter({ db, providerGet, supportedKinds }),
+    crud:       createCrudAdapter({ db, providerGet, supportedKinds, encryptSecret, decryptSecret }),
     analytics:  createAnalyticsAdapter({ db }),
     sandbox:    createSandboxAdapter({ db, config, executionOwned, sessionOwned, sandboxCrud, sandboxState }),
     mcp:        createMcpAdapter({ db }),
     engine:     createEngineAdapter({ db, config, engineDeps }),
     reconciler: createReconcilerAdapter(),
   })
+}
+
+// Bridge AuthConfig (what auth's GithubOAuthDeps wants) → McpConfig (what
+// the github provider helpers expect). The full service Config satisfies
+// both structurally; the closures here just adapt the type aliases.
+function buildGithubDeps() {
+  return {
+    oauthAuthorizeUrl: (_c: unknown, baseUrl: string, state: string) => githubProvider.oauthAuthorizeUrl(config, baseUrl, state),
+    oauthExchangeCode: (_c: unknown, code: string)                   => githubProvider.oauthExchangeCode(config, code),
+    fetchUser:         (token: string)                               => githubProvider.fetchUser(token),
+  }
 }
 
 // ── crud-callback bundle constructors ────────────────────────────────
@@ -293,7 +304,9 @@ function buildReconcilerCrudOps(): ReconcilerCrudOps {
   }
 }
 
-function buildEngineCrudOps(): EngineCrudOps {
+function buildEngineCrudOps(
+  encryptSecret: (s: string) => string, decryptSecret: (s: string) => string,
+): EngineCrudOps {
   return {
     encryptSecret, decryptSecret, attachmentListByTicketInternal,
     ticketGetById, sessionGetById, agentGetById, projectGetById, accountGetById,

@@ -102,3 +102,70 @@ export type ExecutionCreate = (
 ) => { id: string; emitter: ExecHandleEmitter }
 
 export type DecryptSecret = (encrypted: string) => string
+
+// ── Connection ctx + run helpers ────────────────────────────────────
+// Shared shape for connection-backed MCP servers (cloudflare, resend,
+// aws, …). Built-in servers (foundry/github/sandbox/browser) use richer
+// ctx types declared in their own tools.ts files.
+
+import type { Db, Connection } from '@foundry/db'
+import { z } from 'zod'
+
+export interface ConnCtx {
+  db:               Db
+  config:           McpConfig
+  sessionId:        string
+  workspace:        string
+  secrets:          Record<string, string>
+  connConfig:       Record<string, unknown>
+  connectionName:   string
+  toolUseId?:       string
+  executionCreate:  ExecutionCreate
+}
+
+// Output bounding — large tool stdout/stderr gets spilled to a workspace
+// file so the agent can paginate it via the read tool. Threshold sits
+// here so multiple integration handlers can reference it.
+export const BOUNDED_THRESHOLD = 10_240 // 10 KB
+
+export const boundedOutput = z.object({
+  content:    z.string(),
+  outputFile: z.string().optional(),
+  totalLines: z.number().optional(),
+  totalBytes: z.number().optional(),
+  error:      z.string().optional(),
+})
+export type BoundedOutput = z.infer<typeof boundedOutput>
+
+export interface RunCommandOptions {
+  env?:       Record<string, string>  // extra env vars for the exec; NOT logged to DB
+  timeoutMs?: number                   // override config.sandboxTimeout
+  /** tool_use block id from the SDK handler's `extra._meta`. Persisted
+   *  on the execution row so the UI can correlate the sandbox-domain
+   *  execution back to the agent-domain tool_use block that caused it. */
+  toolUseId?: string
+}
+
+// Minimal ctx slice runCommand needs. Every tool ctx (Foundry / Sandbox /
+// Browser / Github / Conn) satisfies it.
+export interface RunCommandCtx {
+  sessionId:       string
+  workspace:       string
+  executionCreate: ExecutionCreate
+}
+
+// Re-export Connection so feature files don't reach into @foundry/db.
+export type { Connection }
+
+// ── agent-mcp-list result types ─────────────────────────────────────
+
+export interface McpListEntry {
+  id:          string
+  name:        string
+  category:    string
+  description: string
+  tools:       Array<{ name: string; description: string }>
+}
+
+// mcp can't import @foundry/crud — composition root injects this lookup.
+export type ConnectionByAccountFn = (db: Db, accountId: string) => Connection[]
