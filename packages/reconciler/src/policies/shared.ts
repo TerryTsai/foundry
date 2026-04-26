@@ -1,28 +1,12 @@
 import { type Db } from '@foundry/db'
-import type { Agent, Project, Session, Ticket } from '@foundry/db'
+import type { Agent, Session, Ticket } from '@foundry/db'
 import { now } from '@foundry/model'
 
-import type { ReconcilerDeps } from '../types.js'
+import type { ReconcilerDeps, PolicyCtx } from '../schema.js'
 
-// ── shape ────────────────────────────────────────────────────────────
-// Each policy receives the same context: the project being reconciled,
-// its agents, the ticket under consideration, and a mutable slots
-// counter (decremented by dispatching policies as they consume a slot).
-//
-// 'acted'  → policy made a state change for this ticket; reconciler
-//            stops walking the policy list for this tick.
-// 'pass'   → policy was not applicable; reconciler tries the next.
-
-export interface PolicyCtx {
-  db:      Db
-  deps:    ReconcilerDeps
-  project: Project
-  agents:  Agent[]
-  ticket:  Ticket
-  slots:   { remaining: number }   // mutable across policies/tickets within a project tick
-}
-
-export type Policy = (ctx: PolicyCtx) => 'acted' | 'pass'
+// Re-exports so policy files have a single import surface for the
+// types + helpers they use. The actual declarations live in schema.ts.
+export type { Policy, PolicyCtx } from '../schema.js'
 
 // ── shared effects ───────────────────────────────────────────────────
 

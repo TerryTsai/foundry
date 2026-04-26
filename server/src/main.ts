@@ -22,7 +22,15 @@ import {
   attachmentRoutes, ticketAttachmentRoutes, commentAttachmentRoutes,
 } from './routes/attachments.js'
 
-import { reconcilerGlobalStart, reconcilerStopAll, shutdownDrain, type ReconcilerCrudOps, type ReconcilerDeps, type EngineDeps as ReconcilerEngineDeps, type RunSessionFn as ReconcilerRunSessionFn } from '@foundry/reconciler'
+import {
+  reconcilerTick, shutdownDrain,
+  dispatchProducer, settleRunning, dispatchRecoveryProducer,
+  finishWithoutVerifiers, dispatchVerifier, finishOnAllPass, retryAfterFail,
+  type ReconcilerCrudOps, type ReconcilerDeps,
+  type EngineDeps as ReconcilerEngineDeps,
+  type RunSessionFn as ReconcilerRunSessionFn,
+  type Policy,
+} from '@foundry/reconciler'
 import { decodeEncryptionKey } from './encryption-key.js'
 import { runSession, type EngineCrudOps, type EngineDeps } from '@foundry/engine'
 import { sessionJwt } from '@foundry/auth'
@@ -171,7 +179,15 @@ export function buildApp() {
     keyFn: (req) => req.account?.id ?? req.ip ?? 'anon',
   }))
 
-  app.use('/project',    projectRoutes(db))
+  // On-demand reconcile triggered by `POST /project/:id/run` (and any
+  // future caller that needs to nudge the loop). Pre-bound here so the
+  // route handlers don't need to reach for reconcilerDeps themselves.
+  const triggerReconcile = () => {
+    reconcilerTick(db, reconcilerDeps, RECONCILER_POLICIES).catch((err: unknown) =>
+      console.error('reconciler error:', err))
+  }
+
+  app.use('/project',    projectRoutes(db, triggerReconcile))
   app.use('/connection', connectionRoutes(db))
   app.use('/ticket',     ticketRoutes(db, sandboxCrud))
   app.use('/agent',      agentRoutes(db))
@@ -327,26 +343,47 @@ function buildReconcilerDeps(
   }
 }
 
-// Boot the service. Listens on config.port, starts the reconciler, and
-// installs a SIGTERM handler that drains running work before exiting.
-// Returns the http.Server so callers can await close() in tests.
+// Composition-root ordering. Earlier policies pre-empt later ones for
+// the same ticket. Most have mutually exclusive guards (status +
+// verdicts state), so reordering rarely changes behavior. Exception:
+// finishOnAllPass and retryAfterFail both apply to "all verifiers done"
+// — finish runs first because all-pass is the happy path; retry takes
+// whatever falls through.
+const RECONCILER_POLICIES: Policy[] = [
+  dispatchProducer,            // created → dispatch producer (slot allowing)
+  settleRunning,               // running with no live session → waiting
+  dispatchRecoveryProducer,    // waiting + no producer ever → dispatch one
+  finishWithoutVerifiers,      // waiting + no verifiers configured → settle
+  dispatchVerifier,            // waiting → dispatch a missing verifier
+  finishOnAllPass,             // waiting + all verifiers passed → finished
+  retryAfterFail,              // waiting + any verifier failed → reset + new producer
+]
+
+// Boot the service. Listens on config.port, starts the reconciler tick
+// loop, and installs a SIGTERM handler that drains running work before
+// exiting. Returns the http.Server so callers can await close() in tests.
 export function boot() {
   const { app, db, reconcilerDeps } = buildApp()
 
+  let reconcilerInterval: ReturnType<typeof setInterval> | null = null
+
   const server = app.listen(config.port, () => {
     console.log(`foundry service listening on port ${config.port}`)
-    reconcilerGlobalStart(db, reconcilerDeps)
+    reconcilerInterval = setInterval(() => {
+      reconcilerTick(db, reconcilerDeps, RECONCILER_POLICIES).catch((err: unknown) =>
+        console.error('reconciler error:', err))
+    }, 5000)
   })
 
   // ── Graceful shutdown on deploy restart ──
-  process.on('SIGTERM', () => shutdown(db, reconcilerDeps))
+  process.on('SIGTERM', () => shutdown(db, reconcilerDeps, reconcilerInterval))
 
   return server
 }
 
-function shutdown(db: Db, reconcilerDeps: ReconcilerDeps) {
+function shutdown(db: Db, reconcilerDeps: ReconcilerDeps, interval: ReturnType<typeof setInterval> | null) {
   console.log('SIGTERM received, draining…')
-  reconcilerStopAll()
+  if (interval) clearInterval(interval)
   shutdownDrain(db, reconcilerDeps)
   stopAllSessionContainers()
   try { execSync('podman kill --all', { timeout: 5000, stdio: 'ignore' }) } catch {
