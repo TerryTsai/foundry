@@ -23,6 +23,7 @@ import {
 } from './routes/attachments.js'
 
 import { reconcilerGlobalStart, reconcilerStopAll, shutdownDrain, type ReconcilerCrudOps, type ReconcilerDeps, type EngineDeps as ReconcilerEngineDeps, type RunSessionFn as ReconcilerRunSessionFn } from '@foundry/reconciler'
+import { decodeEncryptionKey } from './encryption-key.js'
 import { runSession, type EngineCrudOps, type EngineDeps } from '@foundry/engine'
 import { sessionJwt } from '@foundry/auth'
 import {
@@ -64,8 +65,6 @@ import {
   agentList,
   encryptSecret, decryptSecret, attachmentListByTicketInternal,
   executionOwned, sessionOwned,
-  // moved-from-db helpers (now crud)
-  assertKeyConfigured,
   ticketGetById, ticketUpdateById, ticketTransition, ticketAllByProject,
   projectGetById, projectsActive,
   sessionGetById, sessionUpdateById, sessionInsert,
@@ -99,9 +98,11 @@ import {
 // (and future programmatic callers) can drive the app without listening.
 // eslint-disable-next-line max-lines-per-function -- composition root; linear wiring of routes + middleware
 export function buildApp() {
-  // Fail fast if FOUNDRY_ENCRYPTION_KEY is missing or malformed — better here
-  // than on the first connection write.
-  assertKeyConfigured()
+  // Decode FOUNDRY_ENCRYPTION_KEY once at boot. Every consumer (auth's
+  // sessionJwt mint/verify, crud's encrypt/decryptSecret) receives the
+  // Buffer through closures bound below — no module-level cached key
+  // hides in any logic module.
+  const encryptionKey = decodeEncryptionKey(process.env.FOUNDRY_ENCRYPTION_KEY ?? '')
 
   const db  = createDatabase(config.dbPath)
   const app = express()
@@ -115,7 +116,7 @@ export function buildApp() {
   const sandboxCrud   = buildSandboxCrudOps()
   const reconcilerCrud = buildReconcilerCrudOps()
   const engineCrud    = buildEngineCrudOps()
-  const engineDeps    = buildEngineDeps(engineCrud, authCrud, sandboxCrud)
+  const engineDeps    = buildEngineDeps(engineCrud, authCrud, sandboxCrud, encryptionKey)
 
   // ── Public routes (no auth) ──
   app.get('/health',        (_req, res) => res.json({ ok: true }))
@@ -124,7 +125,7 @@ export function buildApp() {
   // Rate-limit the auth surface — prevents brute force on the OAuth state /
   // callback endpoints. Bucket per IP. Public so it lives ABOVE requireAuth.
   app.use('/auth', rateLimit({ windowMs: 5 * 60 * 1000, max: 30, bucket: 'auth' }))
-  app.use('/auth', authRoutes(db, config, authCrud))
+  app.use('/auth', authRoutes(db, config, authCrud, encryptionKey))
 
   // ── Static web app (production) ──
   // Serve the built site SPA from packages/site/dist. In dev (tsx watch)
@@ -160,7 +161,7 @@ export function buildApp() {
   }
 
   // ── Authenticated routes ──
-  app.use(requireAuth(db, config, authCrud))
+  app.use(requireAuth(db, config, authCrud, encryptionKey))
 
   // Per-account write throttle. Bucket key is account id (req.account.id is
   // set by requireAuth). 600/min comfortably covers sandbox bursts; cookie
@@ -187,7 +188,7 @@ export function buildApp() {
   app.use(errors)
 
   const reconcilerDeps = buildReconcilerDeps(reconcilerCrud, engineDeps)
-  const client         = buildClient(db, engineDeps, authCrud, sandboxCrud)
+  const client         = buildClient(db, engineDeps, authCrud, sandboxCrud, encryptionKey)
   return { app, db, reconcilerDeps, client }
 }
 
@@ -197,7 +198,7 @@ export function buildApp() {
 // shape compiles end-to-end.
 function buildClient(
   db: Db, engineDeps: EngineDeps,
-  authCrud: AuthCrudOps, sandboxCrud: SandboxCrudOps,
+  authCrud: AuthCrudOps, sandboxCrud: SandboxCrudOps, encryptionKey: Buffer,
 ): Client {
   // Bridge AuthConfig (what auth's GithubOAuthDeps wants) → McpConfig (what
   // the github provider helpers expect). The full service Config satisfies
@@ -208,7 +209,7 @@ function buildClient(
     fetchUser:         (token: string)                               => githubProvider.fetchUser(token),
   }
   return createInProcessClient({
-    auth:       createAuthAdapter({ db, config, githubDeps, authCrud }),
+    auth:       createAuthAdapter({ db, config, githubDeps, authCrud, encryptionKey }),
     billing:    createBillingAdapter(),
     crud:       createCrudAdapter({ db, providerGet, supportedKinds }),
     analytics:  createAnalyticsAdapter({ db }),
@@ -287,11 +288,11 @@ function buildEngineCrudOps(): EngineCrudOps {
 // logic modules together.
 // eslint-disable-next-line max-lines-per-function -- composition root callback bag; one line per cross-module function
 function buildEngineDeps(
-  engineCrud: EngineCrudOps, authCrud: AuthCrudOps, sandboxCrud: SandboxCrudOps,
+  engineCrud: EngineCrudOps, authCrud: AuthCrudOps, sandboxCrud: SandboxCrudOps, encryptionKey: Buffer,
 ): EngineDeps {
   return {
     auth: {
-      sessionJwtMint: (db, sessionId, ttlMs) => sessionJwt.mint(db, authCrud, sessionId, ttlMs),
+      sessionJwtMint: (db, sessionId, ttlMs) => sessionJwt.mint(db, authCrud, sessionId, ttlMs, encryptionKey),
     },
     mcp: {
       foundryServer, githubServer, sandboxServer, browserServer,

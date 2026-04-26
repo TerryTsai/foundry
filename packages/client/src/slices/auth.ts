@@ -35,7 +35,7 @@ export type AuthSlice = {
 
   // Per-session sandbox JWT — minted at session start, verified by
   // requireAuth on every sandbox callback.
-  sessionJwtMint:   (ctx: Ctx, sessionId: string, ttlMs?: number) => Promise<Result<string, AuthError>>
+  sessionJwtMint:   (ctx: Ctx, sessionId: string, ttlMs: number) => Promise<Result<string, AuthError>>
   sessionJwtVerify: (ctx: Ctx, token: string)                     => Promise<Result<{
     v: 1; sid: string; tid: string; pid: string; aid: string; exp: number
   }, AuthError>>

@@ -1,16 +1,13 @@
 import { randomBytes } from 'crypto'
-import type { z } from 'zod'
 
 import { type Db } from '@foundry/db'
 import type { Account } from '@foundry/db'
 import type { Result, AuthError } from '@foundry/model'
 import { ok, err } from '@foundry/model'
-import type * as validate from './validators.js'
-import type { AuthConfig, AuthCrudOps, GithubOAuthDeps, GithubOAuthUser } from './types.js'
-
-export const AUTH_STATE_TTL_SEC = 60 * 10
-
-export type AuthCallbackResult = { sessionId: string; expiresAt: Date; account: Account }
+import type {
+  AuthConfig, AuthCrudOps, GithubOAuthDeps, GithubOAuthUser,
+  AuthCallbackResult, OauthCallbackQuery,
+} from './schema.js'
 
 export function authStart(
   config: AuthConfig, baseUrl: string, deps: GithubOAuthDeps,
@@ -21,7 +18,7 @@ export function authStart(
 
 export async function authCallback(
   db: Db, config: AuthConfig,
-  input: z.infer<typeof validate.authCallback>,
+  input: OauthCallbackQuery,
   stateCookie: string | undefined,
   deps: GithubOAuthDeps, crud: AuthCrudOps,
 ): Promise<Result<AuthCallbackResult, AuthError>> {

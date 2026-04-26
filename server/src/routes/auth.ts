@@ -3,7 +3,7 @@ import type { Db } from '@foundry/db'
 import type { Config } from '../config.js'
 import { parse, data } from '../http.js'
 import {
-  authStart, authCallback, authMe, authLogout, AUTH_STATE_TTL_SEC,
+  authStart, authCallback, authMe, authLogout,
   parseCookie, serializeCookie, requireAuth,
   validate,
   type AuthCrudOps, type GithubOAuthDeps,
@@ -18,12 +18,12 @@ function requestBaseUrl(req: Request): string {
   return `${proto}://${host}`
 }
 
-export function authRoutes(db: Db, config: Config, authCrud: AuthCrudOps) {
+export function authRoutes(db: Db, config: Config, authCrud: AuthCrudOps, encryptionKey: Buffer) {
   const r = Router()
   const githubDeps = bridgeGithubDeps(config)
   r.get('/github', (req, res) => handleAuthStart(req, res, config, githubDeps))
-  r.get('/github/callback', parse(validate.authCallback, 'query'), (req, res, next) => handleAuthCallback(db, config, githubDeps, authCrud, req, res, next))
-  r.get('/me', requireAuth(db, config, authCrud), (req, res) => res.json(authMe(req.account!)))
+  r.get('/github/callback', parse(validate.oauthCallbackQuery, 'query'), (req, res, next) => handleAuthCallback(db, config, githubDeps, authCrud, req, res, next))
+  r.get('/me', requireAuth(db, config, authCrud, encryptionKey), (req, res) => res.json(authMe(req.account!)))
   r.post('/logout', (req, res) => handleAuthLogout(db, config, authCrud, req, res))
   return r
 }
@@ -39,7 +39,7 @@ function bridgeGithubDeps(config: Config): GithubOAuthDeps {
 function handleAuthStart(req: Request, res: Response, config: Config, githubDeps: GithubOAuthDeps): void {
   const { url, state } = authStart(config, requestBaseUrl(req), githubDeps)
   res.setHeader('Set-Cookie', serializeCookie('oauth_state', state, {
-    maxAge: AUTH_STATE_TTL_SEC, secure: config.cookieSecure, sameSite: 'Lax',
+    maxAge: 60 * 10, secure: config.cookieSecure, sameSite: 'Lax',
   }))
   res.redirect(302, url)
 }
@@ -50,7 +50,7 @@ async function handleAuthCallback(
 ): Promise<void> {
   try {
     const stateCookie = parseCookie(req.headers.cookie, 'oauth_state')
-    const r = await authCallback(db, config, data(validate.authCallback, req), stateCookie, githubDeps, authCrud)
+    const r = await authCallback(db, config, data(validate.oauthCallbackQuery, req), stateCookie, githubDeps, authCrud)
     if (!r.ok) { res.status(r.error.kind === 'forbidden' ? 403 : 400).json({ error: r.error }); return }
     setSessionCookies(res, config, r.value.sessionId, r.value.expiresAt)
     res.redirect(302, '/')

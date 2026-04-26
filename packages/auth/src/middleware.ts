@@ -1,6 +1,6 @@
 import type { Request, Response, NextFunction, RequestHandler } from 'express'
 import type { Db, Account } from '@foundry/db'
-import type { AuthConfig, AuthCrudOps } from './types.js'
+import type { AuthConfig, AuthCrudOps, CookieOpts } from './schema.js'
 import * as sessionJwt from './session-jwt.js'
 
 declare global {
@@ -24,14 +24,6 @@ export function parseCookie(header: string | undefined, name: string): string | 
   return undefined
 }
 
-export interface CookieOpts {
-  maxAge?:  number
-  secure?:  boolean
-  sameSite?: 'Lax' | 'Strict' | 'None'
-  path?:    string
-  httpOnly?: boolean
-}
-
 export function serializeCookie(name: string, value: string, opts: CookieOpts): string {
   const parts = [`${name}=${encodeURIComponent(value)}`, `Path=${opts.path ?? '/'}`]
   if (opts.httpOnly !== false) parts.push('HttpOnly')
@@ -46,23 +38,24 @@ export function serializeCookie(name: string, value: string, opts: CookieOpts): 
 // Bearer sb_<jwt>. The bearer path is for sandbox tools; the cookie
 // path is for real users via GitHub OAuth.
 
-export const requireAuth = (db: Db, _config: AuthConfig, crud: AuthCrudOps): RequestHandler =>
-  (req: Request, res: Response, next: NextFunction) => {
-    const account = resolveAccount(db, crud, req)
+export function requireAuth(db: Db, _config: AuthConfig, crud: AuthCrudOps, key: Buffer): RequestHandler {
+  return (req: Request, res: Response, next: NextFunction) => {
+    const account = resolveAccount(db, crud, req, key)
     if (!account) return res.status(401).json({ error: 'unauthorized' })
     req.account = account
     next()
   }
+}
 
-function resolveAccount(db: Db, crud: AuthCrudOps, req: Request): Account | null {
+function resolveAccount(db: Db, crud: AuthCrudOps, req: Request, key: Buffer): Account | null {
   const authHeader = req.headers.authorization
-  if (authHeader?.startsWith('Bearer ')) return resolveBearer(db, crud, authHeader.slice(7))
+  if (authHeader?.startsWith('Bearer ')) return resolveBearer(db, crud, authHeader.slice(7), key)
   return resolveCookie(db, crud, req.headers.cookie)
 }
 
-function resolveBearer(db: Db, crud: AuthCrudOps, token: string): Account | null {
+function resolveBearer(db: Db, crud: AuthCrudOps, token: string, key: Buffer): Account | null {
   if (!token.startsWith('sb_')) return null
-  const claims = sessionJwt.verify(token)
+  const claims = sessionJwt.verify(token, key)
   if (!claims) return null
   return crud.accountGet(db, claims.aid) ?? null
 }

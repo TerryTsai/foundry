@@ -16,6 +16,50 @@ The standard for readability is **5-second gist**: a reader should be able to un
 
 This applies to file naming, file structure, function shape, and naming conventions. Drift is not allowed.
 
+## Repetition over abstraction
+
+Each AI session arrives without memory of how previous sessions chose to factor things. A clever DRY abstraction one session creates, the next session won't recognize and may duplicate or rewrite differently. Repetition has zero machine cost and infinite consistency value — the same literal in three places will always be obvious; an extracted `THRESHOLD` const may or may not be the same one a future session would have created.
+
+At this speed and scale, **mechanically-enforced consistency is the only thing that survives.** DRY is a human-collaboration optimization that backfires when half your collaborators are stateless.
+
+Concretely:
+- **Inline over named constants.** Don't extract a literal into a module-level const just because it appears twice. Write `10_240` in three places. The literal is its own name.
+- **Hardcode at the use site or thread through a parameter.** Both options are explicit. A named module-level const is neither — it's a hidden indirection that varies session-to-session.
+- **Enforced by ESLint** in logic-module feature files: `no-restricted-syntax` blocks `Program > VariableDeclaration` (no module-level `let`/`const`/`var`). Schema files (`schema.ts`, mcp `tools.ts`) and the composition root (`server`) are exempt.
+
+## Files come in two shapes
+
+Every logic-module file is one of two shapes — declarations or behavior, never both:
+
+```
+<module>/src/
+├── index.ts       ← re-exports the public surface
+├── schema.ts      ← every shape: zod schemas, inferred types, interfaces, error unions, lookup constants
+├── feature1.ts    ← functions only — no types, no constants, no module-level state
+├── feature2.ts    ← functions only
+└── ...
+```
+
+`schema.ts` holds:
+- Zod schemas (`export const ticketCreate = z.object(...)`)
+- Types inferred from those schemas (`export type TicketCreate = z.infer<typeof ticketCreate>`)
+- TS interfaces and type aliases (boundary or internal)
+- Discriminated error unions (`type CrudError = ...`)
+- Module-wide constants and lookup tables
+
+Feature files contain only:
+- `import` statements (external → `@foundry/*` → `./schema.js` → relative)
+- `export function name(...) { ... }` declarations
+- Nothing else at module scope
+
+This is enforced mechanically. ESLint blocks top-level `interface`, `type`, `let`, `const`, and `var` in feature files. Zod imports are restricted to `schema.ts` and mcp `tools.ts` files.
+
+Wiring (registries, lifecycle intervals, env reads, runtime state caches) lives in `@foundry/server`. Logic modules export pure functions; the composition root wires them.
+
+The intuition: **`schema.ts` is the module's vocabulary, feature files are its verbs, `index.ts` is its facade.**
+
+Cross-module shared shapes still live in `@foundry/model` (the promotion rule: a type goes in model only when at least two modules need it).
+
 ## Code style
 
 These rules are non-negotiable for module code. Adapter and infrastructure code (bind, transport wrappers, middleware compose) has explicit exceptions noted at the bottom.

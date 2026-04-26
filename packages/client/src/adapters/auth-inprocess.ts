@@ -10,10 +10,11 @@ import type { AuthConfig, AuthCrudOps, GithubOAuthDeps } from '@foundry/auth'
 import type { AuthSlice } from '../slices/auth.js'
 
 export type AuthAdapterDeps = {
-  db:         Db
-  config:     AuthConfig
-  githubDeps: GithubOAuthDeps
-  authCrud:   AuthCrudOps
+  db:            Db
+  config:        AuthConfig
+  githubDeps:    GithubOAuthDeps
+  authCrud:      AuthCrudOps
+  encryptionKey: Buffer
 }
 
 export const createAuthAdapter = (deps: AuthAdapterDeps): AuthSlice => ({
@@ -25,12 +26,12 @@ export const createAuthAdapter = (deps: AuthAdapterDeps): AuthSlice => ({
   authMe:       async (_ctx, account)   => ok(auth.authMe(account)),
   authLogout:   async (_ctx, sessionId) => auth.authLogout(deps.db, sessionId, deps.authCrud),
 
-  sessionJwtMint:   async (_ctx, sessionId, ttlMs) => auth.sessionJwt.mint(deps.db, deps.authCrud, sessionId, ttlMs),
-  sessionJwtVerify: async (_ctx, token) => verifyJwt(token),
+  sessionJwtMint:   async (_ctx, sessionId, ttlMs) => auth.sessionJwt.mint(deps.db, deps.authCrud, sessionId, ttlMs, deps.encryptionKey),
+  sessionJwtVerify: async (_ctx, token) => verifyJwt(token, deps.encryptionKey),
 })
 
-function verifyJwt(token: string): Result<{ v: 1; sid: string; tid: string; pid: string; aid: string; exp: number }, AuthError> {
-  const claims = auth.sessionJwt.verify(token)
+function verifyJwt(token: string, key: Buffer): Result<{ v: 1; sid: string; tid: string; pid: string; aid: string; exp: number }, AuthError> {
+  const claims = auth.sessionJwt.verify(token, key)
   if (!claims) return err({ kind: 'invalid_token', reason: 'sandbox token failed verification' })
   return ok(claims)
 }

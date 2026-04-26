@@ -234,7 +234,7 @@ export interface EngineCrudOps {
 
 export interface EngineDeps {
   auth: {
-    sessionJwtMint: (db: Db, sessionId: string, ttlMs?: number) => Result<string, AuthError>
+    sessionJwtMint: (db: Db, sessionId: string, ttlMs: number) => Result<string, AuthError>
   }
   mcp: {
     foundryServer: ToolServer<McpFoundryCtx>

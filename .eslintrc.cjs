@@ -31,6 +31,23 @@ const MODULE_GLOBS = [
   'server/src/**/*.ts',
 ]
 
+const LOGIC_FEATURE_GLOBS = LOGIC_MODULES.map(m => `packages/${m}/src/**/*.ts`)
+
+// Files where shape declarations live: zod schemas, type aliases,
+// interfaces, error unions, module-wide constants. Strict feature-file
+// rules (no module-level vars / interfaces / type aliases / zod imports)
+// do NOT apply here.
+const SCHEMA_FILES = [
+  '**/schema.ts',
+  // Transitional names — migrating to schema.ts during the standard rollout.
+  '**/types.ts',
+  '**/validators.ts',
+  // mcp's per-integration tools.ts files declare each tool's zod schema
+  // inline; the schema IS part of the tool's identity, not a side detail.
+  '**/integrations/*/tools.ts',
+  '**/tools/*.ts',
+]
+
 const TEST_GLOBS = [
   '**/*.test.ts',
   '**/*.test.tsx',
@@ -134,6 +151,52 @@ module.exports = {
 
     ...cardinalRuleOverrides,
 
+    // ── Strict feature-file rules (logic modules only) ──────────────
+    // Feature files in logic modules are a single shape: imports +
+    // function declarations. No module-level variables, no top-level
+    // interface/type declarations, no zod imports. Shape declarations
+    // (types, schemas, registries) live in schema.ts (or the listed
+    // legacy/special files in SCHEMA_FILES). Wiring (intervals,
+    // singletons, registries) lives in @foundry/server.
+    //
+    // The principle: AI sessions arrive without memory. Module-level
+    // constants and inline types are different across sessions; strict
+    // file-shape consistency is the only thing that holds. Repetition
+    // beats abstraction. See ARCHITECTURE.md.
+    {
+      files: LOGIC_FEATURE_GLOBS,
+      excludedFiles: SCHEMA_FILES,
+      rules: {
+        'no-restricted-syntax': [
+          'error',
+          // Class restrictions — same as MODULE_GLOBS. Re-declared because
+          // eslint replaces (rather than merges) rule values across overrides.
+          { selector: 'ClassDeclaration', message: 'Use top-level functions, not classes (see ARCHITECTURE.md).' },
+          { selector: 'ClassExpression',  message: 'Use top-level functions, not classes (see ARCHITECTURE.md).' },
+          // The strict feature-file additions:
+          {
+            selector: 'Program > VariableDeclaration',
+            message: 'No module-level variables in feature files. Use `function name(...) {…}` for behavior; inline literals at use sites; thread shared values through parameters; registries belong in @foundry/server. See ARCHITECTURE.md.',
+          },
+          {
+            selector: 'Program > TSInterfaceDeclaration',
+            message: 'Interface declarations belong in schema.ts (one shape file per module).',
+          },
+          {
+            selector: 'Program > TSTypeAliasDeclaration',
+            message: 'Type aliases belong in schema.ts (one shape file per module).',
+          },
+        ],
+        // Zod is a shape-declaration tool — confined to schema files.
+        'no-restricted-imports': ['error', {
+          patterns: [{
+            group: ['zod', 'zod/*'],
+            message: 'zod imports belong in schema.ts (or a tools.ts file for mcp integrations). Feature files consume validated values via parameters or via the parse(schema, …) middleware.',
+          }],
+        }],
+      },
+    },
+
     {
       files: TEST_GLOBS,
       // Tests live outside each package's tsconfig `include` (which is
@@ -149,6 +212,20 @@ module.exports = {
         '@typescript-eslint/no-restricted-imports': 'off',
         '@typescript-eslint/no-floating-promises': 'off',
         '@typescript-eslint/consistent-type-imports': 'off',
+      },
+    },
+
+    // ── server (composition root) ──────────────────────────────────
+    // Server owns wiring (registries, lifecycle intervals, env reads).
+    // The strict feature-file rules above don't reach here — server is
+    // not in LOGIC_FEATURE_GLOBS. This override is just documentation
+    // that the carve-out is intentional.
+    {
+      files: ['server/src/**/*.ts'],
+      rules: {
+        // No additional restrictions today. If module-level state in
+        // server starts to feel sprawling, future rules here can scope
+        // it (e.g. allow only inside explicit wire-*.ts files).
       },
     },
   ],

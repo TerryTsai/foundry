@@ -1,12 +1,11 @@
 // Public surface for @foundry/auth.
 
-export * as validate from './validators.js'
+export * as validate from './schema.js'
 
 // service — login flow + session lookup helpers
 export {
-  authStart, authCallback, authMe, authLogout, AUTH_STATE_TTL_SEC,
+  authStart, authCallback, authMe, authLogout,
 } from './service.js'
-export type { AuthCallbackResult } from './service.js'
 
 // middleware — cookie helpers + requireAuth
 export {
@@ -19,7 +18,8 @@ export * as sessionJwt from './session-jwt.js'
 // ratelimit — tiny in-memory limiter
 export { rateLimit } from './ratelimit.js'
 
-// types — config slice + cross-module callbacks
+// types — config slice + cross-module callbacks + result shapes
 export type {
   AuthConfig, AuthCrudOps, GithubOAuthDeps, GithubOAuthUser,
-} from './types.js'
+  AuthCallbackResult, SessionClaims, CookieOpts,
+} from './schema.js'

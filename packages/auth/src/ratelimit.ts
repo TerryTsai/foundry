@@ -1,31 +1,18 @@
-import type { Request, Response, RequestHandler } from 'express'
+import type { Request, RequestHandler } from 'express'
+
+import type { RateLimitBucket, RateLimitOpts, RateLimitTickArgs } from './schema.js'
 
 // Tiny in-memory rate limiter. Key = bucket name + custom key (default
 // req.ip). Single-process design — fine for a single-machine deployment.
 
-interface Bucket { count: number; resetAt: number }
-
-export interface RateLimitOpts {
-  windowMs: number
-  max:      number
-  keyFn?:   (req: Request) => string
-  bucket?:  string
-}
-
 export function rateLimit(opts: RateLimitOpts): RequestHandler {
-  const buckets = new Map<string, Bucket>()
+  const buckets = new Map<string, RateLimitBucket>()
   const keyFn   = opts.keyFn ?? ((req: Request) => req.ip ?? 'unknown')
   const tag     = opts.bucket ?? 'default'
   return (req, res, next) => rateLimitTick({ buckets, opts, keyFn, tag, req, res, next })
 }
 
-interface TickArgs {
-  buckets: Map<string, Bucket>; opts: RateLimitOpts
-  keyFn: (req: Request) => string; tag: string
-  req: Request; res: Response; next: () => void
-}
-
-function rateLimitTick(args: TickArgs): void {
+function rateLimitTick(args: RateLimitTickArgs): void {
   const key = `${args.tag}:${args.keyFn(args.req)}`
   const b = bucketFor(args.buckets, key, args.opts.windowMs)
   b.count += 1
@@ -33,7 +20,7 @@ function rateLimitTick(args: TickArgs): void {
   args.next()
 }
 
-function bucketFor(buckets: Map<string, Bucket>, key: string, windowMs: number): Bucket {
+function bucketFor(buckets: Map<string, RateLimitBucket>, key: string, windowMs: number): RateLimitBucket {
   const nowMs = Date.now()
   const existing = buckets.get(key)
   if (existing && existing.resetAt >= nowMs) return existing
