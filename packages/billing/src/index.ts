@@ -4,4 +4,4 @@
 // implementation lands.
 
 export { quotaCheck, quotaConsume } from './quota.js'
-export type { QuotaResource, QuotaCheck } from './quota.js'
+export type { QuotaResource, QuotaCheck } from './schema.js'

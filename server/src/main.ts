@@ -67,7 +67,8 @@ import {
   registerSessionWorkspace, unregisterSessionWorkspace,
   stopSessionContainer,
   stopAllSessionContainers,
-  type SandboxCrudOps,
+  createSandboxState,
+  type SandboxCrudOps, type SandboxState,
 } from '@foundry/sandbox'
 import {
   agentList,
@@ -112,6 +113,11 @@ export function buildApp() {
   // hides in any logic module.
   const encryptionKey = decodeEncryptionKey(process.env.FOUNDRY_ENCRYPTION_KEY ?? '')
 
+  // Sandbox runtime state (active execs, persistent containers, session
+  // workspace paths). Created once here and threaded into every sandbox
+  // function — no module-level Maps in @foundry/sandbox.
+  const sandboxState = createSandboxState()
+
   const db  = createDatabase(config.dbPath)
   const app = express()
 
@@ -124,7 +130,7 @@ export function buildApp() {
   const sandboxCrud   = buildSandboxCrudOps()
   const reconcilerCrud = buildReconcilerCrudOps()
   const engineCrud    = buildEngineCrudOps()
-  const engineDeps    = buildEngineDeps(engineCrud, authCrud, sandboxCrud, encryptionKey)
+  const engineDeps    = buildEngineDeps(engineCrud, authCrud, sandboxCrud, encryptionKey, sandboxState)
 
   // ── Public routes (no auth) ──
   app.get('/health',        (_req, res) => res.json({ ok: true }))
@@ -189,10 +195,10 @@ export function buildApp() {
 
   app.use('/project',    projectRoutes(db, triggerReconcile))
   app.use('/connection', connectionRoutes(db))
-  app.use('/ticket',     ticketRoutes(db, sandboxCrud))
+  app.use('/ticket',     ticketRoutes(db, sandboxCrud, sandboxState))
   app.use('/agent',      agentRoutes(db))
   app.use('/session',    sessionRoutes(db, sandboxCrud))
-  app.use('/execution',  executionRoutes(db, config, sandboxCrud))
+  app.use('/execution',  executionRoutes(db, config, sandboxCrud, sandboxState))
   app.use('/analytics',  analyticsRoutes(db))
   app.use('/attachment', attachmentRoutes(db))
 
@@ -204,8 +210,8 @@ export function buildApp() {
   app.use(errors)
 
   const reconcilerDeps = buildReconcilerDeps(reconcilerCrud, engineDeps)
-  const client         = buildClient(db, engineDeps, authCrud, sandboxCrud, encryptionKey)
-  return { app, db, reconcilerDeps, client }
+  const client         = buildClient(db, engineDeps, authCrud, sandboxCrud, encryptionKey, sandboxState)
+  return { app, db, reconcilerDeps, client, sandboxState }
 }
 
 // Composition root: assemble the typed cross-module Client from the
@@ -214,7 +220,7 @@ export function buildApp() {
 // shape compiles end-to-end.
 function buildClient(
   db: Db, engineDeps: EngineDeps,
-  authCrud: AuthCrudOps, sandboxCrud: SandboxCrudOps, encryptionKey: Buffer,
+  authCrud: AuthCrudOps, sandboxCrud: SandboxCrudOps, encryptionKey: Buffer, sandboxState: SandboxState,
 ): Client {
   // Bridge AuthConfig (what auth's GithubOAuthDeps wants) → McpConfig (what
   // the github provider helpers expect). The full service Config satisfies
@@ -229,7 +235,7 @@ function buildClient(
     billing:    createBillingAdapter(),
     crud:       createCrudAdapter({ db, providerGet, supportedKinds }),
     analytics:  createAnalyticsAdapter({ db }),
-    sandbox:    createSandboxAdapter({ db, config, executionOwned, sessionOwned, sandboxCrud }),
+    sandbox:    createSandboxAdapter({ db, config, executionOwned, sessionOwned, sandboxCrud, sandboxState }),
     mcp:        createMcpAdapter({ db }),
     engine:     createEngineAdapter({ db, config, engineDeps }),
     reconciler: createReconcilerAdapter(),
@@ -304,7 +310,7 @@ function buildEngineCrudOps(): EngineCrudOps {
 // logic modules together.
 // eslint-disable-next-line max-lines-per-function -- composition root callback bag; one line per cross-module function
 function buildEngineDeps(
-  engineCrud: EngineCrudOps, authCrud: AuthCrudOps, sandboxCrud: SandboxCrudOps, encryptionKey: Buffer,
+  engineCrud: EngineCrudOps, authCrud: AuthCrudOps, sandboxCrud: SandboxCrudOps, encryptionKey: Buffer, sandboxState: SandboxState,
 ): EngineDeps {
   return {
     auth: {
@@ -318,9 +324,10 @@ function buildEngineDeps(
       workspaceEmpty, workspaceDestroy,
     },
     sandbox: {
-      executionCreate: (db, cfg, input) => sandboxExecutionCreate(db, cfg, sandboxCrud, input),
-      registerSessionWorkspace, unregisterSessionWorkspace,
-      stopSessionContainer,
+      executionCreate: (db, cfg, input) => sandboxExecutionCreate(db, cfg, sandboxCrud, sandboxState, input),
+      registerSessionWorkspace: (sessionId, workspace) => registerSessionWorkspace(sandboxState, sessionId, workspace),
+      unregisterSessionWorkspace: (sessionId) => unregisterSessionWorkspace(sandboxState, sessionId),
+      stopSessionContainer: (sessionId) => stopSessionContainer(sandboxState, sessionId),
     },
     crud: engineCrud,
   }
@@ -363,7 +370,7 @@ const RECONCILER_POLICIES: Policy[] = [
 // loop, and installs a SIGTERM handler that drains running work before
 // exiting. Returns the http.Server so callers can await close() in tests.
 export function boot() {
-  const { app, db, reconcilerDeps } = buildApp()
+  const { app, db, reconcilerDeps, sandboxState } = buildApp()
 
   let reconcilerInterval: ReturnType<typeof setInterval> | null = null
 
@@ -376,16 +383,16 @@ export function boot() {
   })
 
   // ── Graceful shutdown on deploy restart ──
-  process.on('SIGTERM', () => shutdown(db, reconcilerDeps, reconcilerInterval))
+  process.on('SIGTERM', () => shutdown(db, reconcilerDeps, sandboxState, reconcilerInterval))
 
   return server
 }
 
-function shutdown(db: Db, reconcilerDeps: ReconcilerDeps, interval: ReturnType<typeof setInterval> | null) {
+function shutdown(db: Db, reconcilerDeps: ReconcilerDeps, sandboxState: SandboxState, interval: ReturnType<typeof setInterval> | null) {
   console.log('SIGTERM received, draining…')
   if (interval) clearInterval(interval)
   shutdownDrain(db, reconcilerDeps)
-  stopAllSessionContainers()
+  stopAllSessionContainers(sandboxState)
   try { execSync('podman kill --all', { timeout: 5000, stdio: 'ignore' }) } catch {
     // Ignored — best-effort container cleanup; podman may not be installed
     // in dev environments. The service exits regardless.
