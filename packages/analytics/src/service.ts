@@ -1,34 +1,17 @@
-import { eq, sql, type SQL } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 import { type Db } from '@foundry/db'
 import * as database from '@foundry/db'
 import * as schema from '@foundry/db'
 import type { Result, AnalyticsError } from '@foundry/model'
 import { ok } from '@foundry/model'
 
+import type {
+  AnalyticsArgs, AnalyticsScope, AnalyticsResult,
+  SummaryRow, TicketCountsRow, DailyRow, AgentRow, TagRow, ToolRow,
+} from './schema.js'
+
 // Usage analytics across every project the account owns, optionally
 // narrowed to a single project, agent, or tag.
-
-export interface AnalyticsArgs {
-  days: number
-  projectId?: string
-  agentId?: string
-  tag?: string
-}
-
-interface AnalyticsScope {
-  projList:    SQL
-  agentFilter: SQL
-  tagFilter:   SQL
-  cutoff:      string
-}
-
-export interface AnalyticsResult {
-  summary: SummaryRow & TicketCountsRow
-  daily:   DailyRow[]
-  agents:  AgentRow[]
-  tags:    TagRow[]
-  tools:   ToolRow[]
-}
 
 export function analytics(db: Db, accountId: string, opts: AnalyticsArgs): Result<AnalyticsResult, AnalyticsError> {
   const projectIds = scopeProjectIds(db, accountId, opts.projectId)
@@ -221,44 +204,6 @@ function queryTools(db: Db, s: AnalyticsScope): ToolRow[] {
     GROUP BY a.id, e.tool_name
     ORDER BY a.created_at, a.id, calls DESC
   `)
-}
-
-interface SummaryRow {
-  total_cost_usd: number; total_sessions: number
-  sessions_done: number; sessions_failed: number; sessions_running: number
-  total_tokens_in: number; total_tokens_out: number; total_duration_ms: number
-  total_exec_count: number; total_cpu_ms: number; total_net_bytes: number
-  peak_memory_mb: number | null
-}
-
-interface TicketCountsRow {
-  total_tickets: number; tickets_open: number; tickets_done: number; tickets_failed: number
-}
-
-interface DailyRow {
-  date: string; sessions: number; sessions_done: number; sessions_failed: number
-  cost_usd: number; tokens_in: number; tokens_out: number
-  tickets_created: number; tickets_completed: number
-}
-
-interface AgentRow {
-  agent_id: string; agent_name: string
-  agent_created_at: string; agent_superseded_at: string | null
-  sessions: number; sessions_done: number; sessions_failed: number
-  cost_usd: number; tokens_in: number; tokens_out: number
-  duration_ms: number; avg_duration_ms: number; avg_cost_usd: number
-}
-
-interface TagRow {
-  tag: string; tickets: number; tickets_done: number; tickets_failed: number
-  sessions: number; cost_usd: number; tokens_in: number; tokens_out: number; duration_ms: number
-}
-
-interface ToolRow {
-  agent_id: string; agent_name: string
-  agent_created_at: string
-  name: string
-  calls: number; ok: number; fail: number; duration_ms: number
 }
 
 // eslint-disable-next-line max-lines-per-function -- inline SQL aggregate; splitting moves the WHERE clause off-screen

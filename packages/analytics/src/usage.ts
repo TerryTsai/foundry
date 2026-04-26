@@ -7,27 +7,7 @@ import type { Execution } from '@foundry/db'
 import type { Result, AnalyticsError } from '@foundry/model'
 import { ok, err } from '@foundry/model'
 
-export interface UsageRollup {
-  session_count: number
-  tokens_in: number
-  tokens_out: number
-  duration_ms: number
-  step_count: number
-  tool_calls: number
-  exec_count: number
-  cpu_ms: number
-  peak_memory_mb: number | null
-  net_bytes: number
-}
-
-interface SessionUsageRow {
-  id:          string
-  duration_ms: number | null
-  tokens_in:   number | null
-  tokens_out:  number | null
-  step_count:  number | null
-  tool_calls:  number | null
-}
+import type { UsageRollup, SessionUsageRow, SessionTotals } from './schema.js'
 
 function rollupExecutions(executions: Execution[]): { exec_count: number; cpu_ms: number; peak_memory_mb: number | null; net_bytes: number } {
   let cpu_ms = 0, net_bytes = 0, peak = 0
@@ -39,10 +19,6 @@ function rollupExecutions(executions: Execution[]): { exec_count: number; cpu_ms
   return { exec_count: executions.length, cpu_ms, peak_memory_mb: peak || null, net_bytes }
 }
 
-interface SessionTotals {
-  tokens_in: number; tokens_out: number; duration_ms: number; step_count: number; tool_calls: number
-  cpu_ms: number; net_bytes: number; peak: number; exec_count: number
-}
 
 function rollupSessions(db: Db, sessions: SessionUsageRow[]): UsageRollup {
   const t: SessionTotals = { tokens_in: 0, tokens_out: 0, duration_ms: 0, step_count: 0, tool_calls: 0, cpu_ms: 0, net_bytes: 0, peak: 0, exec_count: 0 }

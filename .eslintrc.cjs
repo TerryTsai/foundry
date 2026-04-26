@@ -58,30 +58,55 @@ const TEST_GLOBS = [
 // Per-logic-module cardinal-rule overrides. Each forbids importing every
 // OTHER logic module's package, plus restricts @foundry/db value imports
 // for non-{crud,analytics} (type imports stay legal so entity types can
-// thread through callback bundles).
-const cardinalRuleOverrides = LOGIC_MODULES.map(self => {
-  const restrictedPaths = LOGIC_MODULES
+// thread through callback bundles). Feature files additionally forbid
+// zod imports — schemas + inferred types live in schema.ts (or mcp's
+// tools.ts, which is in SCHEMA_FILES). Type-only zod imports are
+// allowed because some engine adapters need ZodObject etc. structurally
+// without pulling in zod's runtime.
+const cardinalRuleOverrides = LOGIC_MODULES.flatMap(self => {
+  const cardinalPaths = LOGIC_MODULES
     .filter(other => other !== self)
     .map(other => ({
       name: `@foundry/${other}`,
       message: `Cardinal rule: logic module '${self}' cannot import logic module '${other}'. Cross-module work goes through @foundry/client or callback bundles injected by @foundry/server. See ARCHITECTURE.md.`,
     }))
   if (!DB_VALUE_ALLOWED.has(self)) {
-    restrictedPaths.push({
+    cardinalPaths.push({
       name: '@foundry/db',
       allowTypeImports: true,
       message: `Logic module '${self}' may only type-import @foundry/db. Runtime persistence is restricted to crud and analytics; everyone else goes through callbacks from @foundry/server. See ARCHITECTURE.md.`,
     })
   }
-  return {
-    files: [`packages/${self}/src/**/*.ts`],
-    rules: {
-      // Use the @typescript-eslint variant — it understands the
-      // allowTypeImports option, which the base eslint rule does not.
-      'no-restricted-imports': 'off',
-      '@typescript-eslint/no-restricted-imports': ['error', { paths: restrictedPaths }],
-    },
+  const zodPattern = {
+    group: ['zod', 'zod/*'],
+    allowTypeImports: true,
+    message: `zod value imports belong in schema.ts (or a tools.ts file for mcp integrations). Feature files consume validated values via parameters; schema.ts re-exports inferred types for consumers.`,
   }
+  return [
+    // All files in this module: cardinal restrictions only. Schema files
+    // need to import zod values; feature files use the override below.
+    {
+      files: [`packages/${self}/src/**/*.ts`],
+      rules: {
+        'no-restricted-imports': 'off',
+        '@typescript-eslint/no-restricted-imports': ['error', { paths: cardinalPaths }],
+      },
+    },
+    // Feature files only: cardinal restrictions + zod ban (value imports
+    // forbidden, type imports allowed). Last-write-wins replaces the
+    // override above for feature files.
+    {
+      files: [`packages/${self}/src/**/*.ts`],
+      excludedFiles: SCHEMA_FILES,
+      rules: {
+        'no-restricted-imports': 'off',
+        '@typescript-eslint/no-restricted-imports': ['error', {
+          paths: cardinalPaths,
+          patterns: [zodPattern],
+        }],
+      },
+    },
+  ]
 })
 
 module.exports = {
@@ -187,13 +212,10 @@ module.exports = {
             message: 'Type aliases belong in schema.ts (one shape file per module).',
           },
         ],
-        // Zod is a shape-declaration tool — confined to schema files.
-        'no-restricted-imports': ['error', {
-          patterns: [{
-            group: ['zod', 'zod/*'],
-            message: 'zod imports belong in schema.ts (or a tools.ts file for mcp integrations). Feature files consume validated values via parameters or via the parse(schema, …) middleware.',
-          }],
-        }],
+        // Zod restriction is merged into the per-module
+        // cardinalRuleOverrides above so cardinal paths and the zod
+        // pattern share one rule config (eslint last-wins on rule
+        // values; can't split them safely).
       },
     },
 
