@@ -9,6 +9,13 @@ import type { Db } from '@foundry/db'
 import type { Account, Activity, Agent, Connection, Comment, Event, Project, Session, Ticket } from '@foundry/db'
 import type { Result, AuthError, SandboxError } from '@foundry/model'
 
+export type EngineError =
+  | { kind: 'model_unavailable';  reason: string }
+  | { kind: 'max_steps_exceeded'; steps: number }
+  | { kind: 'not_found';          entity: string; id: string }
+  | { kind: 'crashed';            message: string }
+  | { kind: 'internal';           message: string }
+
 // ── EngineConfig ─────────────────────────────────────────────────────
 // Engine reads `sandboxTimeout` directly (mintTtl). The remaining fields
 // are pass-through — the engine threads `config` into tool ctx objects

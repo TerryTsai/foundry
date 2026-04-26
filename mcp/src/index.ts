@@ -6,10 +6,15 @@
 // reads, the connection-provider definitions the connections module
 // validates against, and the runtime that engines mount per session.
 
+export { createMcpService } from './service.js'
+export type { McpServiceDeps } from './service.js'
+export type { McpClient } from './client.js'
+
 export type {
   McpServerInfo, ToolDef, McpToolSelection, McpCategory,
   ConnectionProvider, CredentialField,
   McpConfig, ExecutionCreate, ExecutionCreateInput, ExecHandleEmitter, DecryptSecret,
+  McpListEntry, McpError,
 } from './schema.js'
 
 // Built-in tool servers

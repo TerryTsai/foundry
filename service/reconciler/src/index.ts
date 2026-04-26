@@ -1,15 +1,17 @@
 // Public surface for @foundry/reconciler.
 //
-// Lifecycle (interval start/stop, on-demand trigger callbacks) and the
-// policy ordering both belong to the composition root (@foundry/server).
-// Reconciler exposes only pure functions and the policy implementations
-// the server composes into a list.
+// service.ts owns the lifecycle (tick + drain handles); the
+// cross-service ReconcilerClient is empty since no other service calls
+// reconciler today. Policies live as pure functions and are composed
+// at server boot via createReconcilerService.
 
-export { reconcilerTick, shutdownDrain } from './reconciler.js'
+export { createReconcilerService } from './service.js'
+export type { ReconcilerServiceDeps, ReconcilerService } from './service.js'
+export type { ReconcilerClient } from './client.js'
 
 // Policies — server composes these into the ordered list passed to
-// reconcilerTick. Reordering or omitting changes reconciler behavior;
-// that decision is wiring, not logic.
+// createReconcilerService. Reordering or omitting changes reconciler
+// behavior; that decision is wiring, not logic.
 export { dispatchProducer }         from './policies/dispatch-producer.js'
 export { settleRunning }            from './policies/settle-running.js'
 export { dispatchRecoveryProducer } from './policies/dispatch-recovery-producer.js'
@@ -26,4 +28,8 @@ export type {
   RunSessionFn,
   Policy,
   PolicyCtx,
+  ReconcilerError,
 } from './schema.js'
+
+// Raw exports remain during the @foundry/client → per-service migration.
+export { reconcilerTick, shutdownDrain } from './reconciler.js'

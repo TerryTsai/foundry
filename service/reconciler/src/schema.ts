@@ -124,3 +124,8 @@ export interface PolicyCtx {
 }
 
 export type Policy = (ctx: PolicyCtx) => 'acted' | 'pass'
+
+// ── Error union ─────────────────────────────────────────────────────
+
+export type ReconcilerError =
+  | { kind: 'internal'; message: string }
