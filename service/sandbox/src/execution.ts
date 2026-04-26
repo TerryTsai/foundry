@@ -3,7 +3,7 @@ import { EventEmitter } from 'events'
 
 import { type Db } from '@foundry/db'
 import type { Execution } from '@foundry/db'
-import type { Result, SandboxError } from '@foundry/model'
+import type { Result } from '@foundry/model'
 import { ok, err, now } from '@foundry/model'
 
 import {
@@ -12,7 +12,7 @@ import {
 import type {
   SandboxConfig, SandboxCrudOps, SandboxState,
   ExecHandle, ExecutionCreateInput, ExecutionCreateResult,
-  IsExecutionOwned, IsSessionOwned,
+  IsExecutionOwned, IsSessionOwned, SandboxError,
 } from './schema.js'
 
 function scrubSecrets(s: string | null | undefined): string | null {

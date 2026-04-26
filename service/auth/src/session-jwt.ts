@@ -1,10 +1,10 @@
 import { createHmac, timingSafeEqual } from 'crypto'
 
 import { type Db } from '@foundry/db'
-import type { Result, AuthError } from '@foundry/model'
+import type { Result } from '@foundry/model'
 import { ok, err } from '@foundry/model'
 
-import type { AuthCrudOps, SessionClaims } from './schema.js'
+import type { AuthCrudOps, SessionClaims, AuthError } from './schema.js'
 
 // Per-session sandbox auth — stateless HMAC-SHA256 JWT.
 //

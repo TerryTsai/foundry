@@ -2,11 +2,11 @@ import { randomBytes } from 'crypto'
 
 import { type Db } from '@foundry/db'
 import type { Account } from '@foundry/db'
-import type { Result, AuthError } from '@foundry/model'
+import type { Result } from '@foundry/model'
 import { ok, err } from '@foundry/model'
 import type {
   AuthConfig, AuthCrudOps, GithubOAuthDeps, GithubOAuthUser,
-  AuthCallbackResult, OauthCallbackQuery,
+  AuthCallbackResult, OauthCallbackQuery, AuthError,
 } from './schema.js'
 
 export function authStart(

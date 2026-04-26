@@ -1,21 +1,10 @@
-// Shapes for @foundry/auth. Zod schemas, inferred types, internal
-// interfaces, cross-module callback bundles. Feature files (service.ts,
-// session-jwt.ts, middleware.ts, ratelimit.ts) consume from here.
+// Shapes for @foundry/auth. Types only — zod validators live in
+// validate.ts. Cross-module callback bundles, config slice, sandbox
+// JWT claims, cookie/rate-limit options.
 
-import { z } from 'zod'
 import type { Db, Account, AuthSession, Project, Session, Ticket } from '@foundry/db'
 
-// ── Zod schemas (boundary inputs) ────────────────────────────────────
-
-// GitHub OAuth callback query: ?code=...&state=...
-// state is verified against the cookie set in /auth/github. Renamed
-// from `authCallback` to avoid collision with the same-named function
-// in service.ts now that schemas + functions share the import surface.
-export const oauthCallbackQuery = z.object({
-  code:  z.string().min(1),
-  state: z.string().min(1),
-})
-export type OauthCallbackQuery = z.infer<typeof oauthCallbackQuery>
+export type { OauthCallbackQuery } from './validate.js'
 
 // ── Config slice ─────────────────────────────────────────────────────
 // AuthConfig is the minimal surface of the service-wide Config that auth
@@ -124,3 +113,15 @@ export interface RateLimitTickArgs {
   res:     Response
   next:    () => void
 }
+
+// ── Error union ─────────────────────────────────────────────────────
+
+export type AuthError =
+  | { kind: 'invalid_token';     reason: string }
+  | { kind: 'expired_session' }
+  | { kind: 'not_authenticated' }
+  | { kind: 'forbidden';         reason: string }
+  | { kind: 'validation_failed'; field: string; reason: string }
+  | { kind: 'rate_limited';      retry_after_ms: number }
+  | { kind: 'not_found';         entity: string; id: string }
+  | { kind: 'internal';          message: string }

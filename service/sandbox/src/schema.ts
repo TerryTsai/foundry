@@ -1,22 +1,16 @@
-// Shapes for @foundry/sandbox.
+// Shapes for @foundry/sandbox. Types only — zod validators live in
+// validate.ts.
 //
 // SandboxConfig is the minimal surface of the service-wide Config that
 // sandbox needs. The route layer passes the full Config object; TS
 // structural typing makes that compatible.
 
-import { z } from 'zod'
 import type { Db, Execution, Session } from '@foundry/db'
 import type { Result } from '@foundry/model'
 import type { ChildProcess } from 'child_process'
 import type { EventEmitter } from 'events'
 
-// ── HTTP boundary validators ────────────────────────────────────────
-
-export const executionCreate = z.object({
-  command:    z.string().min(1),
-  session_id: z.string().optional(),
-  timeout_ms: z.number().int().positive().optional(),
-})
+export type { ExecutionCreateBody } from './validate.js'
 
 export interface SandboxConfig {
   port:               number
@@ -138,3 +132,16 @@ export interface SandboxState {
 // External shape used by ChildProcess-typed helpers. Re-exported so
 // feature files don't reach into 'child_process' directly.
 export type { ChildProcess }
+
+// ── Error union ─────────────────────────────────────────────────────
+
+export type SandboxError =
+  | { kind: 'container_unavailable'; reason: string }
+  | { kind: 'exec_failed';           exit_code: number; message: string }
+  | { kind: 'timeout';               timeout_ms: number }
+  | { kind: 'not_found';             id: string }
+  | { kind: 'permission_denied';     reason: string }
+  | { kind: 'conflict';              reason: string }
+  | { kind: 'validation_failed';     field: string; reason: string }
+  | { kind: 'cancelled' }
+  | { kind: 'internal';              message: string }

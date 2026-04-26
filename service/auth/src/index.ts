@@ -1,25 +1,26 @@
 // Public surface for @foundry/auth.
 
-export * as validate from './schema.js'
+export { createAuthService } from './service.js'
+export type { AuthServiceDeps } from './service.js'
+export type { AuthClient } from './client.js'
 
-// flow — login flow + session lookup helpers
+export * as validate from './validate.js'
+
+// types — config slice + cross-module callbacks + result shapes + errors
+export type {
+  AuthConfig, AuthCrudOps, GithubOAuthDeps, GithubOAuthUser,
+  AuthCallbackResult, SessionClaims, CookieOpts, AuthError,
+} from './schema.js'
+
+// Raw exports remain during the @foundry/client → per-service migration.
 export {
   authStart, authCallback, authMe, authLogout,
 } from './flow.js'
 
-// middleware — cookie helpers + requireAuth
 export {
   parseCookie, serializeCookie, requireAuth,
 } from './middleware.js'
 
-// session-jwt — per-session sandbox JWT mint/verify
 export * as sessionJwt from './session-jwt.js'
 
-// ratelimit — tiny in-memory limiter
 export { rateLimit } from './ratelimit.js'
-
-// types — config slice + cross-module callbacks + result shapes
-export type {
-  AuthConfig, AuthCrudOps, GithubOAuthDeps, GithubOAuthUser,
-  AuthCallbackResult, SessionClaims, CookieOpts,
-} from './schema.js'

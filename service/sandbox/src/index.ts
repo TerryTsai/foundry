@@ -1,7 +1,21 @@
 // Public surface for @foundry/sandbox.
 
-export * as validate from './schema.js'
+export { createSandboxService } from './service.js'
+export type { SandboxServiceDeps } from './service.js'
+export type { SandboxClient, ExecutionCreateResult } from './client.js'
 
+export * as validate from './validate.js'
+
+export type {
+  SandboxConfig, SandboxCrudOps, ExecutionMeterCreateInput,
+  SandboxState,
+  SessionContainerOpts, ContainerStats, ExecHandle, ExecOptions,
+  ExecutionCreateInput,
+  IsExecutionOwned, IsSessionOwned,
+  SandboxError,
+} from './schema.js'
+
+// Raw exports remain during the @foundry/client → per-service migration.
 export {
   ensureSessionContainer, startSessionContainer,
   stopSessionContainer, stopAllSessionContainers,
@@ -15,11 +29,3 @@ export {
   registerSessionWorkspace, unregisterSessionWorkspace,
   createSandboxState,
 } from './execution.js'
-
-export type {
-  SandboxConfig, SandboxCrudOps, ExecutionMeterCreateInput,
-  SandboxState,
-  SessionContainerOpts, ContainerStats, ExecHandle, ExecOptions,
-  ExecutionCreateInput, ExecutionCreateResult,
-  IsExecutionOwned, IsSessionOwned,
-} from './schema.js'
