@@ -1,14 +1,13 @@
 // Public surface for @foundry/auth.
 
 export { createAuthService } from './service.js'
-export type { AuthServiceDeps } from './service.js'
 export type { AuthClient } from './client.js'
 
 export * as validate from './validate.js'
 
-// types — config slice + cross-module callbacks + result shapes + errors
+// types — config slice + result shapes + errors
 export type {
-  AuthConfig, AuthCrudOps, GithubOAuthDeps, GithubOAuthUser,
+  AuthConfig, GithubOAuthUser,
   AuthCallbackResult, SessionClaims, CookieOpts, AuthError,
 } from './schema.js'
 

@@ -1,6 +1,9 @@
 import type { Request, Response, NextFunction, RequestHandler } from 'express'
-import type { Db, Account } from '@foundry/db'
-import type { AuthConfig, AuthCrudOps, CookieOpts } from './schema.js'
+import type { Account } from '@foundry/db'
+import { makeCtx } from '@foundry/model'
+import type { Ctx } from '@foundry/model'
+import type { CrudClient } from '@foundry/crud/client'
+import type { CookieOpts } from './schema.js'
 import * as sessionJwt from './session-jwt.js'
 
 declare global {
@@ -38,32 +41,35 @@ export function serializeCookie(name: string, value: string, opts: CookieOpts): 
 // Bearer sb_<jwt>. The bearer path is for sandbox tools; the cookie
 // path is for real users via GitHub OAuth.
 
-export function requireAuth(db: Db, _config: AuthConfig, crud: AuthCrudOps, key: Buffer): RequestHandler {
-  return (req: Request, res: Response, next: NextFunction) => {
-    const account = resolveAccount(db, crud, req, key)
+export function requireAuth(crud: CrudClient, key: Buffer): RequestHandler {
+  return async (req: Request, res: Response, next: NextFunction) => {
+    const account = await resolveAccount(crud, req, key)
     if (!account) return res.status(401).json({ error: 'unauthorized' })
     req.account = account
     next()
   }
 }
 
-function resolveAccount(db: Db, crud: AuthCrudOps, req: Request, key: Buffer): Account | null {
+async function resolveAccount(crud: CrudClient, req: Request, key: Buffer): Promise<Account | null> {
+  const ctx = makeCtx({ accountId: 'system' })
   const authHeader = req.headers.authorization
-  if (authHeader?.startsWith('Bearer ')) return resolveBearer(db, crud, authHeader.slice(7), key)
-  return resolveCookie(db, crud, req.headers.cookie)
+  if (authHeader?.startsWith('Bearer ')) return resolveBearer(ctx, crud, authHeader.slice(7), key)
+  return resolveCookie(ctx, crud, req.headers.cookie)
 }
 
-function resolveBearer(db: Db, crud: AuthCrudOps, token: string, key: Buffer): Account | null {
+async function resolveBearer(ctx: Ctx, crud: CrudClient, token: string, key: Buffer): Promise<Account | null> {
   if (!token.startsWith('sb_')) return null
   const claims = sessionJwt.verify(token, key)
   if (!claims) return null
-  return crud.accountGet(db, claims.aid) ?? null
+  const r = await crud.accountGetById(ctx, claims.aid)
+  return r.ok ? (r.value ?? null) : null
 }
 
-function resolveCookie(db: Db, crud: AuthCrudOps, cookieHeader: string | undefined): Account | null {
+async function resolveCookie(ctx: Ctx, crud: CrudClient, cookieHeader: string | undefined): Promise<Account | null> {
   const sid = parseCookie(cookieHeader, 'foundry_session')
   if (!sid) return null
-  const session = crud.authSessionGet(db, sid)
-  if (!session || new Date(session.expires_at) < new Date()) return null
-  return crud.accountGet(db, session.account_id) ?? null
+  const sR = await crud.authSessionGet(ctx, sid)
+  if (!sR.ok || !sR.value || new Date(sR.value.expires_at) < new Date()) return null
+  const aR = await crud.accountGetById(ctx, sR.value.account_id)
+  return aR.ok ? (aR.value ?? null) : null
 }

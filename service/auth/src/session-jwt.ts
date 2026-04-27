@@ -1,10 +1,10 @@
 import { createHmac, timingSafeEqual } from 'crypto'
 
-import { type Db } from '@foundry/db'
-import type { Result } from '@foundry/model'
+import type { Result, Ctx } from '@foundry/model'
 import { ok, err } from '@foundry/model'
+import type { CrudClient } from '@foundry/crud/client'
 
-import type { AuthCrudOps, SessionClaims, AuthError } from './schema.js'
+import type { SessionClaims, AuthError } from './schema.js'
 
 // Per-session sandbox auth — stateless HMAC-SHA256 JWT.
 //
@@ -17,22 +17,24 @@ export function isSandboxToken(token: string): boolean {
   return token.startsWith('sb_')
 }
 
-export function mint(
-  db: Db, crud: AuthCrudOps, sessionId: string, ttlMs: number, key: Buffer,
-): Result<string, AuthError> {
-  const session = crud.sessionGet(db, sessionId)
-  if (!session) return err({ kind: 'not_found', entity: 'session', id: sessionId })
-  const ticket = crud.ticketGet(db, session.ticket_id)
-  if (!ticket) return err({ kind: 'not_found', entity: 'ticket', id: session.ticket_id })
-  return mintForTicket(db, crud, session, ticket, ttlMs, key)
+export async function mint(
+  ctx: Ctx, crud: CrudClient, sessionId: string, ttlMs: number, key: Buffer,
+): Promise<Result<string, AuthError>> {
+  const sessionR = await crud.sessionGetById(ctx, sessionId)
+  if (!sessionR.ok || !sessionR.value) return err({ kind: 'not_found', entity: 'session', id: sessionId })
+  const session = sessionR.value
+  const ticketR = await crud.ticketGetById(ctx, session.ticket_id)
+  if (!ticketR.ok || !ticketR.value) return err({ kind: 'not_found', entity: 'ticket', id: session.ticket_id })
+  return mintForTicket(ctx, crud, session, ticketR.value, ttlMs, key)
 }
 
-function mintForTicket(
-  db: Db, crud: AuthCrudOps,
+async function mintForTicket(
+  ctx: Ctx, crud: CrudClient,
   session: { id: string }, ticket: { id: string; project_id: string }, ttlMs: number, key: Buffer,
-): Result<string, AuthError> {
-  const project = crud.projectGet(db, ticket.project_id)
-  if (!project) return err({ kind: 'not_found', entity: 'project', id: ticket.project_id })
+): Promise<Result<string, AuthError>> {
+  const projectR = await crud.projectGetById(ctx, ticket.project_id)
+  if (!projectR.ok || !projectR.value) return err({ kind: 'not_found', entity: 'project', id: ticket.project_id })
+  const project = projectR.value
   if (!project.owner_id) return err({ kind: 'internal', message: `project '${project.id}' has no owner — cannot mint sandbox token` })
   const exp = Math.floor((Date.now() + ttlMs) / 1000)
   return ok(sign({ v: 1, sid: session.id, tid: ticket.id, pid: project.id, aid: project.owner_id, exp }, key))

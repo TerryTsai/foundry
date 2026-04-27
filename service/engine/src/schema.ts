@@ -12,9 +12,9 @@ import type { Project, Session, Ticket, Agent, Connection } from '@foundry/db'
 import type { Ctx, Result } from '@foundry/model'
 // Cross-service type imports — values from peer services are still
 // forbidden (cardinal rule); type-only imports are fine.
-import type { AuthError } from '@foundry/auth'
 import type { SandboxError } from '@foundry/sandbox'
 import type { CrudClient } from '@foundry/crud/client'
+import type { AuthClient } from '@foundry/auth/client'
 
 export type EngineError =
   | { kind: 'model_unavailable';  reason: string }
@@ -243,8 +243,8 @@ export interface SessionContext {
   // ── Crypto ──
   encryptionKey: Buffer
 
-  // ── Auth (single callback; AuthClient may absorb later) ──
-  sessionJwtMint: (db: Db, sessionId: string, ttlMs: number) => Result<string, AuthError>
+  // ── Auth surface ──
+  auth:         AuthClient
 
   // ── Sandbox callbacks (sync executionCreate is required by mcp tool
   //    handlers, which the SDK invokes synchronously) ──

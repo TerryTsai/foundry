@@ -9,7 +9,7 @@ import { createDatabase } from '@foundry/db'
 import { errors } from './http.js'
 
 import { authRoutes }       from './routes/auth.js'
-import { requireAuth, rateLimit, type AuthCrudOps } from '@foundry/auth'
+import { requireAuth, rateLimit } from '@foundry/auth'
 
 import { projectRoutes }    from './routes/projects.js'
 import { connectionRoutes } from './routes/connections.js'
@@ -29,7 +29,6 @@ import {
   type ReconcilerService,
 } from '@foundry/reconciler'
 import { decodeEncryptionKey } from '@foundry/crypto'
-import { sessionJwt } from '@foundry/auth'
 import {
   asText, isMcpEnvelope, parseConn, toolUseId,
   filterTools, parseToolSelection, byConnectionKind,
@@ -69,10 +68,6 @@ import {
 import {
   executionOwned, sessionOwned,
   sessionGetById,
-  accountGetById,
-  authSessionGet, authSessionInsert, authSessionRemove,
-  accountUpsertByGithubId, claimUnownedProjects,
-  ticketGetById, projectGetById,
   connectionByAccount,
   // execution metering (sandbox internals)
   executionList as crudExecutionList,
@@ -116,10 +111,10 @@ export function buildApp() {
 
   app.use(express.json())
 
-  // Build the cross-module callback bundles. crud is the only logic
-  // module that imports @foundry/db; everyone else gets its persistence
-  // through these closures.
-  const authCrud      = buildAuthCrudOps()
+  // crud's CrudClient is built first; auth + sandbox + engine all
+  // route their persistence through it. crud itself is the only logic
+  // module that imports @foundry/db.
+  const crud          = createCrudService(db, providerGet, supportedKinds, encryptionKey)
   const sandboxCrud   = buildSandboxCrudOps()
 
   // ── Public routes (no auth) ──
@@ -129,7 +124,7 @@ export function buildApp() {
   // Rate-limit the auth surface — prevents brute force on the OAuth state /
   // callback endpoints. Bucket per IP. Public so it lives ABOVE requireAuth.
   app.use('/auth', rateLimit({ windowMs: 5 * 60 * 1000, max: 30, bucket: 'auth' }))
-  app.use('/auth', authRoutes(db, config, authCrud, encryptionKey))
+  app.use('/auth', authRoutes(config, crud, encryptionKey))
 
   // ── Static web app (production) ──
   // Serve the built site SPA from site/dist. In dev (tsx watch)
@@ -165,7 +160,7 @@ export function buildApp() {
   }
 
   // ── Authenticated routes ──
-  app.use(requireAuth(db, config, authCrud, encryptionKey))
+  app.use(requireAuth(crud, encryptionKey))
 
   // Per-account write throttle. Bucket key is account id (req.account.id is
   // set by requireAuth). 600/min comfortably covers sandbox bursts; cookie
@@ -183,15 +178,18 @@ export function buildApp() {
   void billingService
   const analyticsService = createAnalyticsService({ db })
   void analyticsService
-  const crud             = createCrudService(db, providerGet, supportedKinds, encryptionKey)
-  const authService      = createAuthService({ db, config, githubDeps: buildGithubDeps(), authCrud, encryptionKey })
+  const auth             = createAuthService(
+    config, crud, encryptionKey,
+    (_c, baseUrl, state) => githubProvider.oauthAuthorizeUrl(config, baseUrl, state),
+    (_c, code)           => githubProvider.oauthExchangeCode(config, code),
+    (token)              => githubProvider.fetchUser(token),
+  )
   const sandboxService   = createSandboxService({ db, config, executionOwned, sessionOwned, sandboxCrud, sandboxState })
   void sandboxService
   const mcpService       = createMcpService({ db, connectionByAccount })
   void mcpService
   const engine           = createEngineService(
-    db, config, crud, encryptionKey,
-    (innerDb, sessionId, ttlMs) => sessionJwt.mint(innerDb, authCrud, sessionId, ttlMs, encryptionKey),
+    db, config, crud, auth, encryptionKey,
     (innerDb, cfg, input)        => sandboxExecutionCreate(innerDb, cfg, sandboxCrud, sandboxState, input),
     (sessionId, workspace)       => registerSessionWorkspace(sandboxState, sessionId, workspace),
     (sessionId)                  => unregisterSessionWorkspace(sandboxState, sessionId),
@@ -202,7 +200,6 @@ export function buildApp() {
     parseConn, asText, isMcpEnvelope, toolUseId,
     workspaceEmpty, workspaceDestroy,
   )
-  void authService
   const reconciler       = createReconcilerService(db, crud, engine, RECONCILER_POLICIES)
 
   // On-demand reconcile triggered by `POST /project/:id/run` (and any
@@ -230,32 +227,7 @@ export function buildApp() {
   return { app, db, reconciler, sandboxState }
 }
 
-// Bridge AuthConfig (what auth's GithubOAuthDeps wants) → McpConfig (what
-// the github provider helpers expect). The full service Config satisfies
-// both structurally; the closures here just adapt the type aliases.
-function buildGithubDeps() {
-  return {
-    oauthAuthorizeUrl: (_c: unknown, baseUrl: string, state: string) => githubProvider.oauthAuthorizeUrl(config, baseUrl, state),
-    oauthExchangeCode: (_c: unknown, code: string)                   => githubProvider.oauthExchangeCode(config, code),
-    fetchUser:         (token: string)                               => githubProvider.fetchUser(token),
-  }
-}
-
 // ── crud-callback bundle constructors ────────────────────────────────
-
-function buildAuthCrudOps(): AuthCrudOps {
-  return {
-    accountGet:               accountGetById,
-    accountUpsertByGithubId:  accountUpsertByGithubId,
-    authSessionGet:           authSessionGet,
-    authSessionInsert:        authSessionInsert,
-    authSessionRemove:        authSessionRemove,
-    claimUnownedProjects:     claimUnownedProjects,
-    sessionGet:               sessionGetById,
-    ticketGet:                ticketGetById,
-    projectGet:               projectGetById,
-  }
-}
 
 function buildSandboxCrudOps(): SandboxCrudOps {
   return {

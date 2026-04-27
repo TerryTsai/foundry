@@ -1,13 +1,13 @@
 import { Router, type Request, type Response, type NextFunction } from 'express'
-import type { Db } from '@foundry/db'
 import type { Config } from '../config.js'
+import { makeCtx } from '@foundry/model'
 import { parse, data } from '../http.js'
 import {
   authStart, authCallback, authMe, authLogout,
   parseCookie, serializeCookie, requireAuth,
-  validate,
-  type AuthCrudOps, type GithubOAuthDeps,
+  validate, type AuthConfig,
 } from '@foundry/auth'
+import type { CrudClient } from '@foundry/crud/client'
 import { github } from '@foundry/mcp'
 
 function requestBaseUrl(req: Request): string {
@@ -18,26 +18,23 @@ function requestBaseUrl(req: Request): string {
   return `${proto}://${host}`
 }
 
-export function authRoutes(db: Db, config: Config, authCrud: AuthCrudOps, encryptionKey: Buffer) {
+export function authRoutes(config: Config, crud: CrudClient, encryptionKey: Buffer) {
   const r = Router()
-  const githubDeps = bridgeGithubDeps(config)
-  r.get('/github', (req, res) => handleAuthStart(req, res, config, githubDeps))
-  r.get('/github/callback', parse(validate.oauthCallbackQuery, 'query'), (req, res, next) => handleAuthCallback(db, config, githubDeps, authCrud, req, res, next))
-  r.get('/me', requireAuth(db, config, authCrud, encryptionKey), (req, res) => res.json(authMe(req.account!)))
-  r.post('/logout', (req, res) => handleAuthLogout(db, config, authCrud, req, res))
+  const oauthAuthorizeUrl = (_c: AuthConfig, baseUrl: string, state: string) => github.oauthAuthorizeUrl(config, baseUrl, state)
+  const oauthExchangeCode = (_c: AuthConfig, code: string) => github.oauthExchangeCode(config, code)
+  const fetchUser         = (token: string) => github.fetchUser(token)
+  r.get('/github', (req, res) => handleAuthStart(req, res, config, oauthAuthorizeUrl))
+  r.get('/github/callback', parse(validate.oauthCallbackQuery, 'query'), (req, res, next) => handleAuthCallback(config, crud, oauthExchangeCode, fetchUser, req, res, next))
+  r.get('/me', requireAuth(crud, encryptionKey), (req, res) => res.json(authMe(req.account!)))
+  r.post('/logout', (req, res) => handleAuthLogout(crud, config, req, res))
   return r
 }
 
-function bridgeGithubDeps(config: Config): GithubOAuthDeps {
-  return {
-    oauthAuthorizeUrl: (_authConfig, baseUrl, state) => github.oauthAuthorizeUrl(config, baseUrl, state),
-    oauthExchangeCode: (_authConfig, code)           => github.oauthExchangeCode(config, code),
-    fetchUser:         (token)                       => github.fetchUser(token),
-  }
-}
-
-function handleAuthStart(req: Request, res: Response, config: Config, githubDeps: GithubOAuthDeps): void {
-  const { url, state } = authStart(config, requestBaseUrl(req), githubDeps)
+function handleAuthStart(
+  req: Request, res: Response, config: Config,
+  oauthAuthorizeUrl: (config: AuthConfig, baseUrl: string, state: string) => string,
+): void {
+  const { url, state } = authStart(config, requestBaseUrl(req), oauthAuthorizeUrl)
   res.setHeader('Set-Cookie', serializeCookie('oauth_state', state, {
     maxAge: 60 * 10, secure: config.cookieSecure, sameSite: 'Lax',
   }))
@@ -45,12 +42,15 @@ function handleAuthStart(req: Request, res: Response, config: Config, githubDeps
 }
 
 async function handleAuthCallback(
-  db: Db, config: Config, githubDeps: GithubOAuthDeps, authCrud: AuthCrudOps,
+  config: Config, crud: CrudClient,
+  oauthExchangeCode: (c: AuthConfig, code: string) => Promise<string>,
+  fetchUser: (token: string) => Promise<{ github_id: number; login: string; name: string | null; email: string | null; avatar_url: string | null }>,
   req: Request, res: Response, next: NextFunction,
 ): Promise<void> {
   try {
     const stateCookie = parseCookie(req.headers.cookie, 'oauth_state')
-    const r = await authCallback(db, config, data(validate.oauthCallbackQuery, req), stateCookie, githubDeps, authCrud)
+    const ctx = makeCtx({ accountId: 'system' })
+    const r = await authCallback(ctx, config, data(validate.oauthCallbackQuery, req), stateCookie, oauthExchangeCode, fetchUser, crud)
     if (!r.ok) { res.status(r.error.kind === 'forbidden' ? 403 : 400).json({ error: r.error }); return }
     setSessionCookies(res, config, r.value.sessionId, r.value.expiresAt)
     res.redirect(302, '/')
@@ -65,9 +65,9 @@ function setSessionCookies(res: Response, config: Config, sessionId: string, exp
   ])
 }
 
-function handleAuthLogout(db: Db, config: Config, authCrud: AuthCrudOps, req: Request, res: Response): void {
+async function handleAuthLogout(crud: CrudClient, config: Config, req: Request, res: Response): Promise<void> {
   const sid = parseCookie(req.headers.cookie, 'foundry_session')
-  if (sid) authLogout(db, sid, authCrud)
+  if (sid) await authLogout(makeCtx({ accountId: 'system' }), sid, crud)
   res.setHeader('Set-Cookie', serializeCookie('foundry_session', '', {
     maxAge: 0, secure: config.cookieSecure, sameSite: 'Lax',
   }))

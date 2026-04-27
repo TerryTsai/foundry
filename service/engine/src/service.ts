@@ -1,15 +1,16 @@
 // Wiring for @foundry/engine. createEngineService binds db, config, the
-// CrudClient, the encryption key, plus the expanded sandbox / auth / mcp
-// callbacks at composition time and returns an EngineClient. runSession
-// loads the agent + ticket + session rows via crud, mints the sandbox
-// JWT, and hands the fully-populated SessionContext to the pipeline.
+// CrudClient + AuthClient, the encryption key, plus the expanded sandbox
+// + mcp callbacks at composition time and returns an EngineClient.
+// runSession loads the agent + ticket + session rows via crud, mints
+// the sandbox JWT via auth, and hands the fully-populated SessionContext
+// to the pipeline.
 
 import type { Db } from '@foundry/db'
 import type { Agent, Connection, Ticket } from '@foundry/db'
 import type { Ctx, Result } from '@foundry/model'
 import { err } from '@foundry/model'
 import type { CrudClient } from '@foundry/crud/client'
-import type { AuthError } from '@foundry/auth'
+import type { AuthClient } from '@foundry/auth/client'
 import type { SandboxError } from '@foundry/sandbox'
 
 import { runSession as runSessionInternal } from './session.js'
@@ -25,8 +26,8 @@ export const createEngineService = (
   db: Db,
   config: EngineConfig,
   crud: CrudClient,
+  auth: AuthClient,
   encryptionKey: Buffer,
-  sessionJwtMint:             (db: Db, sessionId: string, ttlMs: number) => Result<string, AuthError>,
   executionCreate:            (db: Db, config: EngineConfig, input: ExecutionCreateInput) => Result<ExecutionHandle, SandboxError>,
   registerSessionWorkspace:   (sessionId: string, workspace: string) => void,
   unregisterSessionWorkspace: (sessionId: string) => void,
@@ -46,7 +47,7 @@ export const createEngineService = (
   workspaceDestroy:           (path: string) => Promise<void>,
 ): EngineClient => {
   const runtime = {
-    db, config, crud, encryptionKey, sessionJwtMint,
+    db, config, crud, auth, encryptionKey,
     executionCreate, registerSessionWorkspace, unregisterSessionWorkspace, stopSessionContainer,
     foundryServer, githubServer, sandboxServer, browserServer,
     byConnectionKind, filterTools, parseToolSelection,
@@ -57,7 +58,7 @@ export const createEngineService = (
     runSession: async (ctx, args) => {
       const loaded = await loadSessionRows(ctx, crud, args)
       if (!loaded.ok) return loaded
-      const tokenR = sessionJwtMint(db, args.sessionId, mintTtl(config.sandboxTimeout))
+      const tokenR = await auth.sessionJwtMint(ctx, args.sessionId, mintTtl(config.sandboxTimeout))
       if (!tokenR.ok) return err({ kind: 'crashed', message: `failed to mint sandbox token: ${tokenR.error.kind}` })
       return runSessionInternal({ ...runtime, ctx, ...loaded.value, sandboxToken: tokenR.value, systemPrompt: '', userPrompt: '', workDir: '', shouldStop: async () => false, startedAt: Date.now() }, args.role)
     },
