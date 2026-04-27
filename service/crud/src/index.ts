@@ -1,7 +1,6 @@
 // Public surface for @foundry/crud. Re-exports from per-entity files.
 
 export { createCrudService } from './service.js'
-export type { CrudServiceDeps } from './service.js'
 export type { CrudClient } from './client.js'
 
 export * as validate from './validate.js'
@@ -36,11 +35,6 @@ export {
 export {
   connectionList, connectionGet, connectionCreate, connectionUpdate, connectionRemove,
 } from './connection.js'
-
-// secrets-crypto — raw functions; server binds the key in closures.
-export {
-  encryptSecret, decryptSecret, isEncrypted,
-} from './secrets-crypto.js'
 
 // attachment
 export {
@@ -88,9 +82,7 @@ export type {
   ExecutionInsertInput, ActivityCreateInput,
   DependencyChainEntry, VerdictRow,
   EventCreateInput,
-  EncryptSecret, DecryptSecret, CryptoOps,
   MaskedConnection,
   ConnectionProviderField, ConnectionProviderSpec,
-  ProviderGet, SupportedKindsFn,
   CrudError,
 } from './schema.js'

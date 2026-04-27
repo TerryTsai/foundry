@@ -5,9 +5,7 @@ import { createCipheriv, createDecipheriv, randomBytes } from 'crypto'
 // The version prefix lets us key-rotate later (enc:v2:…) without a flag day.
 //
 // The encryption key is owned by the composition root (server) and
-// threaded in by every caller — no module-level cached state. Format
-// scalars (prefix, nonce length, tag length) are inlined per the
-// repetition-over-abstraction principle.
+// threaded in by every caller — no module-level cached state.
 
 export function isEncrypted(stored: string): boolean {
   return stored.startsWith('enc:v1:')

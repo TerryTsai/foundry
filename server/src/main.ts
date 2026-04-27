@@ -31,7 +31,7 @@ import {
   type Policy,
   type ReconcilerService,
 } from '@foundry/reconciler'
-import { decodeEncryptionKey } from './encryption-key.js'
+import { decodeEncryptionKey, encryptSecret, decryptSecret } from '@foundry/crypto'
 import { runSession, type EngineDeps } from '@foundry/engine'
 import { ok, err, type Result } from '@foundry/model'
 import { sessionJwt } from '@foundry/auth'
@@ -73,7 +73,6 @@ import {
 } from '@foundry/sandbox'
 import {
   agentList,
-  encryptSecret, decryptSecret,
   attachmentListByTicketInternal,
   executionOwned, sessionOwned,
   ticketGetById, ticketUpdateById, ticketTransition, ticketAllByProject,
@@ -206,7 +205,7 @@ export function buildApp() {
   void billingService
   const analyticsService = createAnalyticsService({ db })
   void analyticsService
-  const crudService      = createCrudService({ db, providerGet, supportedKinds, encryptSecret: encryptSecretFn, decryptSecret: decryptSecretFn })
+  const crudService      = createCrudService(db, providerGet, supportedKinds, encryptionKey)
   void crudService
   const authService      = createAuthService({ db, config, githubDeps: buildGithubDeps(), authCrud, encryptionKey })
   void authService
@@ -225,7 +224,7 @@ export function buildApp() {
   }
 
   app.use('/project',    projectRoutes(db, triggerReconcile))
-  app.use('/connection', connectionRoutes(db, encryptSecretFn, decryptSecretFn))
+  app.use('/connection', connectionRoutes(db, encryptionKey))
   app.use('/ticket',     ticketRoutes(db, sandboxCrud, sandboxState))
   app.use('/agent',      agentRoutes(db))
   app.use('/session',    sessionRoutes(db, sandboxCrud))

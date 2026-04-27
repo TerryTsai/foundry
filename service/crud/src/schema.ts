@@ -82,18 +82,6 @@ export interface VerdictRow {
 }
 
 // ── Crypto callbacks ─────────────────────────────────────────────────
-// Crud's encryptSecret / decryptSecret take the encryption key as a
-// parameter. Server creates closures that bind the key once at boot and
-// threads them through into the connection-management functions.
-
-export type EncryptSecret = (plain: string) => string
-export type DecryptSecret = (stored: string) => string
-
-export interface CryptoOps {
-  encryptSecret: EncryptSecret
-  decryptSecret: DecryptSecret
-}
-
 // ── Connection types ────────────────────────────────────────────────
 // Per-row provider metadata + the masked shape returned by routes (so
 // secrets never serialize directly). Concrete providers live in mcp;
@@ -114,9 +102,6 @@ export interface ConnectionProviderSpec {
   credentials: ConnectionProviderField[]
   validate?:   (secrets: Record<string, unknown>, config: Record<string, unknown>) => string | null
 }
-
-export type ProviderGet      = (kind: string) => ConnectionProviderSpec | undefined
-export type SupportedKindsFn = () => string[]
 
 export interface EventCreateInput {
   entity_type:    string

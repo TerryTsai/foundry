@@ -1,7 +1,6 @@
-// Read and decode the at-rest encryption key from env. Server is the
-// only module that touches process.env for secrets; the decoded Buffer
-// is threaded through closures into auth (sessionJwt) and crud
-// (encryptSecret/decryptSecret) at composition time.
+// Decode the at-rest encryption key from a string. Composition root reads
+// the value from env once at boot and threads the decoded Buffer into
+// every caller — no module-level cached state.
 
 export function decodeEncryptionKey(raw: string): Buffer {
   if (!raw) throw new Error('FOUNDRY_ENCRYPTION_KEY is not set')

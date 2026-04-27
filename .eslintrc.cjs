@@ -28,6 +28,7 @@ const MODULE_GLOBS = [
   // Infrastructure modules — same shape rules, no cardinal rule (they're
   // the freely-importable foundation everything else sits on).
   'model/src/**/*.ts',
+  'crypto/src/**/*.ts',
   'client/src/**/*.ts',
   'db/src/**/*.ts',
   // Composition root — same shape rules apply, but it's the one place
