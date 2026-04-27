@@ -2,7 +2,8 @@ import { Router } from 'express'
 import type { Request } from 'express'
 import type { Db, Event } from '@foundry/db'
 import type { Result } from '@foundry/model'
-import { ok } from '@foundry/model'
+import { ok, makeCtx } from '@foundry/model'
+import type { CrudClient } from '@foundry/crud/client'
 import { parse, runResult, send, data } from '../http.js'
 import { accountId } from '../account-id.js'
 import {
@@ -16,15 +17,15 @@ import {
   type CrudError,
 } from '@foundry/crud'
 import { ticketUsage, type AnalyticsError } from '@foundry/analytics'
-import { killRunningExecutionsForTicket, type SandboxCrudOps, type SandboxState } from '@foundry/sandbox'
+import { killRunningExecutionsForTicket, type SandboxState } from '@foundry/sandbox'
 
-export function ticketRoutes(db: Db, sandboxCrud: SandboxCrudOps, sandboxState: SandboxState) {
+export function ticketRoutes(db: Db, crud: CrudClient, sandboxState: SandboxState) {
   const r = Router()
   r.get   ('/',            parse(validate.ticket.list, 'query'), runResult(req => ticketList(db, accountId(req), data(validate.ticket.list, req))),                            send())
   r.post  ('/',            parse(validate.ticket.create),        runResult(req => ticketCreate(db, accountId(req), data(validate.ticket.create, req))),                       send(201))
   r.get   ('/:id',                                               runResult(req => ticketGet(db, accountId(req), req.params.id)),                                                send())
   r.put   ('/:id',         parse(validate.ticket.update),        runResult(req => ticketUpdate(db, accountId(req), req.params.id, data(validate.ticket.update, req))),         send())
-  r.post  ('/:id/cancel',                                        runResult(req => cancelAndKill(db, sandboxCrud, sandboxState, req)),                                            send())
+  r.post  ('/:id/cancel',                                        runResult(req => cancelAndKill(db, crud, sandboxState, req)),                                                  send())
   r.get   ('/:id/chain',                                         runResult(req => ticketDependencyChain(db, accountId(req), req.params.id)),                                    send())
   r.get   ('/:id/verdict',                                       runResult(req => verdictList(db, accountId(req), req.params.id)),                                              send())
   r.get   ('/:id/comment',                                       runResult(req => commentList(db, accountId(req), req.params.id)),                                              send())
@@ -38,10 +39,10 @@ export function ticketRoutes(db: Db, sandboxCrud: SandboxCrudOps, sandboxState: 
   return r
 }
 
-function cancelAndKill(db: Db, sandboxCrud: SandboxCrudOps, sandboxState: SandboxState, req: Request): Result<unknown, CrudError> {
+async function cancelAndKill(db: Db, crud: CrudClient, sandboxState: SandboxState, req: Request): Promise<Result<unknown, CrudError>> {
   const r = ticketCancel(db, accountId(req), req.params.id)
   if (!r.ok) return r
-  killRunningExecutionsForTicket(db, req.params.id, sandboxCrud, sandboxState)
+  await killRunningExecutionsForTicket(makeCtx({ accountId: accountId(req) }), crud, sandboxState, req.params.id)
   return ok(r.value)
 }
 

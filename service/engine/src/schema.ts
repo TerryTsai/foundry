@@ -248,7 +248,7 @@ export interface SessionContext {
 
   // ── Sandbox callbacks (sync executionCreate is required by mcp tool
   //    handlers, which the SDK invokes synchronously) ──
-  executionCreate:            (db: Db, config: EngineConfig, input: ExecutionCreateInput) => Result<ExecutionHandle, SandboxError>
+  executionCreate:            (config: EngineConfig, input: ExecutionCreateInput) => Result<ExecutionHandle, SandboxError>
   registerSessionWorkspace:   (sessionId: string, workspace: string) => void
   unregisterSessionWorkspace: (sessionId: string) => void
   stopSessionContainer:       (sessionId: string) => Promise<void>

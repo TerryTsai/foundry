@@ -63,18 +63,10 @@ import {
   stopSessionContainer,
   stopAllSessionContainers,
   createSandboxState,
-  type SandboxCrudOps, type SandboxState,
+  createSandboxService,
+  type SandboxState,
 } from '@foundry/sandbox'
-import {
-  executionOwned, sessionOwned,
-  sessionGetById,
-  connectionByAccount,
-  // execution metering (sandbox internals)
-  executionList as crudExecutionList,
-  executionBySession as crudExecutionBySession,
-  executionMeterCreate, executionMeterUpdate, executionMarkCancelled,
-  sessionsForTicketRaw,
-} from '@foundry/crud'
+import { connectionByAccount } from '@foundry/crud'
 
 // Per-service wiring entry points. Each service.ts constructs its own
 // XxxClient from the deps passed in here; the composition root no longer
@@ -85,7 +77,6 @@ import { createBillingService }    from '@foundry/billing/service'
 import { createAnalyticsService }  from '@foundry/analytics/service'
 import { createCrudService }       from '@foundry/crud/service'
 import { createAuthService }       from '@foundry/auth/service'
-import { createSandboxService }    from '@foundry/sandbox/service'
 import { createMcpService }        from '@foundry/mcp/service'
 import { createEngineService }     from '@foundry/engine/service'
 import { createReconcilerService } from '@foundry/reconciler/service'
@@ -114,8 +105,8 @@ export function buildApp() {
   // crud's CrudClient is built first; auth + sandbox + engine all
   // route their persistence through it. crud itself is the only logic
   // module that imports @foundry/db.
-  const crud          = createCrudService(db, providerGet, supportedKinds, encryptionKey)
-  const sandboxCrud   = buildSandboxCrudOps()
+  const crud    = createCrudService(db, providerGet, supportedKinds, encryptionKey)
+  const sandbox = createSandboxService(db, config, crud, sandboxState)
 
   // ── Public routes (no auth) ──
   app.get('/health',        (_req, res) => res.json({ ok: true }))
@@ -184,13 +175,11 @@ export function buildApp() {
     (_c, code)           => githubProvider.oauthExchangeCode(config, code),
     (token)              => githubProvider.fetchUser(token),
   )
-  const sandboxService   = createSandboxService({ db, config, executionOwned, sessionOwned, sandboxCrud, sandboxState })
-  void sandboxService
   const mcpService       = createMcpService({ db, connectionByAccount })
   void mcpService
   const engine           = createEngineService(
     db, config, crud, auth, encryptionKey,
-    (innerDb, cfg, input)        => sandboxExecutionCreate(innerDb, cfg, sandboxCrud, sandboxState, input),
+    (cfg, input)                 => sandboxExecutionCreate(cfg, crud, sandboxState, input),
     (sessionId, workspace)       => registerSessionWorkspace(sandboxState, sessionId, workspace),
     (sessionId)                  => unregisterSessionWorkspace(sandboxState, sessionId),
     (sessionId)                  => stopSessionContainer(sandboxState, sessionId),
@@ -210,10 +199,10 @@ export function buildApp() {
 
   app.use('/project',    projectRoutes(db, triggerReconcile))
   app.use('/connection', connectionRoutes(db, encryptionKey))
-  app.use('/ticket',     ticketRoutes(db, sandboxCrud, sandboxState))
+  app.use('/ticket',     ticketRoutes(db, crud, sandboxState))
   app.use('/agent',      agentRoutes(db))
-  app.use('/session',    sessionRoutes(db, sandboxCrud))
-  app.use('/execution',  executionRoutes(db, config, sandboxCrud, sandboxState))
+  app.use('/session',    sessionRoutes(db, sandbox))
+  app.use('/execution',  executionRoutes(sandbox, sandboxState))
   app.use('/analytics',  analyticsRoutes(db))
   app.use('/attachment', attachmentRoutes(db))
 
@@ -225,20 +214,6 @@ export function buildApp() {
   app.use(errors)
 
   return { app, db, reconciler, sandboxState }
-}
-
-// ── crud-callback bundle constructors ────────────────────────────────
-
-function buildSandboxCrudOps(): SandboxCrudOps {
-  return {
-    sessionGetById:         sessionGetById,
-    executionList:          crudExecutionList,
-    executionBySession:     crudExecutionBySession,
-    sessionsForTicketRaw:   sessionsForTicketRaw,
-    executionMeterCreate:   executionMeterCreate,
-    executionMeterUpdate:   executionMeterUpdate,
-    executionMarkCancelled: executionMarkCancelled,
-  }
 }
 
 // Composition-root ordering. Earlier policies pre-empt later ones for

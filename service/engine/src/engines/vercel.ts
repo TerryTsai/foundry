@@ -29,7 +29,7 @@ function toAiTools<TCtx>(defs: ToolDef<TCtx>[], ctx: TCtx, prefix?: string): Too
 
 function unwrapExec(ctx: SessionContext): ExecutionCreate {
   return (input) => {
-    const r = ctx.executionCreate(ctx.db, ctx.config, input)
+    const r = ctx.executionCreate(ctx.config, input)
     if (!r.ok) throw new Error(`sandbox execution failed: ${r.error.kind}`)
     return r.value
   }

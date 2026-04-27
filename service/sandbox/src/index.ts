@@ -1,17 +1,15 @@
 // Public surface for @foundry/sandbox.
 
 export { createSandboxService } from './service.js'
-export type { SandboxServiceDeps } from './service.js'
 export type { SandboxClient, ExecutionCreateResult } from './client.js'
 
 export * as validate from './validate.js'
 
 export type {
-  SandboxConfig, SandboxCrudOps, ExecutionMeterCreateInput,
+  SandboxConfig, ExecutionMeterCreateInput,
   SandboxState,
   SessionContainerOpts, ContainerStats, ExecHandle, ExecOptions,
   ExecutionCreateInput,
-  IsExecutionOwned, IsSessionOwned,
   SandboxError,
 } from './schema.js'
 
@@ -23,8 +21,8 @@ export {
 } from './podman.js'
 
 export {
-  executionList, executionGet, executionBySession,
-  executionCreate, executionKill, executionStream,
+  executionCreate,
+  executionStream,
   killRunningExecutionsForTicket,
   registerSessionWorkspace, unregisterSessionWorkspace,
   createSandboxState,

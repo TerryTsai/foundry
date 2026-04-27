@@ -40,6 +40,7 @@ export type { Attachment }
 // ── Execution / activity / dependency ───────────────────────────────
 
 export interface ExecutionInsertInput {
+  id?:          string
   session_id?:  string | null
   tool_name?:   string | null
   tool_input?:  string | null
