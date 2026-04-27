@@ -3,7 +3,7 @@ import { type PolicyCtx, transition, dispatchSession } from './shared.js'
 // Newly-created ticket → dispatch its assigned producer agent if a slot
 // is available and any depends_on prerequisite is finished.
 export async function dispatchProducer(ctx: PolicyCtx): Promise<'acted' | 'pass'> {
-  const { db, deps, ticket, agents, slots } = ctx
+  const { crud, engine, ticket, agents, slots } = ctx
   if (ticket.status !== 'created') return 'pass'
   if (slots.remaining <= 0)        return 'pass'
   if (!ticket.agent_id)            return 'pass'
@@ -12,13 +12,13 @@ export async function dispatchProducer(ctx: PolicyCtx): Promise<'acted' | 'pass'
   if (!agent) return 'pass'
 
   if (ticket.depends_on) {
-    const depR = await deps.ticketGetById(ctx.ctx, ticket.depends_on)
+    const depR = await crud.ticketGetById(ctx.ctx, ticket.depends_on)
     const dep  = depR.ok ? depR.value : undefined
     if (!dep || dep.status !== 'finished') return 'pass'
   }
 
-  if (!(await transition(ctx.ctx, deps, ticket.id, 'created', 'running', 'reconciler'))) return 'pass'
+  if (!(await transition(ctx.ctx, crud, ticket.id, 'created', 'running', 'reconciler'))) return 'pass'
   slots.remaining--
-  await dispatchSession(ctx.ctx, db, deps, { ...ticket, status: 'running' }, agent, 'producer')
+  await dispatchSession(ctx.ctx, crud, engine, { ...ticket, status: 'running' }, agent, 'producer')
   return 'acted'
 }

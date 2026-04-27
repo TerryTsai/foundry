@@ -8,11 +8,11 @@ import type { SessionStep } from '../schema.js'
 
 export function pollCancel(next: SessionStep): SessionStep {
   return async (ctx) => {
-    const { deps, session, ticket } = ctx
+    const { crud, session, ticket } = ctx
     ctx.shouldStop = async () => {
-      const tR = await deps.ticketGetById(ctx.ctx, ticket.id)
+      const tR = await crud.ticketGetById(ctx.ctx, ticket.id)
       if (!tR.ok || !tR.value || tR.value.status !== 'running') return true
-      const sR = await deps.sessionGetById(ctx.ctx, session.id)
+      const sR = await crud.sessionGetById(ctx.ctx, session.id)
       if (!sR.ok || !sR.value || sR.value.status !== 'running') return true
       return false
     }

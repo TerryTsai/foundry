@@ -1,18 +1,20 @@
 // Module-internal types for @foundry/engine.
 //
 // Engine cannot import other logic modules (auth/mcp/sandbox/crud) — see
-// ARCHITECTURE.md. All cross-module functions arrive via EngineDeps,
-// constructed at the composition root.
+// ARCHITECTURE.md. Cross-module communication goes through the typed
+// CrudClient (and the soon-to-be-redone McpClient); other peer-service
+// helpers arrive as expanded positional callbacks at the composition
+// root and ride along on SessionContext.
 
 import type { ZodType } from 'zod'
 import type { Db } from '@foundry/db'
-import type { Account, Activity, Agent, Connection, Comment, Event, Project, Session, Ticket } from '@foundry/db'
+import type { Project, Session, Ticket, Agent, Connection } from '@foundry/db'
 import type { Ctx, Result } from '@foundry/model'
 // Cross-service type imports — values from peer services are still
 // forbidden (cardinal rule); type-only imports are fine.
 import type { AuthError } from '@foundry/auth'
 import type { SandboxError } from '@foundry/sandbox'
-import type { VerdictRow } from '@foundry/crud'
+import type { CrudClient } from '@foundry/crud/client'
 
 export type EngineError =
   | { kind: 'model_unavailable';  reason: string }
@@ -200,64 +202,11 @@ export interface AttachmentSummary {
   size: number
 }
 
-// ── EngineDeps ───────────────────────────────────────────────────────
-// Every cross-module function the engine needs. Composition root
-// constructs this once per service boot from the real implementations
-// in @foundry/{auth,mcp,sandbox,crud}. The `crud` slot is uniformly
-// async / Result / Ctx-shaped: optional reads return Result<T | undefined>
-// so callers branch on .value rather than wrapping not_found in the
-// error channel; writes resolve to Result<T> on success and treat
-// transport failures as hard errors. Crypto helpers stay sync (pure
-// closures over the encryption key, not data ops).
-
-type CrudErr = { kind: 'internal'; message: string }
-
-export interface EngineDeps {
-  sessionJwtMint:             (db: Db, sessionId: string, ttlMs: number) => Result<string, AuthError>
-  foundryServer:              ToolServer<McpFoundryCtx>
-  githubServer:               ToolServer<McpGithubCtx>
-  sandboxServer:              ToolServer<McpSandboxCtx>
-  browserServer:              ToolServer<McpSandboxCtx>
-  byConnectionKind:           Record<string, IntegrationModule<McpConnCtx> | undefined>
-  filterTools:                <T extends { name: string }>(tools: T[], allowed: string[] | '*' | null | undefined) => T[]
-  parseToolSelection:         (raw: string | null) => ToolSelection
-  parseConn:                  (conn: Connection, decrypt: (s: string) => string) => ParsedConn
-  asText:                     (value: unknown) => McpResult
-  isMcpEnvelope:              (value: unknown) => value is McpResult
-  toolUseId:                  (extra: unknown) => string | undefined
-  workspaceEmpty:             () => Promise<string>
-  workspaceDestroy:           (path: string) => Promise<void>
-  executionCreate:            (db: Db, config: EngineConfig, input: ExecutionCreateInput) => Result<ExecutionHandle, SandboxError>
-  registerSessionWorkspace:   (sessionId: string, workspace: string) => void
-  unregisterSessionWorkspace: (sessionId: string) => void
-  stopSessionContainer:       (sessionId: string) => Promise<void>
-  encryptSecret:              (s: string) => string
-  decryptSecret:              (s: string) => string
-  // entity reads
-  attachmentListByTicketInternal: (ctx: Ctx, ticketId: string)  => Promise<Result<AttachmentSummary[], CrudErr>>
-  ticketGetById:        (ctx: Ctx, id: string)        => Promise<Result<Ticket      | undefined, CrudErr>>
-  sessionGetById:       (ctx: Ctx, id: string)        => Promise<Result<Session     | undefined, CrudErr>>
-  agentGetById:         (ctx: Ctx, id: string)        => Promise<Result<Agent       | undefined, CrudErr>>
-  projectGetById:       (ctx: Ctx, id: string)        => Promise<Result<Project     | undefined, CrudErr>>
-  accountGetById:       (ctx: Ctx, id: string)        => Promise<Result<Account     | undefined, CrudErr>>
-  connectionGetById:    (ctx: Ctx, id: string)        => Promise<Result<Connection  | undefined, CrudErr>>
-  connectionByAccount:  (ctx: Ctx, accountId: string) => Promise<Result<Connection[], CrudErr>>
-  commentByTicket:      (ctx: Ctx, ticketId: string)  => Promise<Result<Comment[], CrudErr>>
-  verdictBySession:     (ctx: Ctx, sessionId: string) => Promise<Result<VerdictRow | undefined, CrudErr>>
-  verdictByTicket:      (ctx: Ctx, ticketId: string)  => Promise<Result<VerdictRow[], CrudErr>>
-  activityByTurnOrder:  (ctx: Ctx, sessionId: string, turnId: string, orderIndex: number) => Promise<Result<Activity | undefined, CrudErr>>
-  // entity writes
-  ticketUpdateById:     (ctx: Ctx, id: string, data: Record<string, unknown>) => Promise<Result<Ticket,     CrudErr>>
-  sessionUpdateById:    (ctx: Ctx, id: string, data: Record<string, unknown>) => Promise<Result<Session,    CrudErr>>
-  connectionUpdateById: (ctx: Ctx, id: string, data: Record<string, unknown>) => Promise<Result<Connection, CrudErr>>
-  activityCreate:       (ctx: Ctx, data: Record<string, unknown>) => Promise<Result<Activity, CrudErr>>
-  activityUpdate:       (ctx: Ctx, id: string, data: Record<string, unknown>) => Promise<Result<Activity, CrudErr>>
-  eventCreate:          (ctx: Ctx, data: { entity_type: string; entity_id: string; kind: string; data?: string; caused_by: string; caused_by_id?: string | null }) => Promise<Result<Event, CrudErr>>
-}
-
 // ── SessionContext ───────────────────────────────────────────────────
-// Threaded through every middleware. The deps reference is set by
-// runSession before the pipeline starts.
+// Threaded through every middleware. Holds per-session runtime state
+// plus every cross-module callback the pipeline needs. Composition root
+// builds this in runSession from CrudClient + expanded sandbox/auth/mcp
+// callbacks (mcp callbacks are positional pending the mcp-side rework).
 
 export interface LoopResult {
   finishReason: string | null
@@ -272,7 +221,6 @@ export interface SessionContext {
   ctx:          Ctx               // per-session caller ctx; threaded into every crud call
   db:           Db
   config:       EngineConfig
-  deps:         EngineDeps
   session:      Session
   ticket:       Ticket
   agent:        Agent
@@ -288,6 +236,38 @@ export interface SessionContext {
   shouldStop:   () => Promise<boolean>
   result?:      LoopResult
   startedAt:    number
+
+  // ── Crud surface ──
+  crud:         CrudClient
+
+  // ── Crypto ──
+  encryptionKey: Buffer
+
+  // ── Auth (single callback; AuthClient may absorb later) ──
+  sessionJwtMint: (db: Db, sessionId: string, ttlMs: number) => Result<string, AuthError>
+
+  // ── Sandbox callbacks (sync executionCreate is required by mcp tool
+  //    handlers, which the SDK invokes synchronously) ──
+  executionCreate:            (db: Db, config: EngineConfig, input: ExecutionCreateInput) => Result<ExecutionHandle, SandboxError>
+  registerSessionWorkspace:   (sessionId: string, workspace: string) => void
+  unregisterSessionWorkspace: (sessionId: string) => void
+  stopSessionContainer:       (sessionId: string) => Promise<void>
+
+  // ── MCP callbacks (kept as expanded positional callbacks pending
+  //    the mcp-side rework — when McpClient lands these collapse) ──
+  foundryServer:              ToolServer<McpFoundryCtx>
+  githubServer:               ToolServer<McpGithubCtx>
+  sandboxServer:              ToolServer<McpSandboxCtx>
+  browserServer:              ToolServer<McpSandboxCtx>
+  byConnectionKind:           Record<string, IntegrationModule<McpConnCtx> | undefined>
+  filterTools:                <T extends { name: string }>(tools: T[], allowed: string[] | '*' | null | undefined) => T[]
+  parseToolSelection:         (raw: string | null) => ToolSelection
+  parseConn:                  (conn: Connection, decrypt: (s: string) => string) => ParsedConn
+  asText:                     (value: unknown) => McpResult
+  isMcpEnvelope:              (value: unknown) => value is McpResult
+  toolUseId:                  (extra: unknown) => string | undefined
+  workspaceEmpty:             () => Promise<string>
+  workspaceDestroy:           (path: string) => Promise<void>
 }
 
 // ── Pipeline (Koa-style middleware) ─────────────────────────────────

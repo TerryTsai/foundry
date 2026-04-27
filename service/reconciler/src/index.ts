@@ -6,7 +6,7 @@
 // at server boot via createReconcilerService.
 
 export { createReconcilerService } from './service.js'
-export type { ReconcilerServiceDeps, ReconcilerService } from './service.js'
+export type { ReconcilerService } from './service.js'
 export type { ReconcilerClient } from './client.js'
 
 // Policies — server composes these into the ordered list passed to
@@ -20,14 +20,4 @@ export { dispatchVerifier }         from './policies/dispatch-verifier.js'
 export { finishOnAllPass }          from './policies/finish-on-all-pass.js'
 export { retryAfterFail }           from './policies/retry-after-fail.js'
 
-export type {
-  ReconcilerDeps,
-  ReconcilerConfig,
-  EngineDeps,
-  RunSessionFn,
-  Policy,
-  PolicyCtx,
-} from './schema.js'
-
-// Raw exports remain during the @foundry/client → per-service migration.
-export { reconcilerTick, shutdownDrain } from './reconciler.js'
+export type { Policy, PolicyCtx } from './schema.js'

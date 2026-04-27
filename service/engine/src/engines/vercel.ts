@@ -5,10 +5,11 @@ import { generateText, stepCountIs, tool, type ModelMessage, type ToolSet } from
 import { ulid } from 'ulid'
 
 import { now } from '@foundry/model'
+import { decryptSecret } from '@foundry/crypto'
 
 import { resolveModelWithDefaults } from './model-factory.js'
 import type {
-  EngineDeps, SessionContext, LoopResult, ToolDef, ExecutionCreate,
+  SessionContext, LoopResult, ToolDef, ExecutionCreate,
   McpFoundryCtx, McpGithubCtx, McpSandboxCtx, McpConnCtx,
   AiToolInputSchema, StepResult, ContentPart, PartActivity, EngineState,
 } from '../schema.js'
@@ -26,37 +27,37 @@ function toAiTools<TCtx>(defs: ToolDef<TCtx>[], ctx: TCtx, prefix?: string): Too
   return out
 }
 
-function unwrapExec(deps: EngineDeps, db: SessionContext['db'], config: SessionContext['config']): ExecutionCreate {
+function unwrapExec(ctx: SessionContext): ExecutionCreate {
   return (input) => {
-    const r = deps.executionCreate(db, config, input)
+    const r = ctx.executionCreate(ctx.db, ctx.config, input)
     if (!r.ok) throw new Error(`sandbox execution failed: ${r.error.kind}`)
     return r.value
   }
 }
 
 function buildBuiltInTools(ctx: SessionContext, executionCreate: ExecutionCreate): ToolSet {
-  const { db, config, workDir, deps, agent: agentDef, ticket: ticketData, session, project } = ctx
-  const foundryCtx: McpFoundryCtx = { db, config, sessionId: session.id, workspace: workDir, projectId: ticketData.project_id, accountId: agentDef.account_id, ticketId: ticketData.id, agentName: agentDef.name, sandboxToken: ctx.sandboxToken, executionCreate }
+  const { db, config, workDir, agent: agentDef, ticket: ticketData, session, project, sandboxToken } = ctx
+  const foundryCtx: McpFoundryCtx = { db, config, sessionId: session.id, workspace: workDir, projectId: ticketData.project_id, accountId: agentDef.account_id, ticketId: ticketData.id, agentName: agentDef.name, sandboxToken, executionCreate }
   const githubCtx:  McpGithubCtx  = { db, config, sessionId: session.id, workspace: workDir, ticket: ticketData, agentName: agentDef.name, executionCreate, projectGet: () => project }
   const sandboxCtx: McpSandboxCtx = { db, config, sessionId: session.id, workspace: workDir, executionCreate }
   return {
-    ...toAiTools(deps.foundryServer.tools, foundryCtx),
-    ...toAiTools(deps.githubServer.tools,  githubCtx),
-    ...toAiTools(deps.sandboxServer.tools, sandboxCtx),
-    ...toAiTools(deps.browserServer.tools, sandboxCtx),
+    ...toAiTools(ctx.foundryServer.tools, foundryCtx),
+    ...toAiTools(ctx.githubServer.tools,  githubCtx),
+    ...toAiTools(ctx.sandboxServer.tools, sandboxCtx),
+    ...toAiTools(ctx.browserServer.tools, sandboxCtx),
   }
 }
 
 async function attachConnectionTools(
   result: ToolSet, ctx: SessionContext, executionCreate: ExecutionCreate,
 ): Promise<void> {
-  const { db, config, workDir, deps, agent: agentDef, session } = ctx
-  const r = await deps.connectionByAccount(ctx.ctx, agentDef.account_id)
+  const { db, config, workDir, agent: agentDef, session } = ctx
+  const r = await ctx.crud.connectionByAccount(ctx.ctx, agentDef.account_id)
   const conns = r.ok ? r.value : []
   for (const conn of conns) {
-    const mod = deps.byConnectionKind[conn.kind]
+    const mod = ctx.byConnectionKind[conn.kind]
     if (!mod) continue
-    const { secrets, connConfig } = deps.parseConn(conn, deps.decryptSecret)
+    const { secrets, connConfig } = ctx.parseConn(conn, (s) => decryptSecret(s, ctx.encryptionKey))
     const prefix = `${conn.kind}-${conn.name}`
     const connCtx: McpConnCtx = { db, config, sessionId: session.id, workspace: workDir, secrets, connConfig, connectionName: conn.name, executionCreate }
     Object.assign(result, toAiTools(mod.tools, connCtx, prefix))
@@ -64,8 +65,7 @@ async function attachConnectionTools(
 }
 
 async function buildTools(ctx: SessionContext): Promise<ToolSet> {
-  const { db, config, deps } = ctx
-  const executionCreate = unwrapExec(deps, db, config)
+  const executionCreate = unwrapExec(ctx)
   const result = buildBuiltInTools(ctx, executionCreate)
   await attachConnectionTools(result, ctx, executionCreate)
   return result
@@ -92,7 +92,7 @@ async function writeStepActivities(ctx: SessionContext, sessionId: string, turnI
     const act = partToActivity(parts[idx])
     if (!act) continue
     if (act.isToolCall) toolCalls++
-    await ctx.deps.activityCreate(ctx.ctx, activityFromPart(sessionId, turnId, idx, act, inputTokens, outputTokens))
+    await ctx.crud.activityCreate(ctx.ctx, activityFromPart(sessionId, turnId, idx, act, inputTokens, outputTokens))
   }
   return toolCalls
 }
@@ -112,8 +112,8 @@ function newState(): EngineState {
 }
 
 export async function runEngine(ctx: SessionContext): Promise<LoopResult> {
-  const { deps, systemPrompt, userPrompt, shouldStop, agent: agentDef, session } = ctx
-  const model = await resolveModelWithDefaults(ctx.ctx, deps, agentDef)
+  const { systemPrompt, userPrompt, shouldStop, agent: agentDef, session } = ctx
+  const model = await resolveModelWithDefaults(ctx, agentDef)
   const tools = await buildTools(ctx)
   const messages: ModelMessage[] = [{ role: 'user', content: userPrompt }]
   const state = newState()

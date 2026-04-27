@@ -7,12 +7,12 @@ import type { SessionStep } from '../schema.js'
 
 export function provisionWorkspace(next: SessionStep): SessionStep {
   return async (ctx) => {
-    ctx.workDir = await ctx.deps.workspaceEmpty()
-    ctx.deps.registerSessionWorkspace(ctx.session.id, ctx.workDir)
+    ctx.workDir = await ctx.workspaceEmpty()
+    ctx.registerSessionWorkspace(ctx.session.id, ctx.workDir)
     try { return await next(ctx) }
     finally {
-      ctx.deps.unregisterSessionWorkspace(ctx.session.id)
-      await ctx.deps.workspaceDestroy(ctx.workDir)
+      ctx.unregisterSessionWorkspace(ctx.session.id)
+      await ctx.workspaceDestroy(ctx.workDir)
     }
   }
 }

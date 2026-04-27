@@ -1,21 +1,17 @@
-// Wiring for @foundry/reconciler. Lifecycle is owned here: createReconcilerService
-// allocates and returns the per-tick handle the composition root invokes on
-// its setInterval and on SIGTERM. The cross-service ReconcilerClient stays
-// empty (no other service calls reconciler today); the runtime handle is
-// what server actually needs.
+// Wiring for @foundry/reconciler. Lifecycle is owned here:
+// createReconcilerService allocates and returns the per-tick handle the
+// composition root invokes on its setInterval and on SIGTERM. The
+// cross-service ReconcilerClient stays empty (no other service calls
+// reconciler today); the runtime handle is what server actually needs.
 
 import type { Db } from '@foundry/db'
 import { makeCtx } from '@foundry/model'
+import type { CrudClient } from '@foundry/crud/client'
+import type { EngineClient } from '@foundry/engine/client'
 
 import { reconcilerTick, shutdownDrain } from './reconciler.js'
-import type { ReconcilerDeps, Policy } from './schema.js'
+import type { Policy } from './schema.js'
 import type { ReconcilerClient } from './client.js'
-
-export type ReconcilerServiceDeps = {
-  db:       Db
-  deps:     ReconcilerDeps
-  policies: Policy[]
-}
 
 export type ReconcilerService = {
   client: ReconcilerClient
@@ -28,8 +24,10 @@ export type ReconcilerService = {
 // call carries its own traceId for correlation.
 const systemCtx = () => makeCtx({ accountId: 'system' })
 
-export const createReconcilerService = (deps: ReconcilerServiceDeps): ReconcilerService => ({
+export const createReconcilerService = (
+  db: Db, crud: CrudClient, engine: EngineClient, policies: Policy[],
+): ReconcilerService => ({
   client: {},
-  tick:   () => reconcilerTick(systemCtx(), deps.db, deps.deps, deps.policies),
-  drain:  () => shutdownDrain(systemCtx(), deps.deps),
+  tick:   () => reconcilerTick(systemCtx(), db, crud, engine, policies),
+  drain:  () => shutdownDrain(systemCtx(), crud),
 })

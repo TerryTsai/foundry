@@ -29,8 +29,8 @@ async function dispatchNextMissing(ctx: PolicyCtx, verifierIds: string[], dispat
 }
 
 async function sendVerifier(ctx: PolicyCtx, verifier: Agent): Promise<boolean> {
-  if (!(await transition(ctx.ctx, ctx.deps, ctx.ticket.id, 'waiting', 'running', 'reconciler', { reason: 'verifier', verifier_name: verifier.name }))) return false
+  if (!(await transition(ctx.ctx, ctx.crud, ctx.ticket.id, 'waiting', 'running', 'reconciler', { reason: 'verifier', verifier_name: verifier.name }))) return false
   ctx.slots.remaining--
-  await dispatchSession(ctx.ctx, ctx.db, ctx.deps, { ...ctx.ticket, status: 'running' }, verifier, 'verifier')
+  await dispatchSession(ctx.ctx, ctx.crud, ctx.engine, { ...ctx.ticket, status: 'running' }, verifier, 'verifier')
   return true
 }

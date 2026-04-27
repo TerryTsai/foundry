@@ -15,13 +15,13 @@ export function recordSession(next: SessionStep): SessionStep {
       await finalizeFailedSession(ctx, errVal)
       throw errVal
     } finally {
-      await ctx.deps.stopSessionContainer(ctx.session.id).catch(() => {})
+      await ctx.stopSessionContainer(ctx.session.id).catch(() => {})
     }
   }
 }
 
 async function emitStartEvent(ctx: SessionContext): Promise<void> {
-  await ctx.deps.eventCreate(ctx.ctx, {
+  await ctx.crud.eventCreate(ctx.ctx, {
     entity_type: 'session', entity_id: ctx.session.id,
     kind: 'session_started',
     data: JSON.stringify({ agent: ctx.agent.name, ticket_id: ctx.ticket.id }),
@@ -32,11 +32,11 @@ async function emitStartEvent(ctx: SessionContext): Promise<void> {
 async function finalizeSession(ctx: SessionContext): Promise<void> {
   const r = ctx.result!
   const status = r.cancelled ? 'cancelled' : 'finished'
-  await ctx.deps.sessionUpdateById(ctx.ctx, ctx.session.id, {
+  await ctx.crud.sessionUpdateById(ctx.ctx, ctx.session.id, {
     status, cost_usd: r.costUsd,
     duration_ms: Date.now() - ctx.startedAt, ended_at: now(),
   })
-  await ctx.deps.eventCreate(ctx.ctx, {
+  await ctx.crud.eventCreate(ctx.ctx, {
     entity_type: 'session', entity_id: ctx.session.id,
     kind: 'session_' + status,
     data: JSON.stringify({ duration_ms: Date.now() - ctx.startedAt, cost_usd: r.costUsd }),
@@ -46,11 +46,11 @@ async function finalizeSession(ctx: SessionContext): Promise<void> {
 
 async function finalizeFailedSession(ctx: SessionContext, errVal: unknown): Promise<void> {
   const msg = errVal instanceof Error ? errVal.message : String(errVal)
-  await ctx.deps.sessionUpdateById(ctx.ctx, ctx.session.id, {
+  await ctx.crud.sessionUpdateById(ctx.ctx, ctx.session.id, {
     status: 'failed', error: msg,
     duration_ms: Date.now() - ctx.startedAt, ended_at: now(),
   })
-  await ctx.deps.eventCreate(ctx.ctx, {
+  await ctx.crud.eventCreate(ctx.ctx, {
     entity_type: 'session', entity_id: ctx.session.id,
     kind: 'session_failed',
     data: JSON.stringify({ error: msg }),

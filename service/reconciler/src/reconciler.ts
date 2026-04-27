@@ -10,45 +10,52 @@ import { type Db } from '@foundry/db'
 import type { Project, Ticket } from '@foundry/db'
 import type { Ctx } from '@foundry/model'
 import { now } from '@foundry/model'
+import type { CrudClient } from '@foundry/crud/client'
+import type { EngineClient } from '@foundry/engine/client'
 
-import type { ReconcilerDeps, Policy, PolicyCtx } from './schema.js'
+import type { Policy, PolicyCtx } from './schema.js'
 
 // ── tick ─────────────────────────────────────────────────────────────
 
-export async function reconcilerTick(ctx: Ctx, db: Db, deps: ReconcilerDeps, policies: Policy[]): Promise<void> {
-  const projectsR = await deps.projectsActive(ctx)
+export async function reconcilerTick(
+  ctx: Ctx, db: Db, crud: CrudClient, engine: EngineClient, policies: Policy[],
+): Promise<void> {
+  const projectsR = await crud.projectsActive(ctx)
   if (!projectsR.ok) return
   for (const project of projectsR.value) {
-    await tickProject(ctx, db, deps, project, policies)
+    await tickProject(ctx, db, crud, engine, project, policies)
   }
 }
 
 // Walk every non-terminal ticket in one project through the policy list.
-async function tickProject(ctx: Ctx, db: Db, deps: ReconcilerDeps, project: Project, policies: Policy[]): Promise<void> {
-  const agentsR  = await deps.agentList(ctx, project.owner_id)
+async function tickProject(
+  ctx: Ctx, db: Db, crud: CrudClient, engine: EngineClient,
+  project: Project, policies: Policy[],
+): Promise<void> {
+  const agentsR  = await crud.agentListInternal(ctx, project.owner_id)
   const agents   = agentsR.ok ? agentsR.value : []
-  const running  = await ticketsByStatus(ctx, deps, project.id, 'running')
-  const waiting  = await ticketsByStatus(ctx, deps, project.id, 'waiting')
-  const created  = await ticketsByStatus(ctx, deps, project.id, 'created')
+  const running  = await ticketsByStatus(ctx, crud, project.id, 'running')
+  const waiting  = await ticketsByStatus(ctx, crud, project.id, 'waiting')
+  const created  = await ticketsByStatus(ctx, crud, project.id, 'created')
   const slots    = { remaining: project.max_agents - running.length }
 
   // FIFO across non-terminal tickets — whatever waited longest goes first
   const candidates = [...running, ...waiting, ...created]
-  const queue = await sortByLatestEvent(ctx, deps, candidates)
+  const queue = await sortByLatestEvent(ctx, crud, candidates)
 
   for (const ticket of queue) {
-    await runPolicies({ ctx, db, deps, project, agents, ticket, slots }, policies)
+    await runPolicies({ ctx, db, crud, engine, project, agents, ticket, slots }, policies)
   }
 }
 
-async function ticketsByStatus(ctx: Ctx, deps: ReconcilerDeps, projectId: string, status: string): Promise<Ticket[]> {
-  const r = await deps.ticketAllByProject(ctx, projectId, status)
+async function ticketsByStatus(ctx: Ctx, crud: CrudClient, projectId: string, status: string): Promise<Ticket[]> {
+  const r = await crud.ticketAllByProject(ctx, projectId, status)
   return r.ok ? r.value : []
 }
 
-async function sortByLatestEvent(ctx: Ctx, deps: ReconcilerDeps, tickets: Ticket[]): Promise<Ticket[]> {
+async function sortByLatestEvent(ctx: Ctx, crud: CrudClient, tickets: Ticket[]): Promise<Ticket[]> {
   const stamps = await Promise.all(tickets.map(async (t) => {
-    const r = await deps.eventLatest(ctx, 'ticket', t.id)
+    const r = await crud.eventLatest(ctx, 'ticket', t.id)
     return { ticket: t, stamp: (r.ok && r.value?.created_at) ? r.value.created_at : '1970-01-01' }
   }))
   return stamps.sort((a, b) => a.stamp.localeCompare(b.stamp)).map(s => s.ticket)
@@ -63,18 +70,18 @@ async function runPolicies(ctx: PolicyCtx, policies: Policy[]): Promise<void> {
 
 // ── shutdown ─────────────────────────────────────────────────────────
 
-export async function shutdownDrain(ctx: Ctx, deps: ReconcilerDeps): Promise<void> {
-  const r = await deps.sessionRunning(ctx)
+export async function shutdownDrain(ctx: Ctx, crud: CrudClient): Promise<void> {
+  const r = await crud.sessionRunning(ctx)
   if (!r.ok) return
   const running = r.value
   for (const s of running) {
-    await deps.sessionUpdateById(ctx, s.id, {
+    await crud.sessionUpdateById(ctx, s.id, {
       status: 'failed', error: 'deploy-restart', ended_at: now(),
     })
-    const tR = await deps.ticketGetById(ctx, s.ticket_id)
+    const tR = await crud.ticketGetById(ctx, s.ticket_id)
     const t  = tR.ok ? tR.value : undefined
     if (t?.status === 'running') {
-      await deps.ticketUpdateById(ctx, t.id, { status: 'waiting', updated_at: now() })
+      await crud.ticketUpdateById(ctx, t.id, { status: 'waiting', updated_at: now() })
     }
   }
   if (running.length) console.log(`drained ${running.length} running session(s)`)
