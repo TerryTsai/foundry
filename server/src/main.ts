@@ -167,7 +167,7 @@ export function buildApp() {
   // their dependency. Routes call client methods directly.
   const billingService   = createBillingService()
   void billingService
-  const analyticsService = createAnalyticsService({ db })
+  const analyticsService = createAnalyticsService(db)
   void analyticsService
   const auth             = createAuthService(
     config, crud, encryptionKey,
