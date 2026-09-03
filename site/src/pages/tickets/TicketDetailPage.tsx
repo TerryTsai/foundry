@@ -14,6 +14,7 @@ import { SectionLabel } from '../../components/detail/SectionLabel.js'
 import { DetailShell } from '../../components/layout/DetailShell.js'
 import { useShell } from '../../Shell.js'
 import { Field } from '../../components/form/Field.js'
+import { Select } from '../../components/form/Select.js'
 import { TextArea } from '../../components/form/TextArea.js'
 import { ActionButton } from '../../components/form/ActionButton.js'
 import { useBreadcrumbLabel } from '../../Breadcrumb.js'
@@ -114,11 +115,16 @@ export function TicketDetailPage() {
   const queryClient = useQueryClient()
   const navigate = useNavigate()
   const [editing, setEditing] = useState(false)
+  const [agentId, setAgentId] = useState('')
   const [description, setDescription] = useState('')
 
   useBreadcrumbLabel(ticket?.title ?? '')
 
-  useEffect(() => { if (ticket) setDescription(ticket.description) }, [ticket?.description, ticket])
+  useEffect(() => {
+    if (!ticket) return
+    setAgentId(ticket.agent_id ?? '')
+    setDescription(ticket.description)
+  }, [ticket])
 
   // Optimistic comment add — drop the new comment into the cached list
   // immediately, reconcile on settle. Any attached files upload in the
@@ -154,9 +160,10 @@ export function TicketDetailPage() {
   }, [tid, queryClient, comments])
 
   const saveMutation = useMutation({
-    mutationFn: () => ticketApi.update(tid, { description }),
+    mutationFn: () => ticketApi.update(tid, { agent_id: agentId, description }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: qk.ticket.byId(tid) })
+      queryClient.invalidateQueries({ queryKey: qk.ticket.all() })
       setEditing(false)
     },
   })
@@ -198,12 +205,18 @@ export function TicketDetailPage() {
     >
       {editing && (
         <div className="space-y-4">
+          <Field label="agent">
+            <Select value={agentId} onChange={e => setAgentId(e.target.value)}>
+              <option value="" disabled>select agent</option>
+              {agents.map(agent => <option key={agent.id} value={agent.id}>{agent.name}</option>)}
+            </Select>
+          </Field>
           <Field label="description">
             <TextArea label="description" value={description} onChange={e => setDescription(e.target.value)} rows={6} />
           </Field>
           <div className="flex gap-2">
             <ActionButton label="cancel" variant="secondary" onClick={() => setEditing(false)} className="flex-1" />
-            <ActionButton label="save" onClick={() => saveMutation.mutate()} className="flex-1" />
+            <ActionButton label="save" onClick={() => saveMutation.mutate()} disabled={!agentId || saveMutation.isPending} className="flex-1" />
           </div>
         </div>
       )}
