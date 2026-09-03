@@ -1,0 +1,6 @@
+enabled: true
+priority: normal
+harness: codex
+runtime:
+  type: podman
+  image: foundry-worker:latest
