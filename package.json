@@ -2,21 +2,15 @@
   "name": "foundry",
   "private": true,
   "workspaces": [
-    "model",
-    "crypto",
-    "db",
-    "mcp",
     "site",
-    "service/*",
     "server"
   ],
   "scripts": {
-    "check": "eslint ."
+    "build": "npm run build -w @foundry/site && npm run build -w @foundry/server",
+    "check": "npm run test -w @foundry/server && npm run build",
+    "dev": "npm run dev -w @foundry/server"
   },
   "devDependencies": {
-    "@typescript-eslint/eslint-plugin": "^7.13.0",
-    "@typescript-eslint/parser": "^7.13.0",
-    "eslint": "^8.57.0",
     "typescript": "^5.4.5"
   }
 }

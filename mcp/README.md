@@ -1,3 +1,0 @@
-# @foundry/mcp
-
-Owns the MCP tool surface that agents call into. Includes the four built-in tool servers (foundry, sandbox, browser, github), the per-vendor connection-bound tool servers (cloudflare, aws, stripe, supabase, sentry, posthog, resend, linear, uptimerobot, calcom, crisp, clerk), and the connection-provider definitions the connections module validates against. The actual sandbox lifecycle (`executionCreate`) and secret decryption (`decryptSecret`) are not owned here — the engine layer injects them as callbacks since `mcp` cannot import `@foundry/sandbox` or `@foundry/crud` directly. See `/ARCHITECTURE.md`.

@@ -1,41 +1,17 @@
 # Contributing
 
-Read [`ARCHITECTURE.md`](./ARCHITECTURE.md) before adding code. It is authoritative for module boundaries, file layout, code style, and the conventions every change must follow. The rules are enforced mechanically — `npm run check` runs the lint pass, which carries the cardinal-rule, function-shape, and no-class checks.
+Keep Foundry smaller than the problem it coordinates.
 
-## Before opening a change
+Before adding a concept, verify that it cannot remain repository state, task Markdown, Git history, native harness configuration, or ephemeral process state. The visible domain is Projects and Tasks; the Worker is workspace configuration.
 
-```sh
-npm install        # if package.json changed
-npm run check      # lint (cardinal rule + function shape + no classes)
-npx tsc -b         # type-check the workspace
-```
+Changes should preserve these invariants:
 
-If a change touches a logic module, also run that module's tests:
+- task states remain exactly queued, working, needs_you, paused, and done;
+- a project has at most one Working task;
+- autonomous execution never runs on the host;
+- scheduler choice is deterministic;
+- GitHub remains sufficient to reconstruct meaningful state;
+- task files are current briefings, not journals;
+- harness behavior and configuration stay native to the harness.
 
-```sh
-cd service/<module> && npx vitest run
-```
-
-## Adding a new module
-
-Copy an existing logic module as a skeleton (e.g. `cp -r service/billing service/<name>`), rename it inside `package.json`, update `src/index.ts`, then:
-
-1. Add the package's tsconfig reference to the root `tsconfig.json`.
-2. Declare its dependencies in `package.json`.
-3. If it's a logic module, add it to `LOGIC_MODULES` in `.eslintrc.cjs` so the cardinal rule covers it.
-
-## What you can rely on
-
-- **Cross-module imports**: logic modules cannot import other logic modules; non-{crud,analytics} can only type-import `@foundry/db`. Enforced by ESLint `no-restricted-imports` per logic-module package in `.eslintrc.cjs`.
-- **No classes in logic modules**: enforced by ESLint `no-restricted-syntax`.
-- **Function size**: 20-line cap, depth ≤ 2. Enforced by ESLint `max-lines-per-function` and `max-depth`.
-
-## What's grandfathered
-
-Packages migrated during Phase 4 carry `// eslint-disable-next-line max-lines-per-function -- legacy; refactor in Phase 7+` comments on functions that exceed the target. Don't add new disables to new code — those should fail review.
-
-The migration-window settings will tighten when internal throw-AppError patterns get converted to native Result. Until then, mature legacy code stays as-is.
-
-## Commits and pushes
-
-Direct commits to `main` are normal — this is a single-developer workflow. Larger changes can use feature branches (`foundry/<name>`) but aren't required.
+Run `npm run check` before handing off a change.

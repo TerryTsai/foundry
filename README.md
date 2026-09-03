@@ -1,66 +1,106 @@
 # Foundry
 
-A personal control plane for self-hosted projects and infrastructure. Aggregates the few signals you actually check across services (Forgejo, CI, deploys, monitoring) and dispatches the few actions you take, through a typed agent workforce.
+Foundry is a small control plane for delegated autonomous work across GitHub projects. Projects contain durable Tasks. One workspace Worker periodically chooses one Working task, gives it to the repository-selected harness inside a disposable container, and relies on Git for cold continuity.
 
-This repository is a TypeScript monorepo. See [`ARCHITECTURE.md`](./ARCHITECTURE.md) for the conventions every change must follow and [`CONTRIBUTING.md`](./CONTRIBUTING.md) for the workflow.
+Foundry is not an agent harness. Codex is the first supported harness; repository-native files such as `AGENTS.md` and `.codex/` remain authoritative for harness behavior.
 
-## Layout
+## What this version proves
 
-```
-model/         shared types: entities, error unions, Result, Ctx
-client/        typed cross-module surface + bind() + adapters
-db/            drizzle schema + per-entity query helpers
-mcp/           MCP servers (foundry, sandbox, browser, github + 13 vendor providers)
-site/          customer-facing React SPA — day-to-day project work
+- Connect to GitHub with OAuth or a local token.
+- Discover projects by `.foundry/config.yaml`; there is no project registry.
+- Read and write compact Markdown tasks in `.foundry/tasks/`.
+- Enforce at most one Working task per project.
+- Steer, create, pause, resume, prioritize, and complete tasks from a mobile-first UI.
+- Schedule one workspace-wide execution at Manual, 15m, 30m, 1h, or 4h cadence.
+- Select work deterministically by priority, continuity, and project fairness.
+- Clone, execute, verify, commit, and push inside a disposable Podman or Docker container.
+- Retry execution failures quietly and surface Needs You after three repeated failures.
 
-service/       logic modules — each forkable on demand
-├── auth          OAuth login, session JWTs, requireAuth middleware
-├── billing       quota / cost (stubbed in v1)
-├── crud          entity CRUD: project, ticket, session, agent, connection, attachment
-├── analytics     aggregate queries, time-series rollups, usage breakdowns
-├── sandbox       podman lifecycle + execution metering
-├── engine        agent SDK loop: pipeline middleware, anthropic + vercel engines
-└── reconciler    tick loop + policies (dispatch / settle / verdict / retry)
+## Run locally
 
-server/        composition root + HTTP entrypoint (binary)
-               systemd unit, deploy.sh, env, sqlite db all live here
-```
-
-The `server/` directory owns the wiring (composition root, env, on-disk
-state, deploy artifacts). Logic modules stay decoupled and independently
-forkable.
-
-## Quick start
+Requirements: Node.js 22.12+, GitHub access, and Podman or Docker for autonomous worker cycles.
 
 ```sh
-# Install dependencies
 npm install
-
-# Type-check the entire workspace
-npx tsc -b server
-
-# Lint, layout, manifest checks
-npm run check
-
-# Run the backend (dev, hot-reload)
-cd server && npm run dev
-
-# Run the customer SPA (dev, vite)
-cd site && npm run dev
-
-# Build everything for production
-cd site && npm run build
-cd server && npm run build
+podman build -t foundry-worker:latest -f server/Dockerfile.worker .
+cp .env.example .env
+set -a; . ./.env; set +a
+npm run build
+npm run dev
 ```
 
-## Conventions in one breath
+Open `http://localhost:3000`. During UI development, run `npm run dev -w @foundry/site` and open port 3006.
 
-- Cross-service value imports are forbidden — type-only imports of peer services are allowed. Each service exposes its contract via `<service>/client.ts` (types only) and its wiring via `<service>/service.ts` (the `createXxxService(deps): XxxClient` factory).
-- Domain outcomes return `Result<T, E>`. Cancellation, transport, and programmer errors throw.
-- Top-level pure functions in feature files. Closure factories only in `service.ts`. No classes.
-- Functions under 10 lines and depth 2 in new packages; legacy migrated code carries grandfathered exemptions.
-- Every service has the same five-file shape: `index.ts`, `schema.ts`, `validate.ts` (when zod is needed), `client.ts`, `service.ts`, plus per-feature files. Per-service error unions live in `schema.ts`.
+For OAuth, create a GitHub App or OAuth App with callback URL `http://localhost:3000/auth/github/callback`, then set `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`. For private local use, `GITHUB_TOKEN` skips the login screen. The OAuth token and scheduler settings are operational local state in `foundry-local.db`; deleting it never deletes project or task state.
 
-## License
+For autonomous work, configure `GITHUB_APP_ID` and `GITHUB_APP_PRIVATE_KEY_PATH` and install that GitHub App on enabled repositories with Contents read/write permission. `scripts/setup-github-app-key.sh` can securely install a downloaded GitHub App key and update `.env`. Foundry then mints a token restricted to the selected repository for each worker cycle. Without App credentials it falls back to the connected token; use only a suitably restricted token in that mode.
+
+The worker image expects `OPENAI_API_KEY` for Codex. A repository may select another harness only by providing its explicit non-interactive command.
+
+## Enable a repository
+
+Use **Repositories → Enable** in the UI, or add:
+
+```yaml
+# .foundry/config.yaml
+name: Magic Wand
+enabled: true
+priority: normal
+harness: codex
+runtime:
+  type: podman
+  image: foundry-worker:latest
+# Optional command run after the harness exits:
+# verify: npm test
+```
+
+Runtime may be `podman` or `docker`. `harness` may also be configured as an object:
+
+```yaml
+harness:
+  type: another-harness
+  command: another-harness --non-interactive "$FOUNDRY_PROMPT"
+```
+
+The command runs only inside the disposable container. Foundry never falls back to host execution.
+
+## Task format
+
+```markdown
+---
+status: working
+priority: normal
+updated: 2026-09-03T04:14:00Z
+---
+
+# Get physical prototype ready
+
+Get the token → generated story → narrated audio path ready for physical testing.
+
+## Guidance
+
+- Prefer NFC before BLE.
+- Optimize for proving the interaction.
+
+## Current
+
+- NFC reader works.
+- Story generation works.
+- Playback occasionally fails after generation.
+
+## Next
+
+Fix playback and repeatedly test the complete physical flow.
+```
+
+Valid states are exactly `queued`, `working`, `needs_you`, `paused`, and `done`. `next_eligible_at` may defer a Working task without inventing another state. `next_task` may name a specific queued task to promote when this one becomes Done.
+
+## Verify
+
+```sh
+npm run check
+```
+
+See [ARCHITECTURE.md](./ARCHITECTURE.md) for the responsibility boundaries and failure semantics.
 
 Private — internal use only.

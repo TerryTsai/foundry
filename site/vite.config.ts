@@ -18,12 +18,7 @@ export default defineConfig({
     // and other LAN devices works.
     allowedHosts: ['t470.lan', 'localhost'],
     proxy: {
-      '/project':    passthrough,
-      '/ticket':     passthrough,
-      '/execution':  passthrough,
-      '/agent':      passthrough,
-      '/session':    passthrough,
-      '/connection': passthrough,
+      '/api':         passthrough,
       '/health':     passthrough,
       '/auth':       passthrough,
     },

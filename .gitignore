@@ -2,7 +2,6 @@
 .env
 .env.local
 .env.*.local
-foundry-app.env
 *.pem
 
 # Runtime data
@@ -13,13 +12,11 @@ foundry-app.env
 # Build output
 dist/
 */dist/
-service/*/dist/
 *.tsbuildinfo
 
 # Dependencies
 node_modules/
 */node_modules/
-service/*/node_modules/
 
 # macOS
 .DS_Store
@@ -38,15 +35,5 @@ npm-debug.log*
 *.tmp
 *.temp
 
-# Foundry sandbox tool scratch — bounded() writes large stdout dumps
-# here, writeTmp() writes patch payloads here, and they live inside the
-# per-session workDir which is a clone of the bare repo. Without this,
-# workspacePublish's `git add -A` sweeps them into the agent's commit.
-.foundry/
-
 # SQLite backup snapshots
 *.db.bak*
-
-# Deploy script's last-deployed SHA (server-local state)
-.foundry-deployed-sha
-

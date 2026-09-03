@@ -1,17 +1,6 @@
 {
   "files": [],
   "references": [
-    { "path": "./model" },
-    { "path": "./crypto" },
-    { "path": "./db" },
-    { "path": "./mcp" },
-    { "path": "./service/auth" },
-    { "path": "./service/billing" },
-    { "path": "./service/crud" },
-    { "path": "./service/analytics" },
-    { "path": "./service/sandbox" },
-    { "path": "./service/engine" },
-    { "path": "./service/reconciler" },
     { "path": "./server" }
   ]
 }

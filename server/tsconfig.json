@@ -5,18 +5,9 @@
     "rootDir": "src"
   },
   "include": [
-    "src"
+    "src/**/*.ts"
   ],
-  "references": [
-    { "path": "../model" },
-    { "path": "../db" },
-    { "path": "../mcp" },
-    { "path": "../service/auth" },
-    { "path": "../service/billing" },
-    { "path": "../service/crud" },
-    { "path": "../service/analytics" },
-    { "path": "../service/sandbox" },
-    { "path": "../service/engine" },
-    { "path": "../service/reconciler" }
+  "exclude": [
+    "src/**/*.test.ts"
   ]
 }
